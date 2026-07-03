@@ -4,11 +4,16 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { withTransaction } from "@/lib/db";
 import { ACTIVE_FARM } from "@/lib/farm";
-import { errorMessage, optDate, optInt, optStr } from "@/lib/forms";
+import {
+  type ActionState,
+  errorMessage,
+  formValues,
+  optDate,
+  optInt,
+  optStr,
+} from "@/lib/forms";
 
-function fail(path: string, msg: string): never {
-  redirect(`${path}?error=${encodeURIComponent(msg)}`);
-}
+const STAGE_ORDER = ["chick", "grower", "layer"] as const;
 
 function done(path: string): never {
   revalidatePath("/flocks");
@@ -19,8 +24,10 @@ function done(path: string): never {
 // Create flock — also opens its first flock_label_history row, so label
 // resolution works from day one.
 // ---------------------------------------------------------------------------
-export async function createFlock(formData: FormData) {
-  let error: string | null = null;
+export async function createFlock(
+  _prev: ActionState,
+  formData: FormData
+): Promise<ActionState> {
   try {
     const displayLabel = optStr(formData, "display_label");
     if (!displayLabel) throw new Error("Display label is required");
@@ -67,9 +74,8 @@ export async function createFlock(formData: FormData) {
       );
     });
   } catch (err) {
-    error = errorMessage(err);
+    return { error: errorMessage(err), values: formValues(formData) };
   }
-  if (error) fail("/flocks/new", error);
   done("/flocks");
 }
 
@@ -78,8 +84,11 @@ export async function createFlock(formData: FormData) {
 // (typo fix): it updates the flock AND its open label-history row in place.
 // Label REASSIGNMENT between flocks must go through the renumbering form.
 // ---------------------------------------------------------------------------
-export async function updateFlock(flockId: string, formData: FormData) {
-  let error: string | null = null;
+export async function updateFlock(
+  flockId: string,
+  _prev: ActionState,
+  formData: FormData
+): Promise<ActionState> {
   try {
     const displayLabel = optStr(formData, "display_label");
     if (!displayLabel) throw new Error("Display label is required");
@@ -123,18 +132,21 @@ export async function updateFlock(flockId: string, formData: FormData) {
       }
     });
   } catch (err) {
-    error = errorMessage(err);
+    return { error: errorMessage(err), values: formValues(formData) };
   }
-  if (error) fail(`/flocks/${flockId}`, error);
   done(`/flocks/${flockId}`);
 }
 
 // ---------------------------------------------------------------------------
-// Stage transition: sets current_stage and records the date under the spec's
-// jsonb shape, e.g. {"chick_to_grower": "...", "grower_to_layer": "..."}.
+// Stage transition: forward-only (chick → grower → layer — birds never move
+// back). Sets current_stage and records the date under the spec's jsonb
+// shape, e.g. {"chick_to_grower": "...", "grower_to_layer": "..."}.
 // ---------------------------------------------------------------------------
-export async function transitionStage(flockId: string, formData: FormData) {
-  let error: string | null = null;
+export async function transitionStage(
+  flockId: string,
+  _prev: ActionState,
+  formData: FormData
+): Promise<ActionState> {
   try {
     const newStage = optStr(formData, "new_stage");
     const transitionDate = optDate(formData, "transition_date");
@@ -148,9 +160,14 @@ export async function transitionStage(flockId: string, formData: FormData) {
       );
       if (rows.length === 0) throw new Error("Flock not found");
       const prev: string | null = rows[0].current_stage;
-      if (prev === newStage) throw new Error(`Flock is already in stage "${newStage}"`);
 
       if (prev) {
+        const prevIdx = STAGE_ORDER.indexOf(prev as (typeof STAGE_ORDER)[number]);
+        const newIdx = STAGE_ORDER.indexOf(newStage as (typeof STAGE_ORDER)[number]);
+        if (newIdx <= prevIdx)
+          throw new Error(
+            `Stages only move forward (chick → grower → layer) — flock is already "${prev}"`
+          );
         await client.query(
           `UPDATE flocks
               SET current_stage = $2,
@@ -168,9 +185,8 @@ export async function transitionStage(flockId: string, formData: FormData) {
       }
     });
   } catch (err) {
-    error = errorMessage(err);
+    return { error: errorMessage(err), values: formValues(formData) };
   }
-  if (error) fail(`/flocks/${flockId}`, error);
   done(`/flocks/${flockId}`);
 }
 
@@ -179,8 +195,11 @@ export async function transitionStage(flockId: string, formData: FormData) {
 // depletion date so the label stops resolving to this flock after that day
 // (the freed label gets reassigned later via the renumbering form).
 // ---------------------------------------------------------------------------
-export async function depleteFlock(flockId: string, formData: FormData) {
-  let error: string | null = null;
+export async function depleteFlock(
+  flockId: string,
+  _prev: ActionState,
+  formData: FormData
+): Promise<ActionState> {
   try {
     const depletionDate = optDate(formData, "depletion_date");
     if (!depletionDate) throw new Error("Depletion date is required");
@@ -201,9 +220,8 @@ export async function depleteFlock(flockId: string, formData: FormData) {
       );
     });
   } catch (err) {
-    error = errorMessage(err);
+    return { error: errorMessage(err), values: formValues(formData) };
   }
-  if (error) fail(`/flocks/${flockId}`, error);
   done(`/flocks/${flockId}`);
 }
 
@@ -214,8 +232,10 @@ export async function depleteFlock(flockId: string, formData: FormData) {
 // the flock's current label. This is THE mechanism that keeps old production
 // rows pointing at the right flock.
 // ---------------------------------------------------------------------------
-export async function renumberFlocks(formData: FormData) {
-  let error: string | null = null;
+export async function renumberFlocks(
+  _prev: ActionState,
+  formData: FormData
+): Promise<ActionState> {
   try {
     const effectiveFrom = optDate(formData, "effective_from");
     if (!effectiveFrom) throw new Error("Effective date is required");
@@ -268,8 +288,7 @@ export async function renumberFlocks(formData: FormData) {
       }
     });
   } catch (err) {
-    error = errorMessage(err);
+    return { error: errorMessage(err), values: formValues(formData) };
   }
-  if (error) fail("/flocks/renumber", error);
   done("/flocks");
 }

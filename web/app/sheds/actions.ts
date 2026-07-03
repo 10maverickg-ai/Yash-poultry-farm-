@@ -4,10 +4,18 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { pool } from "@/lib/db";
 import { ACTIVE_FARM } from "@/lib/farm";
-import { errorMessage, optInt, optStr } from "@/lib/forms";
+import {
+  type ActionState,
+  errorMessage,
+  formValues,
+  optInt,
+  optStr,
+} from "@/lib/forms";
 
-export async function createShed(formData: FormData) {
-  let error: string | null = null;
+export async function createShed(
+  _prev: ActionState,
+  formData: FormData
+): Promise<ActionState> {
   try {
     const shedCode = optStr(formData, "shed_code");
     if (!shedCode) throw new Error("Shed code is required");
@@ -23,16 +31,19 @@ export async function createShed(formData: FormData) {
       ]
     );
   } catch (err) {
-    error = errorMessage(err);
+    let error = errorMessage(err);
     if (error.includes("duplicate key")) error = "That shed code already exists";
+    return { error, values: formValues(formData) };
   }
-  if (error) redirect(`/sheds?error=${encodeURIComponent(error)}`);
   revalidatePath("/sheds");
   redirect("/sheds");
 }
 
-export async function updateShed(shedCode: string, formData: FormData) {
-  let error: string | null = null;
+export async function updateShed(
+  shedCode: string,
+  _prev: ActionState,
+  formData: FormData
+): Promise<ActionState> {
   try {
     await pool.query(
       `UPDATE sheds SET shed_type = $3, max_capacity = $4, notes = $5
@@ -46,9 +57,8 @@ export async function updateShed(shedCode: string, formData: FormData) {
       ]
     );
   } catch (err) {
-    error = errorMessage(err);
+    return { error: errorMessage(err), values: formValues(formData) };
   }
-  if (error) redirect(`/sheds?error=${encodeURIComponent(error)}`);
   revalidatePath("/sheds");
   redirect("/sheds");
 }

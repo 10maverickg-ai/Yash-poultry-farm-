@@ -1,6 +1,22 @@
 // Small helpers for reading optional values out of FormData: paper registers
 // have blanks, so empty inputs become NULL, never 0 or ''.
 
+// Server actions return this from useActionState: on failure the error is
+// shown inline and `values` re-seeds the inputs so nothing gets retyped.
+// Success never returns — the action redirects.
+export type ActionState = {
+  error: string;
+  values: Record<string, string>;
+} | null;
+
+export function formValues(fd: FormData): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [k, v] of fd.entries()) {
+    if (typeof v === "string") out[k] = v;
+  }
+  return out;
+}
+
 export function optStr(fd: FormData, name: string): string | null {
   const v = fd.get(name);
   if (typeof v !== "string") return null;

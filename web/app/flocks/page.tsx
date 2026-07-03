@@ -3,12 +3,7 @@ import { listFlocks } from "@/lib/flocks";
 
 export const dynamic = "force-dynamic";
 
-export default async function FlocksPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ error?: string }>;
-}) {
-  const { error } = await searchParams;
+export default async function FlocksPage() {
   const flocks = await listFlocks();
   const active = flocks.filter((f) => f.status === "active");
   const depleted = flocks.filter((f) => f.status === "depleted");
@@ -16,7 +11,6 @@ export default async function FlocksPage({
   return (
     <>
       <h1>Flock Register</h1>
-      {error && <div className="error-banner">{error}</div>}
       <div className="actions-bar">
         <Link href="/flocks/new" className="btn">
           + New flock
