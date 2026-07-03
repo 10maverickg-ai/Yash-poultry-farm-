@@ -1,0 +1,287 @@
+/* Mobile-first, owner-facing entry screens. Plain CSS on purpose — forms and
+   tables, no framework. */
+
+* {
+  box-sizing: border-box;
+}
+
+:root {
+  --ink: #1d2733;
+  --muted: #64748b;
+  --line: #d8dee6;
+  --bg: #f4f6f8;
+  --card: #ffffff;
+  --accent: #1d6f42; /* barn green */
+  --accent-ink: #ffffff;
+  --danger: #b3261e;
+}
+
+html {
+  font-size: 16px;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  color: var(--ink);
+  background: var(--bg);
+  line-height: 1.45;
+}
+
+.site-header {
+  background: var(--accent);
+  color: var(--accent-ink);
+  padding: 0.75rem 1rem;
+}
+
+.site-header .brand {
+  font-weight: 700;
+  font-size: 1.05rem;
+  text-decoration: none;
+  color: inherit;
+}
+
+.site-header .farm-badge {
+  font-size: 0.8rem;
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  border-radius: 999px;
+  padding: 0.1rem 0.6rem;
+  margin-left: 0.5rem;
+  vertical-align: 2px;
+}
+
+.site-nav {
+  margin-top: 0.4rem;
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.site-nav a {
+  color: inherit;
+  text-decoration: none;
+  font-size: 0.95rem;
+  opacity: 0.92;
+  border-bottom: 2px solid transparent;
+  padding-bottom: 1px;
+}
+
+.site-nav a:hover {
+  border-bottom-color: rgba(255, 255, 255, 0.7);
+}
+
+main {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 1rem;
+}
+
+h1 {
+  font-size: 1.35rem;
+  margin: 0.5rem 0 1rem;
+}
+
+h2 {
+  font-size: 1.05rem;
+  margin: 1.5rem 0 0.5rem;
+}
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+
+.muted {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.error-banner {
+  background: #fdeceb;
+  border: 1px solid var(--danger);
+  color: var(--danger);
+  border-radius: 8px;
+  padding: 0.6rem 0.8rem;
+  margin-bottom: 1rem;
+}
+
+/* --- tables ------------------------------------------------------------- */
+
+.table-wrap {
+  overflow-x: auto;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  margin-bottom: 1rem;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.92rem;
+}
+
+th,
+td {
+  text-align: left;
+  padding: 0.5rem 0.6rem;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+
+tr:last-child td {
+  border-bottom: none;
+}
+
+th {
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+tr.depleted td {
+  color: var(--muted);
+}
+
+td a {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* --- forms --------------------------------------------------------------- */
+
+form.stack {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.field {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.field > span {
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.field .hint {
+  font-weight: 400;
+  color: var(--muted);
+}
+
+input,
+select,
+textarea {
+  font: inherit;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  width: 100%;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  border-color: var(--accent);
+}
+
+.row2 {
+  display: grid;
+  gap: 0.8rem;
+  grid-template-columns: 1fr;
+}
+
+@media (min-width: 560px) {
+  .row2 {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+button,
+.btn {
+  font: inherit;
+  font-weight: 600;
+  border: none;
+  border-radius: 8px;
+  padding: 0.55rem 1rem;
+  background: var(--accent);
+  color: var(--accent-ink);
+  cursor: pointer;
+  text-decoration: none;
+  display: inline-block;
+  width: auto;
+  justify-self: start;
+}
+
+button:hover,
+.btn:hover {
+  filter: brightness(1.08);
+}
+
+.btn-secondary {
+  background: #e6ebef;
+  color: var(--ink);
+}
+
+.btn-danger {
+  background: var(--danger);
+}
+
+.actions-bar {
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+}
+
+.badge {
+  display: inline-block;
+  font-size: 0.75rem;
+  font-weight: 600;
+  border-radius: 999px;
+  padding: 0.1rem 0.55rem;
+}
+
+.badge-active {
+  background: #e2f2e8;
+  color: var(--accent);
+}
+
+.badge-depleted {
+  background: #eceff2;
+  color: var(--muted);
+}
+
+.home-menu {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.home-menu a.card {
+  display: block;
+  text-decoration: none;
+  color: inherit;
+  margin-bottom: 0;
+}
+
+.home-menu .card.disabled {
+  opacity: 0.6;
+  margin-bottom: 0;
+}
+
+.home-menu h3 {
+  margin: 0 0 0.2rem;
+  font-size: 1rem;
+}
+
+.home-menu p {
+  margin: 0;
+}

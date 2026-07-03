@@ -9,14 +9,17 @@ Every field in this schema corresponds to something actually written on a real p
 register at this farm. The only two deliberate additions beyond the paper: daily egg
 size-grading counts, and the Flock Register as a formal table.
 
-## Current status: Phase 1 complete (schema & database)
+## Current status: Phase 2 in progress
 
 | Phase | Scope | Status |
 |---|---|---|
-| 1 | Schema, validation rules, seed data | ✅ this repo |
-| 2 | Manual entry screens (owner-facing) | not started |
+| 1 | Schema, validation rules, seed data | ✅ done (owner-approved) |
+| 2 | Manual entry screens (owner-facing) | 🔨 increment 1 done: app skeleton + Flock Register + Shed Master |
 | 3 | OCR/extraction capture flow + review queue | not started |
 | 4 | Analysis dashboard | not started |
+
+Phase 2 increments: **1.** skeleton + flocks/sheds ✅ → **2.** Daily Production →
+**3.** Egg Stock Ledger & sales → **4.** Feed screens → **5.** records + flagged view.
 
 ## Layout
 
@@ -30,6 +33,8 @@ db/migrations/   numbered SQL, apply in order
   0006_validation_functions.sql  flag-for-review rules as fn_validate_* functions
 db/seeds/        farms (YPF/APF) + the 28 feed materials
 scripts/         apply.sh (migrations+seeds), smoke_test.sql
+web/             Next.js (TypeScript, App Router) entry screens, node-postgres
+                 directly against the schema — no ORM, SQL stays authoritative
 docs/            DECISIONS.md (Phase 1 judgment calls — read this first),
                  VALIDATION.md (rule → enforcement mapping),
                  source-specs/ (the three planning documents, text-extracted)
@@ -42,6 +47,15 @@ docker compose up -d                    # Postgres 16 on localhost:5432
 export DATABASE_URL=postgres://yash:yash_dev_password@localhost:5432/yash_poultry
 ./scripts/apply.sh                      # migrations + seeds
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/smoke_test.sql   # self-rolls-back
+```
+
+Then the entry screens:
+
+```bash
+cd web
+npm install
+cp .env.example .env.local   # points at the docker Postgres above
+npm run dev                  # http://localhost:3000
 ```
 
 The smoke test builds a realistic day of data (a renumbered "BAB-I" flock pair, a
