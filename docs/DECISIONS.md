@@ -1,8 +1,10 @@
-# Phase 1 Decisions — awaiting owner confirmation
+# Phase 1 Decisions
+
+**Status: reviewed and approved by the owner (2026-07-03). These are final, not
+provisional.** The "Noted for later phases" items at the bottom remain open.
 
 Every choice below was either left open by the spec documents or is a gap/contradiction
-between them that had to be resolved to write the schema. Nothing here is set in stone —
-the database holds no real data yet, so any of these is cheap to change. Items marked
+between them that had to be resolved to write the schema. Items marked
 **[owner's call per the brief]** were explicitly deferred to the owner in the docs;
 the rest are the smallest resolutions I could make of ambiguities, flagged per instruction.
 
