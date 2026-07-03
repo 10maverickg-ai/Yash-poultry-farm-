@@ -1,0 +1,536 @@
+> Text auto-extracted from the owner's PDF planning document (schema-spec). Table layout is
+> imperfect; the original PDF remains the authoritative version.
+
+Yash Poultry Farm — Database Schema Specification
+(Phase 1)
+
+Context for whoever builds this (including Claude Code)
+This schema digitizes an existing paper-based record-keeping system for a layer poultry
+farm (Yash: ~1,30,000 total capacity — 1,00,000 layer + 30,000 chick/grower combined,
+typically ~98,000 layers filled; 8+ sheds, BV300 breed, in-house feed mill). The design
+principle: the schema mirrors the paper registers exactly — it does not introduce new
+fields the farm doesn’t already track, except where explicitly noted as a deliberate addition.
+
+Capture method: supervisors photograph paper registers (their existing habit). OCR extracts
+data into these tables. A human reviewer (the owner) sees only flagged/exception records —
+not a full confirm screen for every entry.
+
+Two deliberate additions beyond pure digitization (owner’s explicit choice):
+
+1. Daily egg size-grading counts (not previously written down)
+
+2. Flock Register as a formal table (previously “in supervisors’ and owner’s heads”)
+
+
+
+
+Table 0: farms (reference table)
+Two farms under the same owner, physically adjacent but operationally separate —
+separate registers, separate supervisors, no shared production data. One narrow exception:
+eggs occasionally move between Yash and Anil, in either direction, when a buyer’s
+collection car arrives and one farm is short on trays to fill the order — trays are pulled from
+the other farm to complete that specific sale. This is sale-driven and rare, not a routine
+transfer, and is captured as a signed adjustment (+/-) with a note in daily_egg_stock ,
+matching how it’s already written on the register — reconciliation is inferred from the sign
+and note rather than a strict linked-record structure. Beyond this, resources like labour, raw
+material, or machinery are occasionally shared but not yet mapped from paper — out of
+scope for v1.
+
+
+  Field                               Type          Notes
+
+  farm_code                           PK            e.g. “YPF” (Yash), “APF” (Anil)
+  farm_name                          text
+
+                                                   Yash: 1,00,000 (~98,000 typically filled).
+  layer_capacity                     integer
+                                                   Anil: 50,000 (~48,000 typically filled)
+
+  chick_grower_capacity              integer       Yash: 30,000. Anil: 20,000
+
+                                     integer,      = layer_capacity + chick_grower_capacity.
+  total_capacity
+                                     computed      Yash: 1,30,000. Anil: 70,000
+
+                                                   Reference figure only, not a hard constraint
+                                                   — Yash: ~98,000. Anil: ~48,000. Useful for
+                                     integer,
+  typical_filled_layer_count                       the outlier/range validation checks in Daily
+                                     nullable
+                                                   Production (flagging implausible
+                                                   bird_population values)
+
+
+Every table below gets a farm_code field. This keeps the two farms cleanly separated in
+one shared schema, rather than duplicating the entire database — avoids a rebuild later if
+Anil is onboarded, without forcing any cross-farm logic that doesn’t reflect reality.
+
+Build sequencing note: schema includes farm_code on all tables from day one, but Phase
+2 (manual entry, then OCR) is built and populated for Yash only first. Anil onboarding is a
+later phase, using the same schema.
+
+
+
+
+Table 1: flocks (Flock Register)
+The lookup table behind every other table. Handles the fact that the paper display label
+(BAB-I, BAB-II…) is a position label that gets reassigned, not a permanent ID — when the
+oldest flock is depleted, all younger flocks shift down one number. Internal ID must never be
+reused or reassigned.
+
+
+  Field                           Type              Notes
+
+                                  UUID / auto-
+  flock_internal_id                                 Stable forever, never reused
+                                  increment PK
+
+  farm_code                       FK → farms        “YPF” or “APF”
+
+                                                    e.g. “BAB-I” — can change over time,
+  display_label                   text
+                                                    see flock_label_history
+
+  breed                           text              e.g. BV300
+  placement_date               date                 Chick arrival date
+
+  source_hatchery              text                 From hatchery bill photo (Venky’s etc.)
+
+  hatchery_bill_photo_url      text                 Store the photo for reference
+
+  initial_chick_count          integer
+
+                                                    Latest known population (also mirrored
+  current_bird_count           integer
+                                                    daily in daily_production )
+
+                                                    FK to sheds.shed_code if using Shed
+  current_shed                 text
+                                                    Master table
+
+  current_stage                enum                 chick / grower / layer
+
+
+                               jsonb /              e.g. {chick_to_grower: date,
+  stage_transition_dates
+                               separate table       grower_to_layer: date}
+
+
+  status                       enum                 active / depleted
+
+
+  depletion_date               date, nullable       When flock was fully sold off
+
+  notes                        text                 Free text
+
+  created_at / updated_at      timestamp
+
+
+
+Table 1a: flock_label_history
+Tracks renumbering events (manual entry, low frequency — roughly annual).
+
+
+ Field                                   Type                            Notes
+
+  id                                     PK
+
+  flock_internal_id                      FK → flocks
+
+  display_label                          text                            e.g. “BAB-I”
+
+  effective_from                         date
+
+  effective_to                           date, nullable                  Null = current
+
+
+Why this matters: Daily Production entries reference display_label as written by
+supervisors (matching paper). The system resolves display_label
+    date → correct flock_internal_id via this history table. This is what prevents two
+   different flocks’ histories from silently merging under one reused label like “BAB-I.”
+
+
+
+
+Table 2: sheds (Shed Master — optional but recommended)
+Physical infrastructure reference. A shed can house more than one flock (different
+cohort/age) at once.
+
+
+  Field                Type      Notes
+
+                                 e.g. “Shed 4” — unique per farm, so likely composite PK with
+  shed_code            PK
+                                 farm_code
+
+                       FK →
+  farm_code
+                       farms
+
+  shed_type            enum       chick / grower / layer
+
+
+  max_capacity         integer
+
+  notes                text
+
+
+
+
+Table 3: daily_production
+One row per flock, per day. Mirrors the paper production register exactly.
+
+
+  Field                           Type            Notes
+
+  id                              PK
+
+  date                            date
+
+  farm_code                       FK → farms
+
+                                                  Resolved from display_label + date via label
+  flock_internal_id               FK → flocks
+                                                  history
+
+  display_label_as_written        text            Raw OCR value, kept for audit trail
+
+  shed_code                       text            As written that day
+  mortality                         integer         Day’s mortality count for that flock
+
+  feed_bags                         integer         Bags issued to that flock (1 bag = 45kg)
+
+  eggs_total                        integer         Total eggs produced
+
+  bird_population                   integer         “Bal Bird” — current birds in flock
+
+  hd_percent                        decimal         = eggs_total / bird_population × 100
+
+                                    jsonb,
+  ocr_confidence                                    Per-field confidence scores if using OCR
+                                    nullable
+
+  flagged                           boolean         True if failed validation, see rules below
+
+                                    text,
+  flag_reason
+                                    nullable
+
+  reviewed_by_owner                 boolean
+
+  source_photo_url                  text
+
+
+Validation rules (auto-flag if violated):
+
+    hd_percent recalculated ≠ stored value (rounding tolerance ±0.2%)
+
+    mortality > 3× that flock’s trailing 7-day average → flag for review (real event, not
+   necessarily an error, but worth eyes)
+
+    bird_population increased day-over-day without a corresponding flock event (should
+   only decrease via mortality, or jump via a logged transfer/placement)
+
+   Missing field (blank in photo)
+
+
+
+
+Table 4: daily_egg_stock
+One row per day, whole farm, evening. Captures the reconciliation ledger + grading, pooled
+across all sheds (grading is not flock-specific, confirmed).
+
+
+Design: header + flexible ledger (not fixed columns)
+The register doesn’t use fixed categories every day — it’s a running ledger: start with a total,
+then a variable list of labeled +/- entries (sale, breakage, gift, cross-farm adjustment, etc.),
+ending in a closing balance that carries forward as tomorrow’s opening figure. Rather than
+forcing this into fixed columns (which breaks the first day a new entry type shows up),
+model it as a header row + child ledger table. OCR/AI reads whatever label is written (e.g.
+“Anil(-)”, “Sale(-)”, “Birth(+)”), categorizes it, and the running balance is calculated
+automatically — this is explicitly the reconciliation logic the owner wants AI to own, not fixed
+data entry.
+
+Table 4a: daily_egg_stock_summary (header, one row per farm per day)
+
+
+  Field                         Type        Notes
+
+  id                            PK
+
+  date                          date
+
+                                FK →
+  farm_code
+                                farms
+
+                                            = SUM(daily_production.eggs_total) for that date —
+  total_eggs_produced           integer     should match the “Total” figure at top of the ledger
+                                            on paper
+
+  grade_13_eggs                 integer     Whole-farm pooled grading, not flock-specific
+
+  grade_14_eggs                 integer
+
+  grade_15_eggs                 integer
+
+  grade_15plus_eggs             integer
+
+                                            Final figure — carries forward as next day’s starting
+  closing_balance_eggs          integer
+                                            point
+
+  closing_balance_trays         decimal     Display only: = closing_balance_eggs / 30
+
+  source_photo_url              text
+
+
+Table 4b: daily_egg_stock_entries (ledger lines, variable count per day)
+
+
+  Field                         Type                           Notes
+
+  id                            PK
+
+                                FK →
+  egg_stock_summary_id
+                                daily_egg_stock_summary
+                                                      Order as written top-to-bottom
+  sequence_order              integer
+                                                      on the page
+
+                                                      e.g. “Anil(-)”, “Sale(-)”, “Birth(+)”,
+  label_as_written            text
+                                                      “Breakage(-)”
+
+                                                       sale / breakage / gift /
+                                                       cross_farm_adjustment /
+                                                       production_addition /
+                                                       other — inferred from label by
+  category                    enum (AI-classified)    AI, not manually selected. Low-
+                                                      confidence classifications
+                                                      flagged for owner review
+                                                      (same review queue as numeric
+                                                      flags).
+
+  amount_eggs                 integer (signed)        Positive or negative as written
+
+                                                      Calculated: previous balance +
+  running_balance_after       integer
+                                                      this entry
+
+                                                      When category = sale, system
+                                                      auto-generates a matching
+                                                       sales row from this entry
+                                                      (buyer name from label, e.g.
+                                                      “Sukha,” quantity from
+  linked_sale_id              FK → sales, nullable
+                                                      amount_eggs). This is
+                                                      generation, not matching
+                                                      against an independent register
+                                                      — sales has no separate paper
+                                                      source.
+
+
+Validation rule (auto-flag if violated):
+
+    closing_balance_eggs on summary ≠ total_eggs_produced + SUM(all
+   entries.amount_eggs) → flag
+
+   Last running_balance_after in the ledger ≠ closing_balance_eggs on summary → flag
+
+    total_eggs_produced ≠ SUM of that date’s daily_production.eggs_total → flag
+   (cross-table consistency check)
+
+
+
+
+Table 5: sales
+Not a separate paper register — there is no standalone sales book. Sales are represented
+by entries in the daily_egg_stock_entries ledger itself: QC-passing eggs go to Farm Fresh
+(main channel), reject/small-size eggs go to wholesalers/distributors (e.g. “Sukha,” a
+recurring buyer). This table exists to hold sale-specific detail (buyer, price, amount) that the
+ledger entry alone doesn’t carry, and is populated from ledger entries where category =
+sale , not extracted independently.
+
+Price is confirmed to have no paper source at all — it’s set daily by market demand/supply
+and never written down. price_per_unit and amount are therefore optional fields with no
+OCR extraction target in v1; they stay null unless the owner chooses to enter them manually
+later (e.g. reconciling against a periodic Farm Fresh statement, if that ever becomes
+available).
+
+
+  Field                          Type                        Notes
+
+  id                             PK
+
+  date                           date
+
+  farm_code                      FK → farms
+
+                                 FK →                        The ledger line this row was
+  source_ledger_entry_id
+                                 daily_egg_stock_entries     derived from
+
+                                                             sale_farmfresh /
+  transaction_type               enum                        sale_wholesaler / gift /
+                                                             staff_allocation / other
+
+
+                                                             Buyer name, or staff name (e.g.
+  buyer_or_recipient             text                        “Neel”, “Ashok”) — as written on
+                                                             the ledger label
+
+  grade                          text, nullable              Size grade sold, if applicable
+
+                                                             From linked ledger entry’s
+  eggs_quantity                  integer
+                                                             amount_eggs
+
+
+  trays_quantity                 decimal                     Display: = eggs_quantity / 30
+
+                                                             No paper source — manual
+  price_per_unit                 decimal, nullable           entry only, if ever wanted
+
+
+
+                                                             No paper source — manual
+  amount                         decimal, nullable
+                                                             entry only, if ever wanted
+                                                                 Only if a second breakage
+                                                                 checkpoint is ever separately
+  breakage_sale_eggs               integer, nullable
+                                                                 recorded; not currently confirmed
+                                                                 as its own paper figure
+
+
+
+
+Table 6: feed_stock
+One row per raw material, per day, at mill level (not flock-level — confirmed formulation
+varies per flock so mill-level consumption can’t be validated against individual flock
+feed_bags automatically).
+
+
+  Field                     Type              Notes
+
+  id                        PK
+
+  date                      date
+
+                            FK →
+  farm_code                                   Each farm has its own feed mill/stock
+                            farms
+
+  material_name             text              FK → feed_materials reference table
+
+                                              Stored normalized to kg (paper is in quintals —
+  opening_balance_kg        decimal
+                                              ×100)
+
+  purchase_kg               decimal
+
+  consumed_kg               decimal           Paper writes this in kg directly
+
+  closing_balance_kg        decimal
+
+  source_photo_url          text
+
+
+Validation rule: closing_balance_kg ≠ opening_balance_kg + purchase_kg −
+consumed_kg → flag (This is exactly the check that would have caught the quintal/kg unit
+mismatch discussed earlier — build it in from day one.)
+
+
+Table 6a: feed_materials (reference list)
+28 materials: Bajra, Nakku (broken rice), D.O.R.B, SIF (sunflower DOC), Soya, Mustard,
+D.D.G.S, Fish meal, M.B.M, Marble Powder, Marble Grit, Salt, Lysine, DLM, Threonine, Soda,
+Enzyme, Sod. Formate, Betaine, Rovimix, T.M, Moss, Haldi, Potassium Chloride, Sod.
+Sulphate, Toxi Binder, Nutri-9, Maize.
+
+
+  Field                              Type                 Notes
+
+  material_name                      PK
+
+  info_summary                       text, nullable       For the info-tooltip feature (v1.5+)
+
+  function                           text, nullable
+
+  excess_deficiency_notes            text, nullable
+
+
+
+
+Table 7: feed_formulation
+Versioned reference table — recipe changes by group (Flock 7 / Flocks 1-6 / Flock 8
+currently, but grouping itself may change), not daily data.
+
+
+  Field                   Type                   Notes
+
+  id                      PK
+
+  effective_date          date
+
+  farm_code               FK → farms
+
+                                                 e.g. “Flock 7”, “Flocks 1-6”, “Flock 8” — may
+  formulation_group       text
+                                                 evolve
+
+                          FK →
+  material_name
+                          feed_materials
+
+  quantity_kg             decimal                Per batch
+
+  batch_total_kg          decimal                Total batch weight for that group
+
+  reason_for_change       text, nullable         e.g. “shell quality issue — increased calcium”
+
+  source_photo_url        text
+
+
+This is the table that eventually lets the analysis dashboard show formulation changes on
+the same timeline as production/HD% shifts — the connective tissue between feed
+decisions and outcomes.
+Cross-table relationships summary
+
+ flocks (1) ──< flock_label_history
+ flocks (1) ──< daily_production (via resolved flock_internal_id)
+ daily_production (many, same date) ──> daily_egg_stock_summary (1, total_eggs_produced check)
+ daily_egg_stock_summary (1) ──< daily_egg_stock_entries (many ledger lines, running balance)
+ daily_egg_stock_entries ──> sales (auto-generated when category = sale; sales has no independ
+ feed_stock — standalone, mill-level, not flock-linked
+ feed_formulation — references feed_materials, grouped by flock-group label (not FK to flocks
+
+
+
+
+What’s explicitly OUT of v1
+   Weekly Health — no paper record exists currently. Not built in v1. Medicine/vaccine
+   logging flagged as a strong v2 candidate once the core system is running (likely already
+   happening informally).
+
+   Per-flock feed formulation tracking in daily_production — not possible since
+   formulation is set by group, not individually validated per bag.
+
+   Automated ingredient-consumption-to-bags-produced cross-check — no fixed
+   ratio exists (confirmed), so this validation rule is not implemented.
+
+
+
+
+Next steps (Phase 2+)
+1. Build manual entry screens against this schema first (owner-facing), before OCR —
+   validates the schema against real daily use before adding OCR complexity.
+
+2. OCR capture flow reading directly into these tables, using source_photo_url + flagging
+   rules above to route exceptions to owner review queue.
+
+3. Analysis dashboard: HD% trends, mortality by flock/age, feed cost per egg,
+   grading/sales trends over time, feed formulation changes overlaid on production
+   timeline.
+

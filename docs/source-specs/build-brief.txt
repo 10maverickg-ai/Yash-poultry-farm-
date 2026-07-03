@@ -1,0 +1,133 @@
+> Text auto-extracted from the owner's PDF planning document (build-brief). Table layout is
+> imperfect; the original PDF remains the authoritative version.
+
+Yash Poultry Farm Digitization — Build Brief for
+Claude Code
+
+What this is
+A photo-capture + structured-database system replacing paper registers at Yash Poultry
+Farm (and later, Anil Poultry Farm — same owner, separate operation). Supervisors keep
+doing exactly what they already do: fill paper registers, photograph them. The app extracts
+structured data from those photos, validates it, and surfaces only genuine exceptions to the
+owner for review. Everything else flows straight into a database the owner can actually
+analyze.
+
+This is not a generic farm management app. Every field in the schema exists because it’s
+on a real paper register at this specific farm. Nothing was templated in from a generic
+poultry-software checklist.
+
+Reference documents (read both in full before starting):
+
+    yash-poultry-farm-schema-spec.md — the database schema, all 7+ tables, validation
+   rules
+
+    yash-poultry-farm-extraction-logic.md — how each register type gets read and
+   mapped
+
+
+
+
+Who uses this and how
+   Supervisors / managers (shed floor): photograph register pages, upload. That’s the
+   entire interaction. Semi-skilled, phone-only, no data entry expected of them.
+
+   Owner (office, daily): reviews a short exception queue — only flagged records, photo
+   next to extracted value, correct and clear. Also the primary consumer of the analysis
+   dashboard.
+
+Two farms, same owner, operationally separate — every table carries farm_code . Build and
+populate Yash first. Anil is a later onboarding phase using the same schema, not a
+rebuild.
+Tech direction
+   Mobile-first web app (PWA), not a native app — no app store friction, works on any
+   supervisor’s phone browser, easiest for solo iteration.
+
+   Real database (Postgres or similar), not spreadsheets — the multi-cadence, multi-table
+   structure (daily-per-flock, daily-whole-farm, per-event, versioned-reference) is exactly
+   what broke down when this was attempted in Excel.
+
+   Same web app serves both the supervisor upload screen and the owner’s
+   review/dashboard views — different routes/roles, one codebase, not two separate
+   builds.
+
+   OCR/extraction can use a vision-capable LLM (e.g. Claude via API) rather than a
+   traditional OCR engine, given the extraction task involves interpretation (which flock
+   does “BAB-I” resolve to today, is “Sukha(-)” a sale) not just character recognition.
+
+
+
+
+Phased build order — do not skip ahead
+
+Phase 1 — Schema & Database
+Implement the full schema from yash-poultry-farm-schema-spec.md exactly as specified,
+including the validation rules as either DB constraints or application-layer checks (owner’s
+call on which — flag either way). No UI yet. Get this reviewed/sanity-checked against a few
+real register photos before moving on.
+
+
+Phase 2 — Manual entry screens (owner-facing, no OCR yet)
+Build simple entry forms matching each table’s structure, for the owner to use directly.
+Purpose: validates the schema against real daily use before adding OCR complexity —
+owner should be entering real farm data through these screens for a period before Phase 3
+starts, both to build up real data and to catch schema issues early while they’re cheap to fix.
+
+This phase is also where any remaining open questions get resolved through actual use —
+e.g. confirming the Egg Stock Ledger’s variable-line structure holds up against a full week
+of real entries, not just the single day’s example worked through during design.
+
+
+Phase 3 — OCR/extraction capture flow
+Implement per yash-poultry-farm-extraction-logic.md : photo upload → page type
+detection → field extraction → validation/flagging → write to DB or route to review queue.
+Build the owner’s review queue UI (photo + flagged field + reason, inline correction).
+Test extraction against Phase 2’s manually-entered data as ground truth before trusting it
+on new incoming photos.
+
+
+Phase 4 — Analysis dashboard
+The actual point of the whole project. At minimum:
+
+   HD% trends by flock, by age, over time
+
+   Mortality patterns (by flock, by age, by season)
+
+   Feed consumption and cost trends, per material and in aggregate
+
+   Egg grading mix and sales channel split (Farm Fresh vs. wholesale) over time
+
+   Feed formulation changes overlaid on the production timeline (the connective-tissue
+   feature the owner specifically wants — “what changed in the feed and why” next to
+   “what happened to production”)
+
+
+Phase 4.5 (nice-to-have, not blocking) — Ingredient info tooltips
+Static reference content per raw material (what it is, function, effect of excess/deficiency)
+shown on click. Written once, not AI-generated live. Source content from owner’s Venky’s
+BV300 documentation or general poultry nutrition references — owner’s call on sourcing
+when this phase comes up.
+
+
+Explicitly out of scope for v1
+   Weekly Health register — doesn’t exist on paper, not being introduced yet (flagged as a
+   strong v2 candidate)
+
+   Automated per-flock feed-formulation-to-consumption cross-checking — no fixed ratio
+   exists to check against
+
+   Anil Poultry Farm build-out — schema supports it (farm_code everywhere) but Phase 2–
+   4 build effort targets Yash only until owner decides to onboard Anil
+
+
+
+
+Open items to resolve during build (not blocking Phase 1 start)
+   Confirm full extraction field mapping holds up once tested against a full week of real
+   photos, not just the single days examined during design
+
+   Decide DB constraint vs. application-layer validation for the flagging rules
+
+   Confirm whether “Potassium Chloride” needs any dosage-unit handling different from
+the other feed materials (flagged during design, resolved by name but not re-verified
+against the register’s actual units)
+

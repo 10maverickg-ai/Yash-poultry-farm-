@@ -1,0 +1,307 @@
+> Text auto-extracted from the owner's PDF planning document (extraction-logic). Table layout is
+> imperfect; the original PDF remains the authoritative version.
+
+Yash Poultry Farm — OCR Extraction Logic Spec (Phase 3)
+Companion to yash-poultry-farm-schema-spec.md . This document defines how photographed
+register pages get read and mapped into the database tables, and how the flagging/review-queue
+logic works in practice.
+
+Build sequencing reminder: this is Phase 3. Phase 1 (schema) and Phase 2 (manual entry screens,
+owner-facing) should exist and hold real data before this phase starts — OCR extraction needs a
+working schema to test against, and manual entry gives you a way to validate the schema
+independently of extraction accuracy.
+
+
+
+
+General extraction pipeline (applies to every register type)
+1. Photo intake — supervisor/manager uploads photo via phone. Store raw photo
+   ( source_photo_url ) regardless of what happens downstream — this is the audit trail and what
+   the owner reviews against when a flag fires.
+
+2. Page-type detection — identify which register this is (Daily Production / Egg Stock Ledger /
+   Sales / Feed Stock / Feed Formulation) from layout/header cues, since a supervisor might
+   photograph any of these on a given day.
+
+3. Field extraction — OCR reads each field per the register-specific mapping below. Every
+   extracted field gets a confidence score.
+
+4. Structural/arithmetic validation — run the validation rules already defined in the schema spec
+   (HD% check, ledger balance check, feed balance check, etc.) against the extracted values,
+   independent of OCR confidence. This is the step that catches a confidently-misread number, not
+   just an illegible one (e.g. the quintal/kg case from schema design).
+
+5. Farm/date/flock resolution — resolve farm_code , date , and (for Production)
+    flock_internal_id via flock_label_history .
+
+6. Flag or commit — if all checks pass, write directly to the database. If any check fails (see flag
+   triggers below), the record is written with flagged = true and routed to the owner’s review
+   queue, alongside the photo and the specific field(s) in question.
+
+7. Owner review — owner sees only flagged records, photo side-by-side with extracted value,
+   corrects the field directly. Correction writes to the record and clears the flag.
+
+
+
+
+Flag triggers (apply across all register types)
+A record gets flagged if any of the following are true:
+
+   Low OCR confidence on any individual field (illegible/ambiguous handwriting)
+
+   Missing field — expected column blank in the photo (bad lighting, fold, skipped entry)
+
+   Arithmetic/structural mismatch — extracted values don’t satisfy the register’s own internal
+   math (see schema spec’s validation rules per table)
+
+   Outlier/range check — e.g. mortality >3x that flock’s trailing 7-day average, HD% outside
+   plausible range for flock age — flagged even if OCR was fully confident, since this may be a real
+   event worth the owner’s eyes, not necessarily an OCR error
+
+   Cross-table mismatch — e.g. Egg Stock ledger’s total_eggs_produced doesn’t match the sum
+   of that day’s Daily Production entries
+
+   Low-confidence category classification — for Egg Stock ledger lines, when AI can’t confidently
+   classify a label into sale/breakage/gift/etc.
+
+   No confident sale match — ledger line categorized as sale but no matching Sales record found
+   within a reasonable date/amount window
+
+Everything that passes all checks writes straight through — no owner review needed. This keeps the
+review queue small and meaningful rather than a full confirm-everything screen.
+
+
+
+
+Register-specific extraction mapping
+
+1. Daily Production register
+Page layout cue: header row reads “Mort, Feed | I | II | Total | Bal Bird | %”, flock blocks stacked (e.g.
+“BAB-I” / shed number / values).
+
+
+  Paper field             Extracted to                      Notes
+
+  Date (top of page)       date
+
+
+  Flock block header
+                           display_label_as_written         Raw value, kept as written
+  (e.g. “BAB-I”)
+
+  Row under flock
+                           shed_code
+  name
+
+  “Mort” column,                                            The day’s-end total (not the stacked first-
+                           mortality
+  second row                                                row sub-number, confirmed not cumulative)
+
+  “Feed” column            feed_bags
+
+
+
+  “I” / “II” columns      (ignored)                         Confirmed not meaningfully used
+  “Total” column             eggs_total
+
+
+  “Bal Bird” column          bird_population
+
+
+                                                              Cross-check: recalculate as
+  “%” column                 hd_percent
+                                                              eggs_total/bird_population, flag if mismatch
+
+
+Flock resolution: display_label_as_written + date + farm_code → look up
+flock_label_history to resolve flock_internal_id . If no active label matches that date, flag for
+owner (may indicate an unlogged renumbering event).
+
+
+
+
+2. Daily Egg Stock Ledger
+Page layout cue: appears below/adjacent to the Production register on the same date. Starts with a
+total figure, followed by a variable list of labeled +/- lines, ending in a final balance.
+
+
+  Paper field         Extracted to                                              Notes
+
+  Date                date
+
+
+  Top total                                                                     Cross-check against
+  figure (e.g.        daily_egg_stock_summary.total_eggs_produced               SUM(daily_production.eggs_total)
+  “57030”)                                                                      for that date
+
+  Grading
+                                                                                New field being introduced going
+  counts (size
+                      grade_13_eggs etc.                                        forward — may be absent on older
+  13/14/15/15+),
+                                                                                pages
+  if present
+
+  Each
+  subsequent          One row in daily_egg_stock_entries                        See below
+  +/- line
+
+                                                                                Must match last
+  Final balance
+                      daily_egg_stock_summary.closing_balance_eggs              running_balance_after in the
+  figure
+                                                                                ledger entries
+
+
+Per ledger line extraction:
+
+    label_as_written — read exactly as written (e.g. “Anil(-)”, “Sale(-)”, “Birth(+)”)
+
+    amount_eggs — signed value based on the (+)/(-) marker
+
+    category — AI-classified from the label:
+
+         Recurring known buyer names (e.g. “Sukha”) → sale , attempt match to sales table by
+         name
+         “Anil” / cross-farm names → cross_farm_adjustment
+
+         “Breakage” / “Break” → breakage
+
+         Named individuals not matching known buyers (e.g. staff names) → gift (cross-check
+         against sales.transaction_type = staff_allocation )
+
+         Anything unrecognized → other , flagged for owner to categorize once, which can then
+         inform future classification of that label
+
+      sequence_order — preserve top-to-bottom order as written, since balance is cumulative
+
+      running_balance_after — calculated by the system, not read from paper (paper doesn’t always
+   show intermediate balances, only the final one)
+
+
+
+
+3. Sales — derived from Egg Stock Ledger, not a separate register
+No standalone sales register exists. Confirmed: there’s no separate paper book to extract from.
+Every sale is already captured as a ledger line in daily_egg_stock_entries (see section 2 above) —
+QC-passing eggs go to Farm Fresh (main channel), reject/small-size eggs go to wholesalers like
+“Sukha.” Price is confirmed to have no paper source anywhere (daily market-set, never written
+down).
+
+Extraction logic: no separate OCR pass needed. Instead, whenever a ledger entry is classified
+category = sale during Egg Stock Ledger extraction, auto-generate a corresponding sales row:
+
+
+  Ledger entry field       Maps to sales field
+
+                            buyer_or_recipient (e.g. “Sukha”) — also used to distinguish
+  label_as_written
+                            sale_farmfresh vs sale_wholesaler in transaction_type
+
+
+  amount_eggs
+                            eggs_quantity
+  (absolute value)
+
+  date (from
+                            date
+  summary)
+
+  farm_code (from
+                            farm_code
+  summary)
+
+                            price_per_unit , amount left null — no extraction target, manual-only if ever
+  —
+                           wanted
+
+
+This means Section 2’s ledger extraction and Section 3 happen in the same pass, not as separate
+register photos.
+4. Feed Stock register
+Page layout cue: one page per raw material, header shows material name, columns for Date |
+Opening | Purchase | Opening+Purchase | Consumed | Closing.
+
+
+  Paper
+                 Extracted to             Notes
+  field
+
+  Material
+  name
+                  material_name           Match against feed_materials reference list
+  (page
+  header)
+
+  Date            date
+
+
+                                          Written in quintals on paper — multiply by 100 to
+  Opening         opening_balance_kg
+                                          normalize to kg
+
+  Purchase        purchase_kg             Same quintal→kg conversion
+
+                                          Written directly in kg on paper — no conversion (this unit
+  Consumed        consumed_kg             inconsistency within the same page is confirmed and is
+                                          exactly why the balance-check validation rule exists)
+
+  Closing         closing_balance_kg      Quintal→kg conversion
+
+
+Critical: do not assume decimal placement from OCR alone — always run the balance validation
+( closing = opening + purchase − consumed ) and flag on mismatch, since this is precisely the kind
+of error that looks individually confident but is wrong (this happened during schema design itself with
+a misread quintal/kg figure).
+
+
+
+
+5. Feed Formulation reference
+Not daily — updated only when the owner changes a recipe. Likely entered manually by the owner
+rather than OCR’d from a fast-changing register, but if photographed from a written formulation
+sheet (like the one shared during schema design), extraction maps as:
+
+
+  Paper field                       Extracted to              Notes
+
+  Material name (row)               material_name
+
+
+  Column per formulation group      formulation_group ,
+                                                              One extraction pass per column
+  (flock number(s) at top)          quantity_kg
+
+
+  Batch total (if shown,                                      Take the most recent
+  sometimes crossed                 batch_total_kg            (rightmost/uncrossed) value if revisions
+  out/revised)                                                are visible
+effective_date and reason_for_change are unlikely to be inferrable from the photo alone —
+prompt the owner for these at entry time rather than attempting extraction.
+
+
+
+
+6. Flock Register events (placement, stage transitions, renumbering)
+Confirmed as low-frequency, largely manual events rather than a daily OCR target. Recommend
+building this as a simple manual-entry form (owner or manager triggered) rather than an OCR
+pipeline — the volume doesn’t justify extraction complexity, and getting renumbering right matters
+more than getting it automated (see schema spec’s internal-ID/display-label design).
+
+Hatchery bill photos are the one OCR-relevant input here — extract source_hatchery , date, and
+chick count when a new flock is placed.
+
+
+
+
+Owner review queue — UX notes for Claude Code
+   Queue shows only flagged records, most recent first, grouped by register type
+
+   Each item shows: source photo (zoomable), the extracted field(s) in question, the specific flag
+   reason (not just “flagged” — e.g. “HD% mismatch: extracted 82.5%, calculated 78.1%”)
+
+   Owner corrects inline, submits — record updates, flag clears, timestamp + “reviewed by owner”
+   logged
+
+   No action needed on records that passed all checks — they should never appear in this queue
+
