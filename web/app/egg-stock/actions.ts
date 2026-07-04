@@ -13,8 +13,8 @@ import {
   optStr,
 } from "@/lib/forms";
 
-// "Sukha(-)" / "Birth(+)" -> "Sukha" / "Birth": the buyer name is the label
-// minus its +/- marker (the sign already lives in amount_eggs).
+// "Name(-)" / "Name(+)" -> "Name": the buyer is the label minus its +/-
+// marker (the sign already lives in amount_eggs).
 function buyerFromLabel(label: string): string {
   return label.replace(/\(\s*[+-]\s*\)\s*$/, "").trim() || label;
 }

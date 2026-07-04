@@ -138,8 +138,9 @@ export function EggStockForm({ date, day }: { date: string; day: EggStockDay }) 
       <div className="card stack" style={{ marginBottom: 0 }}>
         <h2 style={{ margin: 0 }}>Ledger lines</h2>
         <p className="muted" style={{ margin: 0 }}>
-          As written top-to-bottom, e.g. “Sukha(-)” with amount −18000.
-          Category is picked by hand until Phase 3’s classifier takes over.
+          Lines exactly as the register shows them, top-to-bottom, with the
+          sign in the amount. Category is picked by hand until Phase 3’s
+          classifier takes over.
         </p>
         <input type="hidden" name="line_count" value={lines.length} />
         {lines.map((line, i) => (

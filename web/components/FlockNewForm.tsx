@@ -31,11 +31,7 @@ export function FlockNewForm({ shedCodes }: { shedCodes: string[] }) {
       <div className="row2">
         <label className="field">
           <span>Source hatchery</span>
-          <input
-            name="source_hatchery"
-            placeholder="e.g. Venky's"
-            defaultValue={v.source_hatchery ?? ""}
-          />
+          <input name="source_hatchery" defaultValue={v.source_hatchery ?? ""} />
         </label>
         <label className="field">
           <span>Initial chick count</span>
