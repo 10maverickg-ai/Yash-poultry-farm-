@@ -21,10 +21,18 @@ export default function Home() {
             Per flock, per day: Mort / Feed / Total / Bal Bird / %
           </p>
         </Link>
-        <div className="card disabled">
-          <h3>Egg Stock Ledger &amp; Sales</h3>
-          <p className="muted">Coming in increment 3</p>
-        </div>
+        <Link href="/egg-stock" className="card">
+          <h3>Egg Stock Ledger</h3>
+          <p className="muted">
+            Day total, grading, +/- ledger lines, closing balance
+          </p>
+        </Link>
+        <Link href="/sales" className="card">
+          <h3>Sales</h3>
+          <p className="muted">
+            Generated from sale ledger lines; type, grade &amp; optional price
+          </p>
+        </Link>
         <div className="card disabled">
           <h3>Feed Stock &amp; Formulation</h3>
           <p className="muted">Coming in increment 4</p>

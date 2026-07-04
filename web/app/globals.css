@@ -284,6 +284,13 @@ button:hover,
   font-size: 0.88rem;
 }
 
+.ledger-line {
+  border-top: 1px solid var(--line);
+  padding-top: 0.8rem;
+  display: grid;
+  gap: 0.8rem;
+}
+
 .saved-banner {
   background: #e2f2e8;
   border: 1px solid var(--accent);
