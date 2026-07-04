@@ -14,7 +14,7 @@ size-grading counts, and the Flock Register as a formal table.
 | Phase | Scope | Status |
 |---|---|---|
 | 1 | Schema, validation rules, seed data | ✅ done (owner-approved) |
-| 2 | Manual entry screens (owner-facing) | ✅ increments 1–5 done (BV300 standards comparison queued as increment 6) |
+| 2 | Manual entry screens (owner-facing) | ✅ done, incl. increment 6: BV300 standards + depletion-curve flag |
 | 3 | OCR/extraction capture flow + review queue | not started |
 | 4 | Analysis dashboard | not started |
 
@@ -31,7 +31,7 @@ db/migrations/   numbered SQL, apply in order
   0004_egg_stock_and_sales.sql   egg stock ledger (header + lines), derived sales
   0005_feed.sql                  feed_stock (mill-level), feed_formulation (versioned)
   0006_validation_functions.sql  flag-for-review rules as fn_validate_* functions
-db/seeds/        farms (YPF/APF) + the 28 feed materials
+db/seeds/        farms (YPF/APF), the 28 feed materials, BV300 standards ('2023')
 scripts/         apply.sh (migrations+seeds), smoke_test.sql
 web/             Next.js (TypeScript, App Router) entry screens, node-postgres
                  directly against the schema — no ORM, SQL stays authoritative

@@ -100,6 +100,39 @@ and `flocks.current_shed` does FK to it.
 `created_at` / `updated_at` exist only on `flocks` (the one table that lists them).
 No audit columns were silently added elsewhere.
 
+## Post-Phase-1 owner-approved addition: BV300 breed standards (2026-07-04)
+
+Owner supplied `bv300-standards-reference.md` (compiled from Venky's BV300 2023
+guide) and chose **option (b)** of the proposed surfacing approaches:
+
+- **HD% and feed/bird/day vs standard → Phase 4 dashboard only.** Their gaps
+  are persistent and daily values noisy; a daily flag would spam the queue.
+- **Cumulative laying mortality vs the depletion curve → flag now** (rule 5 in
+  `fn_validate_daily_production`, migration 0007): flags when a flock's excess
+  over standard first crosses **+2 points**, re-flags only per further whole
+  point — a quiet slow-bleed complement to the acute 3× spike rule.
+
+Implementation choices to know about:
+
+1. **Hen-housed base is approximated** as the start-of-day population
+   (`bird_population + mortality`) of the flock's first Daily Production row at
+   or after lay start (placement + 19 weeks) — the closest figure register
+   data offers. The rule stays silent until such a row exists.
+2. **Depletion standards are stored only at the guide's stated anchors**
+   (wk 19 ≈ 0, 60 → 3.1%, 80 → 6.0%, 100 → 9.0%); comparisons interpolate
+   linearly at query time and clamp past week 100. Interpolated values are
+   never stored as if they were the standard.
+3. **Table B granularity:** the reference is condensed to ~5-week steps.
+   Fine for the mortality flag (the curve is near-linear), but the owner will
+   pull the full week-by-week table before Phase 4 builds the HD% overlay,
+   where early-lay steepness (25%→50% in one week) makes interpolation
+   visibly wrong. Extra rows drop in with no logic change.
+4. **Versioning:** every standards table is keyed by `guide_version`
+   (currently '2023'); a future guide is new rows, never an overwrite.
+5. **Table D (body-weight uniformity): not built** — a genuinely new metric,
+   parked at the owner's direction. **Table E (water quality): seeded as
+   reference only, no UI or flags.**
+
 ## Noted for later phases (no Phase 1 action)
 
 - **Phase 3 contradiction to reconcile:** the extraction spec says ledger sale lines

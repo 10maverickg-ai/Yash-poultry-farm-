@@ -205,12 +205,79 @@ BEGIN
 END;
 $$;
 
--- farms seed sanity: computed capacities per spec.
+-- ---------------------------------------------------------------------------
+-- BV300 depletion-curve rule (migration 0007): interpolation, first crossing
+-- at standard + 2 points, no daily re-flag, re-flag on the next whole point.
+-- ---------------------------------------------------------------------------
+DO $$
+DECLARE
+    v_flock   uuid;
+    v_id      bigint;
+    v_reasons text[];
+BEGIN
+    -- Interpolation between the stated anchors (19:0, 60:3.1, 80:6.0, 100:9.0)
+    ASSERT fn_bv300_depletion_standard(60) = 3.1;
+    ASSERT abs(fn_bv300_depletion_standard(70) - 4.55) < 0.0001;
+    ASSERT fn_bv300_depletion_standard(10) IS NULL, 'no benchmark before lay';
+    ASSERT fn_bv300_depletion_standard(110) = 9.0, 'clamped beyond last anchor';
+
+    INSERT INTO flocks (farm_code, display_label, placement_date,
+                        initial_chick_count, current_bird_count, status)
+    VALUES ('YPF', 'BV-TEST', '2025-01-01', 10200, 9279, 'active')
+    RETURNING flock_internal_id INTO v_flock;
+
+    -- Lay start (19 wks = 2025-05-14): base population 10000, all clean.
+    INSERT INTO daily_production (date, farm_code, flock_internal_id, mortality,
+                                  feed_bags, eggs_total, bird_population, hd_percent)
+    VALUES ('2025-05-14', 'YPF', v_flock, 0, 8, 2500, 10000, 25.0)
+    RETURNING id INTO v_id;
+    v_reasons := fn_validate_daily_production(v_id);
+    ASSERT v_reasons = '{}', format('lay-start row should not flag: %s', v_reasons);
+
+    -- ~52 wks: cumulative mortality 6.00%% vs standard ~2.49%% -> first
+    -- crossing of the +2 line, must flag.
+    INSERT INTO daily_production (date, farm_code, flock_internal_id, mortality,
+                                  feed_bags, eggs_total, bird_population, hd_percent)
+    VALUES ('2025-12-30', 'YPF', v_flock, 600, 9, 8742, 9400, 93.0)
+    RETURNING id INTO v_id;
+    v_reasons := fn_validate_daily_production(v_id);
+    ASSERT array_length(v_reasons, 1) = 1
+           AND v_reasons[1] LIKE 'cumulative mortality above BV300 standard%',
+        format('crossing +2 should flag once: %s', v_reasons);
+
+    -- Next day, still above the line but not a whole point worse -> NO re-flag.
+    INSERT INTO daily_production (date, farm_code, flock_internal_id, mortality,
+                                  feed_bags, eggs_total, bird_population, hd_percent)
+    VALUES ('2025-12-31', 'YPF', v_flock, 1, 9, 8741, 9399, 93.0)
+    RETURNING id INTO v_id;
+    v_reasons := fn_validate_daily_production(v_id);
+    ASSERT v_reasons = '{}',
+        format('steady excess must not re-flag daily: %s', v_reasons);
+
+    -- Jump to 7.21%% (excess crosses the next whole point) -> re-flag.
+    INSERT INTO daily_production (date, farm_code, flock_internal_id, mortality,
+                                  feed_bags, eggs_total, bird_population, hd_percent)
+    VALUES ('2026-01-01', 'YPF', v_flock, 120, 9, 8629, 9279, 93.0)
+    RETURNING id INTO v_id;
+    v_reasons := fn_validate_daily_production(v_id);
+    ASSERT array_length(v_reasons, 1) = 1
+           AND v_reasons[1] LIKE 'cumulative mortality above BV300 standard%',
+        format('whole-point worsening should re-flag: %s', v_reasons);
+
+    RAISE NOTICE 'BV300 depletion rule: all assertions passed';
+END;
+$$;
+
+-- farms + reference seed sanity.
 DO $$
 BEGIN
     ASSERT (SELECT total_capacity FROM farms WHERE farm_code = 'YPF') = 130000;
     ASSERT (SELECT total_capacity FROM farms WHERE farm_code = 'APF') = 70000;
     ASSERT (SELECT count(*) FROM feed_materials) = 28;
+    ASSERT (SELECT count(*) FROM bv300_standard_rearing WHERE guide_version = '2023') = 18;
+    ASSERT (SELECT count(*) FROM bv300_standard_laying WHERE guide_version = '2023') = 19;
+    ASSERT (SELECT count(*) FROM bv300_cycle_goals WHERE guide_version = '2023') = 19;
+    ASSERT (SELECT count(*) FROM bv300_water_quality WHERE guide_version = '2023') = 5;
 END;
 $$;
 

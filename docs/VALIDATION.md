@@ -25,6 +25,7 @@ SELECT fn_validate_daily_production(42);
 | `mortality` > 3× flock's trailing 7-day average | flag function (skipped when no prior history) |
 | `bird_population` increased day-over-day | flag function (all increases — see DECISIONS #10) |
 | Missing field (blank in photo) | flag function (all five data columns) |
+| Cumulative laying mortality above the BV300 depletion curve (owner-approved addition, migration 0007) | flag function — fires when the excess over standard first crosses +2 points, then only per further whole point; never daily while steady. Uses `fn_bv300_cum_mortality` (hen-housed base ≈ start-of-day population of the flock's first laying-window row) and `fn_bv300_depletion_standard` (linear interpolation between the guide's stated anchors) |
 | One row per flock per day | DB unique `(flock_internal_id, date)` |
 | Counts non-negative | DB check constraints |
 
