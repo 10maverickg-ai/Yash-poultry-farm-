@@ -33,10 +33,16 @@ export default function Home() {
             Generated from sale ledger lines; type, grade &amp; optional price
           </p>
         </Link>
-        <div className="card disabled">
-          <h3>Feed Stock &amp; Formulation</h3>
-          <p className="muted">Coming in increment 4</p>
-        </div>
+        <Link href="/feed-stock" className="card">
+          <h3>Feed Stock</h3>
+          <p className="muted">
+            Mill-level per material: opening / purchase / consumed / closing
+          </p>
+        </Link>
+        <Link href="/formulation" className="card">
+          <h3>Feed Formulation</h3>
+          <p className="muted">Versioned recipes by flock group</p>
+        </Link>
       </div>
     </>
   );
