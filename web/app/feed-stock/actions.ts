@@ -56,7 +56,8 @@ export async function saveFeedStock(
                opening_balance_kg = EXCLUDED.opening_balance_kg,
                purchase_kg        = EXCLUDED.purchase_kg,
                consumed_kg        = EXCLUDED.consumed_kg,
-               closing_balance_kg = EXCLUDED.closing_balance_kg
+               closing_balance_kg = EXCLUDED.closing_balance_kg,
+               reviewed_by_owner  = false
            RETURNING id`,
           [
             date,

@@ -14,12 +14,12 @@ size-grading counts, and the Flock Register as a formal table.
 | Phase | Scope | Status |
 |---|---|---|
 | 1 | Schema, validation rules, seed data | ✅ done (owner-approved) |
-| 2 | Manual entry screens (owner-facing) | 🔨 increments 1–4 done; records + flagged view remaining |
+| 2 | Manual entry screens (owner-facing) | ✅ increments 1–5 done (BV300 standards comparison queued as increment 6) |
 | 3 | OCR/extraction capture flow + review queue | not started |
 | 4 | Analysis dashboard | not started |
 
 Phase 2 increments: **1.** skeleton + flocks/sheds ✅ → **2.** Daily Production ✅ →
-**3.** Egg Stock Ledger & sales ✅ → **4.** Feed screens ✅ → **5.** records + flagged view.
+**3.** Egg Stock Ledger & sales ✅ → **4.** Feed screens ✅ → **5.** records + flagged view ✅.
 
 ## Layout
 

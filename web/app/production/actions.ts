@@ -66,7 +66,8 @@ export async function saveProduction(
                feed_bags       = EXCLUDED.feed_bags,
                eggs_total      = EXCLUDED.eggs_total,
                bird_population = EXCLUDED.bird_population,
-               hd_percent      = EXCLUDED.hd_percent
+               hd_percent      = EXCLUDED.hd_percent,
+               reviewed_by_owner = false
            RETURNING id`,
           [
             date,

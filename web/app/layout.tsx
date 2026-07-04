@@ -27,6 +27,8 @@ export default function RootLayout({
             <Link href="/formulation">Formulation</Link>
             <Link href="/flocks">Flocks</Link>
             <Link href="/sheds">Sheds</Link>
+            <Link href="/records">Records</Link>
+            <Link href="/flagged">Flagged</Link>
           </nav>
         </header>
         <main>{children}</main>

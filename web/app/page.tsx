@@ -43,6 +43,16 @@ export default function Home() {
           <h3>Feed Formulation</h3>
           <p className="muted">Versioned recipes by flock group</p>
         </Link>
+        <Link href="/records" className="card">
+          <h3>Records</h3>
+          <p className="muted">Read-only view of everything entered</p>
+        </Link>
+        <Link href="/flagged" className="card">
+          <h3>Flagged records</h3>
+          <p className="muted">
+            Validation flags awaiting a fix or your review
+          </p>
+        </Link>
       </div>
     </>
   );

@@ -83,7 +83,8 @@ export async function saveEggStock(
              grade_14_eggs       = EXCLUDED.grade_14_eggs,
              grade_15_eggs       = EXCLUDED.grade_15_eggs,
              grade_15plus_eggs   = EXCLUDED.grade_15plus_eggs,
-             closing_balance_eggs = EXCLUDED.closing_balance_eggs
+             closing_balance_eggs = EXCLUDED.closing_balance_eggs,
+             reviewed_by_owner   = false
          RETURNING id`,
         [
           date,
