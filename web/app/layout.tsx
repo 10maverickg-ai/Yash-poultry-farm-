@@ -20,6 +20,7 @@ export default function RootLayout({
           </Link>
           <span className="farm-badge">{ACTIVE_FARM}</span>
           <nav className="site-nav">
+            <Link href="/production">Production</Link>
             <Link href="/flocks">Flocks</Link>
             <Link href="/sheds">Sheds</Link>
           </nav>

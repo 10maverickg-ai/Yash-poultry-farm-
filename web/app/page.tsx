@@ -15,10 +15,12 @@ export default function Home() {
           <h3>Shed Master</h3>
           <p className="muted">Physical sheds and capacities</p>
         </Link>
-        <div className="card disabled">
+        <Link href="/production" className="card">
           <h3>Daily Production</h3>
-          <p className="muted">Coming in increment 2</p>
-        </div>
+          <p className="muted">
+            Per flock, per day: Mort / Feed / Total / Bal Bird / %
+          </p>
+        </Link>
         <div className="card disabled">
           <h3>Egg Stock Ledger &amp; Sales</h3>
           <p className="muted">Coming in increment 3</p>

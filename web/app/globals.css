@@ -99,6 +99,16 @@ h2 {
   font-size: 0.9rem;
 }
 
+/* Correction forms: deliberately look different from normal entry cards. */
+.card-correction {
+  border: 1.5px dashed #d97706;
+  background: #fffbf3;
+}
+
+.card-correction h2 {
+  color: #92400e;
+}
+
 .error-banner {
   background: #fdeceb;
   border: 1px solid var(--danger);
@@ -258,6 +268,29 @@ button:hover,
 .badge-depleted {
   background: #eceff2;
   color: var(--muted);
+}
+
+.badge-flagged {
+  background: #fdf3e3;
+  color: #92400e;
+}
+
+.flag-banner {
+  background: #fdf3e3;
+  border: 1px solid #d97706;
+  color: #92400e;
+  border-radius: 8px;
+  padding: 0.5rem 0.7rem;
+  font-size: 0.88rem;
+}
+
+.saved-banner {
+  background: #e2f2e8;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  border-radius: 8px;
+  padding: 0.6rem 0.8rem;
+  margin-bottom: 1rem;
 }
 
 .home-menu {

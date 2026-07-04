@@ -2,7 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { withTransaction } from "@/lib/db";
+import { pool, withTransaction } from "@/lib/db";
 import { ACTIVE_FARM } from "@/lib/farm";
 import {
   type ActionState,
@@ -184,6 +184,37 @@ export async function transitionStage(
         );
       }
     });
+  } catch (err) {
+    return { error: errorMessage(err), values: formValues(formData) };
+  }
+  done(`/flocks/${flockId}`);
+}
+
+// ---------------------------------------------------------------------------
+// Stage CORRECTION — fixes a data-entry mistake, distinct from a transition:
+// no lifecycle-order enforcement, no transition date recorded, and it never
+// touches stage_transition_dates. Requires an explicit confirmation tick.
+// ---------------------------------------------------------------------------
+export async function correctStage(
+  flockId: string,
+  _prev: ActionState,
+  formData: FormData
+): Promise<ActionState> {
+  try {
+    const newStage = optStr(formData, "corrected_stage");
+    if (!newStage || !STAGE_ORDER.includes(newStage as (typeof STAGE_ORDER)[number]))
+      throw new Error("Choose the correct stage");
+    if (!formData.get("confirm_correction"))
+      throw new Error(
+        "Tick the confirmation box — a correction rewrites the stage without recording a transition"
+      );
+
+    const res = await pool.query(
+      `UPDATE flocks SET current_stage = $2
+        WHERE flock_internal_id = $1 AND status = 'active'`,
+      [flockId, newStage]
+    );
+    if (res.rowCount === 0) throw new Error("Flock not found or not active");
   } catch (err) {
     return { error: errorMessage(err), values: formValues(formData) };
   }

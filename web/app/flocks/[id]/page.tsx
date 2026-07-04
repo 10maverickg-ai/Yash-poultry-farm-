@@ -3,6 +3,7 @@ import { getFlock, getLabelHistory, listSheds } from "@/lib/flocks";
 import { FlockEditForm } from "@/components/FlockEditForm";
 import { StageTransitionForm } from "@/components/StageTransitionForm";
 import { DepleteFlockForm } from "@/components/DepleteFlockForm";
+import { CorrectStageForm } from "@/components/CorrectStageForm";
 
 export const dynamic = "force-dynamic";
 
@@ -45,6 +46,10 @@ export default async function FlockDetailPage({
           currentStage={flock.current_stage}
           transitions={Object.entries(flock.stage_transition_dates ?? {})}
         />
+      )}
+
+      {flock.status === "active" && (
+        <CorrectStageForm flockId={id} currentStage={flock.current_stage} />
       )}
 
       {flock.status === "active" && <DepleteFlockForm flockId={id} />}

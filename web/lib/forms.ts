@@ -32,6 +32,14 @@ export function optInt(fd: FormData, name: string): number | null {
   return n;
 }
 
+export function optNum(fd: FormData, name: string): number | null {
+  const s = optStr(fd, name);
+  if (s === null) return null;
+  const n = Number(s);
+  if (!Number.isFinite(n)) throw new Error(`${name} must be a number`);
+  return n;
+}
+
 export function optDate(fd: FormData, name: string): string | null {
   const s = optStr(fd, name);
   if (s === null) return null;

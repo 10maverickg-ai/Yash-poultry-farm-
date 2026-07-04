@@ -14,11 +14,11 @@ size-grading counts, and the Flock Register as a formal table.
 | Phase | Scope | Status |
 |---|---|---|
 | 1 | Schema, validation rules, seed data | ✅ done (owner-approved) |
-| 2 | Manual entry screens (owner-facing) | 🔨 increment 1 done: app skeleton + Flock Register + Shed Master |
+| 2 | Manual entry screens (owner-facing) | 🔨 increments 1–2 done: flocks/sheds + Daily Production |
 | 3 | OCR/extraction capture flow + review queue | not started |
 | 4 | Analysis dashboard | not started |
 
-Phase 2 increments: **1.** skeleton + flocks/sheds ✅ → **2.** Daily Production →
+Phase 2 increments: **1.** skeleton + flocks/sheds ✅ → **2.** Daily Production ✅ →
 **3.** Egg Stock Ledger & sales → **4.** Feed screens → **5.** records + flagged view.
 
 ## Layout
