@@ -10,12 +10,17 @@ declare global {
 }
 
 // One pool per process; survive Next.js dev-mode hot reloads via globalThis.
+// max is kept small because on serverless (Vercel) each function instance
+// gets its own pool — use the provider's POOLED connection string (e.g.
+// Neon's -pooler host) as DATABASE_URL there. Neon needs ?sslmode=require,
+// which node-postgres honors from the URL.
 export const pool: Pool =
   global.pgPool ??
   new Pool({
     connectionString:
       process.env.DATABASE_URL ??
       "postgres://yash:yash_dev_password@localhost:5432/yash_poultry",
+    max: 5,
   });
 if (process.env.NODE_ENV !== "production") global.pgPool = pool;
 
