@@ -39,6 +39,21 @@ cold-pause.
 3. Deploy. The URL is `https://<project-name>.vercel.app` — open it on your
    phone, and use "Add to Home Screen" so it behaves like an app.
 
+## How SSL is handled (Supabase/Neon both)
+
+`web/lib/db.ts` decides TLS explicitly — pg's own sslmode interpretation is
+deliberately bypassed (recent pg versions escalate `sslmode=require` to full
+chain verification, which fails on managed poolers' provider-CA certs with
+SELF_SIGNED_CERT_IN_CHAIN):
+
+- `DATABASE_URL` should still carry `?sslmode=require` — it's the signal to
+  turn TLS on; the param is stripped before pg sees it.
+- Default: encrypted connection without chain verification (classic libpq
+  'require' semantics).
+- Optional hardening: set `DATABASE_CA_CERT` to the provider's CA
+  certificate PEM (Supabase: Project Settings → Database → SSL → download
+  certificate) for full verification. Recommended once the trial settles.
+
 ## 3. Post-deploy checklist
 
 - Load `/flocks`, add the real sheds and currently running flocks first —

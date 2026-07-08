@@ -24,17 +24,54 @@ function connectionString(): string {
   return "postgres://yash:yash_dev_password@localhost:5432/yash_poultry";
 }
 
+// SSL is decided HERE, explicitly — never left to pg's URL-parameter
+// interpretation, which changed underneath us: recent pg versions escalate
+// sslmode=require to full certificate verification, and managed-Postgres
+// poolers (Supabase et al.) present provider-CA chains that fail Node's
+// default trust store with SELF_SIGNED_CERT_IN_CHAIN.
+//
+// Behavior:
+//   - no sslmode in the URL (local dev) or sslmode=disable -> no TLS
+//   - any other sslmode -> TLS on:
+//       - DATABASE_CA_CERT set (PEM, from the provider's dashboard) ->
+//         full verification against that CA — the strongest option
+//       - otherwise -> encrypted without chain verification, i.e. classic
+//         libpq 'require' semantics (what sslmode=require always meant
+//         before the pg change)
+// The sslmode/uselibpqcompat params are stripped from the URL so pg cannot
+// re-interpret them; the ssl option below is the single source of truth.
+function poolConfig(): { connectionString: string; max: number; ssl: false | object } {
+  const raw = connectionString();
+  const qIdx = raw.indexOf("?");
+  let url = raw;
+  let sslmode: string | null = null;
+  if (qIdx !== -1) {
+    const params = new URLSearchParams(raw.slice(qIdx + 1));
+    sslmode = params.get("sslmode");
+    params.delete("sslmode");
+    params.delete("uselibpqcompat");
+    const rest = params.toString();
+    url = rest ? `${raw.slice(0, qIdx)}?${rest}` : raw.slice(0, qIdx);
+  }
+
+  let ssl: false | object = false;
+  if (sslmode && sslmode !== "disable") {
+    const ca = process.env.DATABASE_CA_CERT;
+    ssl = ca ? { ca, rejectUnauthorized: true } : { rejectUnauthorized: false };
+  }
+  return { connectionString: url, max: 5, ssl };
+}
+
 // One pool per process, created lazily on FIRST QUERY — never at import.
 // `next build` loads these modules with NODE_ENV=production and no runtime
 // env, so an import-time check would break every build. max is kept small
 // because on serverless (Vercel) each function instance gets its own pool —
-// use the provider's POOLED connection string as DATABASE_URL there, with
-// ?sslmode=require (node-postgres honors it from the URL).
+// use the provider's POOLED connection string as DATABASE_URL there.
 let lazyPool: Pool | undefined = global.pgPool;
 
 function getPool(): Pool {
   if (!lazyPool) {
-    lazyPool = new Pool({ connectionString: connectionString(), max: 5 });
+    lazyPool = new Pool(poolConfig());
     // Survive Next.js dev-mode hot reloads.
     if (process.env.NODE_ENV !== "production") global.pgPool = lazyPool;
   }
