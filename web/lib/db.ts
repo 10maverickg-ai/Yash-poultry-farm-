@@ -24,18 +24,30 @@ function connectionString(): string {
   return "postgres://yash:yash_dev_password@localhost:5432/yash_poultry";
 }
 
-// One pool per process; survive Next.js dev-mode hot reloads via globalThis.
-// max is kept small because on serverless (Vercel) each function instance
-// gets its own pool — use the provider's POOLED connection string as
-// DATABASE_URL there, with ?sslmode=require (node-postgres honors it from
-// the URL).
-export const pool: Pool =
-  global.pgPool ??
-  new Pool({
-    connectionString: connectionString(),
-    max: 5,
-  });
-if (process.env.NODE_ENV !== "production") global.pgPool = pool;
+// One pool per process, created lazily on FIRST QUERY — never at import.
+// `next build` loads these modules with NODE_ENV=production and no runtime
+// env, so an import-time check would break every build. max is kept small
+// because on serverless (Vercel) each function instance gets its own pool —
+// use the provider's POOLED connection string as DATABASE_URL there, with
+// ?sslmode=require (node-postgres honors it from the URL).
+let lazyPool: Pool | undefined = global.pgPool;
+
+function getPool(): Pool {
+  if (!lazyPool) {
+    lazyPool = new Pool({ connectionString: connectionString(), max: 5 });
+    // Survive Next.js dev-mode hot reloads.
+    if (process.env.NODE_ENV !== "production") global.pgPool = lazyPool;
+  }
+  return lazyPool;
+}
+
+export const pool: Pool = new Proxy({} as Pool, {
+  get(_target, prop) {
+    const real = getPool() as unknown as Record<string | symbol, unknown>;
+    const value = real[prop];
+    return typeof value === "function" ? (value as CallableFunction).bind(real) : value;
+  },
+}) as Pool;
 
 /** Run fn inside a transaction; rolls back on any throw. */
 export async function withTransaction<T>(
