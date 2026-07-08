@@ -9,17 +9,30 @@ declare global {
   var pgPool: Pool | undefined;
 }
 
+// The localhost default exists ONLY for local development. In production a
+// missing DATABASE_URL must fail loudly at startup — the silent fallback
+// once sent a deployed app to 127.0.0.1:5432 and surfaced as a baffling
+// intermittent ECONNREFUSED instead of a config error.
+function connectionString(): string {
+  if (process.env.DATABASE_URL) return process.env.DATABASE_URL;
+  if (process.env.NODE_ENV === "production")
+    throw new Error(
+      "DATABASE_URL is not set. Configure it (pooled connection string, with " +
+        "?sslmode=require) in the deployment environment and redeploy — env " +
+        "var edits do not apply to already-built deployments."
+    );
+  return "postgres://yash:yash_dev_password@localhost:5432/yash_poultry";
+}
+
 // One pool per process; survive Next.js dev-mode hot reloads via globalThis.
 // max is kept small because on serverless (Vercel) each function instance
-// gets its own pool — use the provider's POOLED connection string (e.g.
-// Neon's -pooler host) as DATABASE_URL there. Neon needs ?sslmode=require,
-// which node-postgres honors from the URL.
+// gets its own pool — use the provider's POOLED connection string as
+// DATABASE_URL there, with ?sslmode=require (node-postgres honors it from
+// the URL).
 export const pool: Pool =
   global.pgPool ??
   new Pool({
-    connectionString:
-      process.env.DATABASE_URL ??
-      "postgres://yash:yash_dev_password@localhost:5432/yash_poultry",
+    connectionString: connectionString(),
     max: 5,
   });
 if (process.env.NODE_ENV !== "production") global.pgPool = pool;
