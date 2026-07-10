@@ -305,3 +305,29 @@ Owner review queue — UX notes for Claude Code
 
    No action needed on records that passed all checks — they should never appear in this queue
 
+===============================================================================
+OWNER ADDENDUM (2026-07-09) — supplied after the original PDF; treat as part
+of the "Flag triggers (apply across all register types)" section.
+===============================================================================
+
+Additional flag trigger: tray-scale vs egg-scale magnitude check
+
+Numbers in these registers can represent either TRAYS or EGGS depending on
+magnitude (1 tray = 30 eggs). Use magnitude as a disambiguation heuristic
+during extraction:
+
+  - Tray-scale: up to roughly a few thousand.
+  - Egg-scale: tens of thousands (e.g. "28482" is an egg count, never trays).
+
+This is NOT a new field — it is a sanity check on extracted values: if an
+extracted number's magnitude does not fit the unit scale expected for that
+column (tray-scale where trays are expected, egg-scale where eggs are
+expected), FLAG the record for owner review rather than accepting the value
+at face value — same family as the existing outlier/range checks.
+
+Implication for extraction: all stored egg quantities in the schema are in
+EGGS (tray figures are display-only, computed /30). A tray-scale number
+found where an egg count is expected (or vice versa) suggests the paper
+recorded the other unit that day. Do NOT silently auto-convert on magnitude
+alone — magnitude is a signal, not proof. Flag it; the owner confirms the
+unit in review, exactly as with the quintal/kg check in Feed Stock.

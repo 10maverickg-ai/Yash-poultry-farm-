@@ -135,6 +135,13 @@ Implementation choices to know about:
 
 ## Noted for later phases (no Phase 1 action)
 
+- **Trays-vs-eggs magnitude heuristic (owner addendum, 2026-07-09):** register
+  numbers can be trays or eggs depending on magnitude (1 tray = 30 eggs;
+  tray-scale ≈ up to a few thousand, egg-scale = tens of thousands). Phase 3
+  must treat a magnitude that doesn't fit the expected unit scale for a column
+  as a flag trigger — never a silent auto-conversion. Full wording in the
+  addendum at the end of `docs/source-specs/extraction-logic.txt`.
+
 - **Phase 3 contradiction to reconcile:** the extraction spec says ledger sale lines
   "attempt match to sales table by name" and lists a "no confident sale match" flag — but
   both docs elsewhere state `sales` is *generated from* ledger entries and has no
