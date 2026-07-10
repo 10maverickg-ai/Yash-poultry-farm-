@@ -268,6 +268,74 @@ BEGIN
 END;
 $$;
 
+-- ---------------------------------------------------------------------------
+-- daily_feed_bag_stock (migration 0008): internal-consistency and
+-- cross-table (vs linked flocks' daily_production.feed_bags) flag rules.
+-- ---------------------------------------------------------------------------
+DO $$
+DECLARE
+    v_flock_a uuid;
+    v_flock_b uuid;
+    v_id      bigint;
+    v_reasons text[];
+BEGIN
+    INSERT INTO flocks (farm_code, display_label, placement_date, current_bird_count, status)
+    VALUES ('YPF', 'FBS-A', '2024-01-01', 5000, 'active') RETURNING flock_internal_id INTO v_flock_a;
+    INSERT INTO flocks (farm_code, display_label, placement_date, current_bird_count, status)
+    VALUES ('YPF', 'FBS-B', '2024-01-01', 5000, 'active') RETURNING flock_internal_id INTO v_flock_b;
+
+    INSERT INTO daily_production (date, farm_code, flock_internal_id, feed_bags)
+    VALUES ('2026-07-09', 'YPF', v_flock_a, 10), ('2026-07-09', 'YPF', v_flock_b, 12);
+
+    -- Arithmetic clean, no flocks linked yet -> cross-check skipped, not flagged.
+    INSERT INTO daily_feed_bag_stock (date, farm_code, flock_group, opening_balance_bags,
+        produced_bags, total_bags, consumed_bags, mill_inventory_bags, shed_inventory_bags,
+        closing_balance_bags)
+    VALUES ('2026-07-09', 'YPF', 'Layer (FBS-A/B)', 50, 50, 100, 70, 10, 20, 30)
+    RETURNING id INTO v_id;
+    v_reasons := fn_validate_feed_bag_stock(v_id);
+    ASSERT v_reasons = '{}', format('unlinked row, clean arithmetic: %s', v_reasons);
+
+    -- Link both flocks (sum feed_bags = 22) against consumed_bags = 70 -> flags.
+    INSERT INTO daily_feed_bag_stock_flocks (feed_bag_stock_id, flock_internal_id)
+    VALUES (v_id, v_flock_a), (v_id, v_flock_b);
+    v_reasons := fn_validate_feed_bag_stock(v_id);
+    ASSERT array_length(v_reasons, 1) = 1 AND v_reasons[1] LIKE 'consumed_bags%does not match%',
+        format('cross-table mismatch should flag: %s', v_reasons);
+
+    -- Reconcile consumed_bags to the linked total; break F+S=closing instead.
+    UPDATE daily_feed_bag_stock SET consumed_bags = 22, closing_balance_bags = 78 WHERE id = v_id;
+    v_reasons := fn_validate_feed_bag_stock(v_id);
+    ASSERT array_length(v_reasons, 1) = 1 AND v_reasons[1] LIKE 'closing balance mismatch%',
+        format('mill+shed no longer matches closing: %s', v_reasons);
+
+    -- Fully reconcile -> no flags.
+    UPDATE daily_feed_bag_stock SET mill_inventory_bags = 58, shed_inventory_bags = 20 WHERE id = v_id;
+    v_reasons := fn_validate_feed_bag_stock(v_id);
+    ASSERT v_reasons = '{}', format('fully reconciled row should not flag: %s', v_reasons);
+
+    -- Missing field.
+    INSERT INTO daily_feed_bag_stock (date, farm_code, flock_group, opening_balance_bags,
+        consumed_bags, mill_inventory_bags, shed_inventory_bags, closing_balance_bags)
+    VALUES ('2026-07-09', 'YPF', 'Grower (FBS-C)', 20, 15, 5, 0, 5)
+    RETURNING id INTO v_id;
+    v_reasons := fn_validate_feed_bag_stock(v_id);
+    ASSERT 'missing field: produced_bags' = ANY(v_reasons),
+        format('blank produced_bags should flag missing: %s', v_reasons);
+
+    -- One row per group per day.
+    BEGIN
+        INSERT INTO daily_feed_bag_stock (date, farm_code, flock_group)
+        VALUES ('2026-07-09', 'YPF', 'Grower (FBS-C)');
+        RAISE EXCEPTION 'duplicate group+date row was not rejected';
+    EXCEPTION WHEN unique_violation THEN
+        NULL;
+    END;
+
+    RAISE NOTICE 'feed_bag_stock: all assertions passed';
+END;
+$$;
+
 -- farms + reference seed sanity.
 DO $$
 BEGIN

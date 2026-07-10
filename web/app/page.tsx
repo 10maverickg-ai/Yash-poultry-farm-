@@ -39,6 +39,12 @@ export default function Home() {
             Mill-level per material: opening / purchase / consumed / closing
           </p>
         </Link>
+        <Link href="/feed-bag-stock" className="card">
+          <h3>Feed Bag Stock</h3>
+          <p className="muted">
+            Bag counts by flock group: opening / produced / consumed / mill / shed
+          </p>
+        </Link>
         <Link href="/formulation" className="card">
           <h3>Feed Formulation</h3>
           <p className="muted">Versioned recipes by flock group</p>

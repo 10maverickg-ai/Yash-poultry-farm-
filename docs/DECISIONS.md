@@ -133,6 +133,40 @@ Implementation choices to know about:
    parked at the owner's direction. **Table E (water quality): seeded as
    reference only, no UI or flags.**
 
+## Post-Phase-2 owner addition: daily_feed_bag_stock (2026-07-10)
+
+Second Feed Stock register (migration 0008): made-up feed bag counts by
+flock group, mirroring the register's two-group-side-by-side layout
+("Layer (BAB 1-7)" / "Grower (BAB 8-10)"). Entry screen sits at
+`/feed-bag-stock`, placed right after Feed Stock in navigation, matching the
+owner's requested placement. Per the owner's explicit scoping, this round
+built storage + validation + entry screen only — no records/flagged-queue
+integration and no dashboard, both left for a later pass if wanted.
+
+**Interpretation flagged for confirmation:** the cross-table validation rule
+("consumed_bags should equal SUM(daily_production.feed_bags) for flocks
+belonging to that group") needs a way to know group membership per date.
+Nothing in the existing schema provides this — `flock_group` here, like
+`feed_formulation.formulation_group`, is free text with no FK to flocks, and
+BAB-number ranges shift under renumbering exactly like shed assignment does
+(the reason `daily_production.shed_code` is captured per-row rather than
+read live off `flocks.current_shed`). Rather than parse the group label or
+trust a mutable "current group" attribute — either of which could silently
+give the wrong answer for a past date after a later regrouping — membership
+is captured explicitly at entry time via a new junction table,
+`daily_feed_bag_stock_flocks`, populated by a flock checklist in the form.
+This is an interpretation, not a literal instruction; flag if a different
+mechanism (e.g. reusing `feed_formulation.formulation_group` as the join
+key) was intended instead.
+
+**Sample register photos** (owner-supplied, 2026-07-10) saved to
+`docs/sample-registers/` as Phase 3 fixtures — real handwriting, the
+two-group side-by-side layout, and label abbreviation quirks ("BAB", "13
+BAB", "18 BAB") a written spec alone doesn't capture. A bottom
+"Feathers/Claws"-style adjustment block visible on the Daily Production
+photos doesn't map to any current field — noted in the sample-registers
+README as a candidate for a future register addition, not built here.
+
 ## Noted for later phases (no Phase 1 action)
 
 - **Trays-vs-eggs magnitude heuristic (owner addendum, 2026-07-09):** register

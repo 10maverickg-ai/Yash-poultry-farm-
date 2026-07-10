@@ -300,6 +300,25 @@ button:hover,
   font-size: 0.75rem;
 }
 
+.flock-checklist {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 1rem;
+  padding: 0.5rem 0;
+}
+
+.flock-check {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.9rem;
+  font-weight: 400;
+}
+
+.flock-check input {
+  width: auto;
+}
+
 .balance-warn {
   color: var(--danger);
   font-size: 0.88rem;

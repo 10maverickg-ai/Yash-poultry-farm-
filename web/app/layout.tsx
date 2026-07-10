@@ -24,6 +24,7 @@ export default function RootLayout({
             <Link href="/egg-stock">Egg Stock</Link>
             <Link href="/sales">Sales</Link>
             <Link href="/feed-stock">Feed</Link>
+            <Link href="/feed-bag-stock">Feed Bags</Link>
             <Link href="/formulation">Formulation</Link>
             <Link href="/flocks">Flocks</Link>
             <Link href="/sheds">Sheds</Link>

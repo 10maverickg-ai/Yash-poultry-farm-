@@ -52,6 +52,24 @@ SELECT fn_validate_daily_production(42);
 | One row per material per farm per day | DB unique `(farm_code, material_name, date)` |
 | Material must be one of the 28 | DB FK → `feed_materials` |
 
+## daily_feed_bag_stock — `fn_validate_feed_bag_stock(id)` (owner addition, migration 0008)
+
+Second Feed Stock register, separate from Table 6 — tracks made-up FEED
+BAGS by flock group (paper shows two groups side by side).
+
+| Rule | Enforcement |
+|---|---|
+| `closing_balance_bags` ≠ `mill_inventory_bags` + `shed_inventory_bags` | flag function |
+| `total_bags` − `consumed_bags` ≠ `closing_balance_bags` | flag function |
+| `consumed_bags` ≠ SUM(`daily_production.feed_bags`) for flocks linked to this group/date | flag function — skipped (not flagged) until at least one flock is linked via `daily_feed_bag_stock_flocks` |
+| Missing field (blank in photo) | flag function (all seven data columns) |
+| One row per group per day | DB unique `(farm_code, flock_group, date)` |
+| Two group cards named alike in one save | app-level rejection before any write (`saveFeedBagStock`), same precedent as `renumberFlocks`'s duplicate-label guard |
+
+Group-to-flock membership is captured explicitly per entry (checkboxes in
+the form), not inferred from a mutable "current group" field or parsed from
+the group label — see the design note at the top of migration 0008 for why.
+
 ## Flock label resolution — `resolve_flock_internal_id(farm, label, date)`
 
 Returns the `flock_internal_id` whose label history covers that date. Returns NULL when no
