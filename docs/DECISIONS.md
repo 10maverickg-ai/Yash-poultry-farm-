@@ -167,6 +167,16 @@ BAB", "18 BAB") a written spec alone doesn't capture. A bottom
 photos doesn't map to any current field — noted in the sample-registers
 README as a candidate for a future register addition, not built here.
 
+## Post-Phase-2 owner addition: chick_batch_log (2026-07-10)
+
+Lightweight holding table (migration 0009) for chick/grower batches that
+don't have a BAB number yet — deliberately no FK to `flocks`. Once a batch
+is numbered, the owner creates it properly via the normal "New flock" form;
+nothing here converts automatically or is auto-removed. Entry screen at
+`/chick-batches`, placed next to Flocks/Sheds in navigation. Only
+validation is missing-`shed_code`/missing-`total_birds`, per instruction —
+no cross-checks against anything.
+
 ## Noted for later phases (no Phase 1 action)
 
 - **Trays-vs-eggs magnitude heuristic (owner addendum, 2026-07-09):** register

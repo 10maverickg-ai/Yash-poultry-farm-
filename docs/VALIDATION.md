@@ -70,6 +70,15 @@ Group-to-flock membership is captured explicitly per entry (checkboxes in
 the form), not inferred from a mutable "current group" field or parsed from
 the group label — see the design note at the top of migration 0008 for why.
 
+## chick_batch_log — `fn_validate_chick_batch_log(id)` (owner addition, migration 0009)
+
+Lightweight holding place for chick/grower batches without a BAB number yet —
+no link to `flocks`, no cross-checks, per instruction.
+
+| Rule | Enforcement |
+|---|---|
+| Missing `shed_code` or `total_birds` | flag function — the only two checks, by design |
+
 ## Flock label resolution — `resolve_flock_internal_id(farm, label, date)`
 
 Returns the `flock_internal_id` whose label history covers that date. Returns NULL when no

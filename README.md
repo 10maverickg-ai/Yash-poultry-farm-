@@ -14,13 +14,14 @@ size-grading counts, and the Flock Register as a formal table.
 | Phase | Scope | Status |
 |---|---|---|
 | 1 | Schema, validation rules, seed data | ✅ done (owner-approved) |
-| 2 | Manual entry screens (owner-facing) | ✅ done, incl. BV300 standards flag + Feed Bag Stock |
+| 2 | Manual entry screens (owner-facing) | ✅ done, incl. BV300 standards flag, Feed Bag Stock, Chick Batch Log; real farm data entered |
 | 3 | OCR/extraction capture flow + review queue | not started |
 | 4 | Analysis dashboard | not started |
 
 Phase 2 increments: **1.** skeleton + flocks/sheds ✅ → **2.** Daily Production ✅ →
 **3.** Egg Stock Ledger & sales ✅ → **4.** Feed screens ✅ → **5.** records + flagged view ✅ →
-**6.** BV300 standards + depletion-curve flag ✅ → **7.** Feed Bag Stock (owner addition) ✅.
+**6.** BV300 standards + depletion-curve flag ✅ → **7.** Feed Bag Stock (owner addition) ✅ →
+**8.** Chick Batch Log (owner addition) ✅.
 
 ## Layout
 
@@ -34,6 +35,7 @@ db/migrations/   numbered SQL, apply in order
   0006_validation_functions.sql  flag-for-review rules as fn_validate_* functions
   0007_bv300_standards.sql       BV300 breed-standard reference + depletion-curve flag
   0008_feed_bag_stock.sql        daily_feed_bag_stock (owner addition) + its flag rules
+  0009_chick_batch_log.sql       chick_batch_log (owner addition) — un-numbered chick batches
 db/seeds/        farms (YPF/APF), the 28 feed materials, BV300 standards ('2023')
 scripts/         apply.sh (migrations+seeds), smoke_test.sql
 web/             Next.js (TypeScript, App Router) entry screens, node-postgres

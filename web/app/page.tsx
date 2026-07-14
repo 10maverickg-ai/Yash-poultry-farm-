@@ -11,6 +11,10 @@ export default function Home() {
             Flocks, labels &amp; renumbering, stage transitions, depletion
           </p>
         </Link>
+        <Link href="/chick-batches" className="card">
+          <h3>Chick Batch Log</h3>
+          <p className="muted">Un-numbered chick/grower batches, held until BAB-numbered</p>
+        </Link>
         <Link href="/sheds" className="card">
           <h3>Shed Master</h3>
           <p className="muted">Physical sheds and capacities</p>
