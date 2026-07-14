@@ -28,6 +28,18 @@ export default async function FlaggedPage() {
               {item.title} <span className="muted">· {item.date}</span>
             </h2>
             <div className="flag-banner">{item.flag_reason ?? "flagged"}</div>
+            {item.source_photo_url && (
+              <a href={item.source_photo_url} target="_blank" rel="noreferrer">
+                {
+                  // eslint-disable-next-line @next/next/no-img-element -- external Supabase Storage URL, no next/image loader configured for it
+                  <img
+                    src={item.source_photo_url}
+                    alt={`Source register photo for ${item.title}`}
+                    className="flagged-photo-thumb"
+                  />
+                }
+              </a>
+            )}
             <div className="actions-bar" style={{ marginBottom: 0 }}>
               <Link href={item.entry_href} className="btn">
                 Open entry screen

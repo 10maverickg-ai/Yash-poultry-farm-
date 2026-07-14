@@ -177,6 +177,52 @@ nothing here converts automatically or is auto-removed. Entry screen at
 validation is missing-`shed_code`/missing-`total_birds`, per instruction —
 no cross-checks against anything.
 
+## Phase 3 kickoff: photo upload + Daily Production extraction (2026-07-14)
+
+First real slice of Phase 3, scoped deliberately narrow: photo upload +
+storage, and Claude-vision extraction for **Daily Production only**. Egg
+Stock Ledger and Feed Bag Stock extraction are next — both often appear on
+the same photographed page as Daily Production (confirmed by the owner),
+but their write-paths (ledger line categorization + running balance, and
+flock-group linking) aren't wired into the extraction flow yet. The current
+prompt explicitly tells the model to ignore those blocks rather than
+half-extract them.
+
+**Storage:** Supabase Storage (`register-photos` bucket, public read —
+consistent with the app's current no-auth posture), not Vercel Blob, to
+reuse infra already paid for. Bucket is created via plain SQL
+(`supabase/storage_setup.sql`) pasted into the SQL Editor, same pattern as
+every migration — Storage buckets are just rows in `storage.buckets` in the
+same Postgres database, so no separate Storage API call was needed to set
+this up (useful, since this sandbox can't reach Supabase's HTTP APIs any
+more than it could reach the raw database port). Uploads happen
+server-side using the project's secret key, which bypasses RLS — no
+`INSERT` policy needed or defined; nothing else can write to the bucket.
+
+**AI approach:** Claude vision via tool-use (structured JSON output), per
+the build brief's own direction — not a traditional OCR engine, since the
+task is interpretive. Structural validation (`fn_validate_daily_production`)
+runs independent of the model's self-reported confidence, per the
+extraction spec's "independent of OCR confidence" rule — a confidently
+wrong extraction still gets caught by the same arithmetic checks manual
+entry already relies on. Low self-reported confidence (<0.6) on any field
+is itself folded into the flag reasons, alongside the structural checks.
+
+**Unresolved flock labels:** `daily_production.flock_internal_id` is
+`NOT NULL` (Phase 1, owner-approved) — a label that doesn't resolve via
+`resolve_flock_internal_id` genuinely cannot be written as a row under the
+current schema. Rather than change that constraint or invent a new holding
+table under time pressure, unresolved labels are simply not written and are
+surfaced directly on the upload result page (usually means an unlogged
+renumbering event or a misread label) — other flocks on the same photo that
+do resolve are still written normally.
+
+**New environment variables** (all three needed in Vercel for this to work
+live): `SUPABASE_URL`, `SUPABASE_SECRET_KEY` (Storage), `ANTHROPIC_API_KEY`
+(extraction). None of these are testable from this sandbox — same network
+restriction as the original database setup — so end-to-end verification
+happens once the owner adds them.
+
 ## Noted for later phases (no Phase 1 action)
 
 - **Trays-vs-eggs magnitude heuristic (owner addendum, 2026-07-09):** register

@@ -106,26 +106,27 @@ export interface FlaggedItem {
   title: string; // what the owner sees: flock label / "Egg stock" / material
   flag_reason: string | null;
   entry_href: string; // where to fix it
+  source_photo_url: string | null; // set once Phase 3 extraction writes it
 }
 
 export async function listFlagged(): Promise<FlaggedItem[]> {
   const [prod, egg, feed] = await Promise.all([
     pool.query(
-      `SELECT id, date, display_label_as_written AS label, flag_reason
+      `SELECT id, date, display_label_as_written AS label, flag_reason, source_photo_url
          FROM daily_production
         WHERE farm_code = $1 AND flagged AND NOT reviewed_by_owner
         ORDER BY date DESC LIMIT 100`,
       [ACTIVE_FARM]
     ),
     pool.query(
-      `SELECT id, date, flag_reason
+      `SELECT id, date, flag_reason, source_photo_url
          FROM daily_egg_stock_summary
         WHERE farm_code = $1 AND flagged AND NOT reviewed_by_owner
         ORDER BY date DESC LIMIT 100`,
       [ACTIVE_FARM]
     ),
     pool.query(
-      `SELECT id, date, material_name, flag_reason
+      `SELECT id, date, material_name, flag_reason, source_photo_url
          FROM feed_stock
         WHERE farm_code = $1 AND flagged AND NOT reviewed_by_owner
         ORDER BY date DESC LIMIT 100`,
@@ -141,6 +142,7 @@ export async function listFlagged(): Promise<FlaggedItem[]> {
       title: `Daily Production — ${r.label ?? "unknown flock"}`,
       flag_reason: r.flag_reason,
       entry_href: `/production?date=${r.date}`,
+      source_photo_url: r.source_photo_url,
     })),
     ...egg.rows.map((r) => ({
       source: "egg_stock" as const,
@@ -149,6 +151,7 @@ export async function listFlagged(): Promise<FlaggedItem[]> {
       title: "Egg Stock Ledger",
       flag_reason: r.flag_reason,
       entry_href: `/egg-stock?date=${r.date}`,
+      source_photo_url: r.source_photo_url,
     })),
     ...feed.rows.map((r) => ({
       source: "feed_stock" as const,
@@ -157,6 +160,7 @@ export async function listFlagged(): Promise<FlaggedItem[]> {
       title: `Feed Stock — ${r.material_name}`,
       flag_reason: r.flag_reason,
       entry_href: `/feed-stock?date=${r.date}`,
+      source_photo_url: r.source_photo_url,
     })),
   ];
   return items.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));

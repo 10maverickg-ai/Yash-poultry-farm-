@@ -9,19 +9,24 @@ Every field in this schema corresponds to something actually written on a real p
 register at this farm. The only two deliberate additions beyond the paper: daily egg
 size-grading counts, and the Flock Register as a formal table.
 
-## Current status: Phase 2 in progress
+## Current status: Phase 3 in progress
 
 | Phase | Scope | Status |
 |---|---|---|
 | 1 | Schema, validation rules, seed data | ✅ done (owner-approved) |
 | 2 | Manual entry screens (owner-facing) | ✅ done, incl. BV300 standards flag, Feed Bag Stock, Chick Batch Log; real farm data entered |
-| 3 | OCR/extraction capture flow + review queue | not started |
-| 4 | Analysis dashboard | not started |
+| 3 | OCR/extraction capture flow + review queue | 🔨 photo upload + Daily Production extraction built, untested live (needs env vars below) |
+| 4 | Analysis dashboard | not started — deferred to after Aug 1 |
 
 Phase 2 increments: **1.** skeleton + flocks/sheds ✅ → **2.** Daily Production ✅ →
 **3.** Egg Stock Ledger & sales ✅ → **4.** Feed screens ✅ → **5.** records + flagged view ✅ →
 **6.** BV300 standards + depletion-curve flag ✅ → **7.** Feed Bag Stock (owner addition) ✅ →
 **8.** Chick Batch Log (owner addition) ✅.
+
+Phase 3 build order: **1.** photo upload + Daily Production extraction 🔨 (built, awaiting
+live env vars to verify) → **2.** Egg Stock Ledger extraction (same photo) → **3.** Feed Bag
+Stock extraction (same photo) → **4.** Feed Stock (raw-material) extraction — at risk, no
+sample photos yet. See `docs/DECISIONS.md` for the honest per-register timeline read.
 
 ## Layout
 
@@ -63,6 +68,20 @@ npm install
 cp .env.example .env.local   # points at the docker Postgres above
 npm run dev                  # http://localhost:3000
 ```
+
+For photo upload + extraction (`/upload`), also paste `supabase/storage_setup.sql`
+into the Supabase SQL Editor once, and set three env vars (locally in `.env.local`,
+live in Vercel — Production **and** Preview if you use preview deployments):
+
+```
+SUPABASE_URL=https://<project-ref>.supabase.co
+SUPABASE_SECRET_KEY=<Project Settings -> API -> secret key>
+ANTHROPIC_API_KEY=<console.anthropic.com>
+```
+
+Without these, `/upload` shows a clear inline error naming exactly which
+variable is missing rather than a generic failure — same pattern as the
+`DATABASE_URL` handling in `lib/db.ts`.
 
 The smoke test builds a realistic day of data (a renumbered "BAB-I" flock pair, a
 production row, an egg-stock ledger with a Sukha sale / breakage / cross-farm line, feed

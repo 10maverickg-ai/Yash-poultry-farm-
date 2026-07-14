@@ -5,6 +5,12 @@ export default function Home() {
     <>
       <h1>Registers</h1>
       <div className="home-menu">
+        <Link href="/upload" className="card">
+          <h3>Upload Photo</h3>
+          <p className="muted">
+            Photograph a Daily Production page — extraction fills the form for you
+          </p>
+        </Link>
         <Link href="/flocks" className="card">
           <h3>Flock Register</h3>
           <p className="muted">
