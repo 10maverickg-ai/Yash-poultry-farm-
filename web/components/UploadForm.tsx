@@ -1,23 +1,69 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useState, type ChangeEvent } from "react";
 import Link from "next/link";
 import { uploadAndExtractDailyProduction } from "@/app/upload/actions";
+import { compressImageForUpload } from "@/lib/compressImage";
 
 function todayISO() {
   return new Date().toISOString().slice(0, 10);
 }
+
+// Matches next.config.ts's serverActions.bodySizeLimit, with headroom for
+// the rest of the form fields and multipart overhead — if a photo is still
+// this large after compression (a very unusual original, or a format
+// compression couldn't touch), the selection is rejected before it can ever
+// be submitted, rather than letting the platform reject the request with a
+// raw "Body exceeded"-style error.
+const MAX_UPLOAD_BYTES = 7 * 1024 * 1024;
 
 export function UploadForm() {
   const [result, formAction, pending] = useActionState(
     uploadAndExtractDailyProduction,
     null
   );
+  const [compressing, setCompressing] = useState(false);
+  const [clientError, setClientError] = useState<string | null>(null);
+
+  // Compresses the photo the moment it's picked, then replaces the file
+  // input's own file with the compressed one via the standard DataTransfer
+  // technique — the form itself still submits normally via
+  // action={formAction}, exactly like every other form in this app; nothing
+  // about the submit path changes, only what file is sitting in the input
+  // by the time the user taps the button.
+  async function handleFileChange(e: ChangeEvent<HTMLInputElement>) {
+    setClientError(null);
+    const input = e.currentTarget;
+    const original = input.files?.[0];
+    if (!original) return;
+
+    setCompressing(true);
+    try {
+      const compressed = await compressImageForUpload(original);
+      if (compressed.size > MAX_UPLOAD_BYTES) {
+        setClientError(
+          "That photo is too large to upload — please try taking it again, or use a lower camera resolution."
+        );
+        input.value = "";
+        return;
+      }
+      if (compressed !== original) {
+        const dt = new DataTransfer();
+        dt.items.add(compressed);
+        input.files = dt.files;
+      }
+    } finally {
+      setCompressing(false);
+    }
+  }
+
+  const isBusy = compressing || pending;
+  const shownError = clientError ?? result?.error;
 
   return (
     <>
       <form action={formAction} className="stack card">
-        {result?.error && <div className="error-banner">{result.error}</div>}
+        {shownError && <div className="error-banner">{shownError}</div>}
         <label className="field">
           <span>
             Date on the page <span className="hint">(used if the photo&apos;s date isn&apos;t legible)</span>
@@ -26,10 +72,17 @@ export function UploadForm() {
         </label>
         <label className="field">
           <span>Photo</span>
-          <input type="file" name="photo" accept="image/*" capture="environment" required />
+          <input
+            type="file"
+            name="photo"
+            accept="image/*"
+            capture="environment"
+            required
+            onChange={handleFileChange}
+          />
         </label>
-        <button type="submit" disabled={pending}>
-          {pending ? "Reading register…" : "Upload & extract"}
+        <button type="submit" disabled={isBusy}>
+          {compressing ? "Preparing photo…" : pending ? "Reading register…" : "Upload & extract"}
         </button>
       </form>
 

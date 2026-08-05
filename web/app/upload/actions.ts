@@ -5,7 +5,6 @@ import { withTransaction } from "@/lib/db";
 import { ACTIVE_FARM } from "@/lib/farm";
 import { uploadRegisterPhoto } from "@/lib/storage";
 import { extractDailyProduction } from "@/lib/extraction/dailyProduction";
-import { errorMessage } from "@/lib/forms";
 
 export interface UploadOutcome {
   error: string | null;
@@ -25,6 +24,16 @@ const EMPTY: UploadOutcome = {
   error: null, photoUrl: null, date: null, pageNotes: null, written: [], unresolved: [],
 };
 
+// Every error shown to the end user must be plain, non-technical text —
+// this app is used daily by a farm manager, not a developer. Full technical
+// detail (SDK error text, stack traces) is logged server-side via
+// console.error, visible in Vercel's function logs, and never returned to
+// the client.
+function logAndFriendly(context: string, err: unknown, friendly: string): string {
+  console.error(`[upload] ${context}:`, err);
+  return friendly;
+}
+
 export async function uploadAndExtractDailyProduction(
   _prev: UploadOutcome | null,
   formData: FormData
@@ -42,7 +51,14 @@ export async function uploadAndExtractDailyProduction(
   try {
     photoUrl = await uploadRegisterPhoto(file, "production", dateHint);
   } catch (err) {
-    return { ...EMPTY, error: `Photo upload failed: ${errorMessage(err)}` };
+    return {
+      ...EMPTY,
+      error: logAndFriendly(
+        "storage upload failed",
+        err,
+        "Photo couldn't be uploaded — please try again."
+      ),
+    };
   }
 
   let extraction;
@@ -55,7 +71,11 @@ export async function uploadAndExtractDailyProduction(
     return {
       ...EMPTY,
       photoUrl,
-      error: `Extraction failed (photo was saved — try again or enter this page manually): ${errorMessage(err)}`,
+      error: logAndFriendly(
+        "extraction call failed",
+        err,
+        "Couldn't read the register from that photo — please try again, or enter this page manually on the Daily Production screen."
+      ),
     };
   }
 
@@ -66,7 +86,8 @@ export async function uploadAndExtractDailyProduction(
   const written: UploadOutcome["written"] = [];
   const unresolved: string[] = [];
 
-  await withTransaction(async (client) => {
+  try {
+    await withTransaction(async (client) => {
     for (const flock of extraction.flocks) {
       const { rows: resolvedRows } = await client.query(
         `SELECT resolve_flock_internal_id($1, $2, $3) AS flock_id`,
@@ -156,7 +177,18 @@ export async function uploadAndExtractDailyProduction(
         [date]
       );
     }
-  });
+    });
+  } catch (err) {
+    return {
+      ...EMPTY,
+      photoUrl,
+      error: logAndFriendly(
+        "database write failed",
+        err,
+        "Photo was read, but something went wrong saving the results — please try again."
+      ),
+    };
+  }
 
   revalidatePath("/production");
   revalidatePath("/flagged");
