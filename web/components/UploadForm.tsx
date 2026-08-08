@@ -121,8 +121,10 @@ export function UploadForm() {
                       <td>
                         {w.flagged ? (
                           <span className="badge badge-flagged" title={w.flagReason ?? ""}>
-                            flagged
+                            flagged{w.autoRechecked ? " (auto-rechecked)" : ""}
                           </span>
+                        ) : w.autoRechecked ? (
+                          "saved clean (auto-rechecked)"
                         ) : (
                           "saved clean"
                         )}

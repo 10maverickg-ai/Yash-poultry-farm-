@@ -223,6 +223,39 @@ live): `SUPABASE_URL`, `SUPABASE_SECRET_KEY` (Storage), `ANTHROPIC_API_KEY`
 restriction as the original database setup — so end-to-end verification
 happens once the owner adds them.
 
+## Phase 3 increment 2: multi-section extraction fix + two-pass recheck (2026-08-08)
+
+**Multi-section bug:** confirmed against real photos already in this
+conversation (same date, two-page spread) that a Daily Production photo
+routinely shows flock blocks split across TWO separate physical tables — a
+main table on one page, a shorter continuation table on the facing page,
+often sitting below unrelated handwritten arithmetic that made it easy for
+the model to treat as "not part of the register." The original prompt
+described "flock blocks stacked vertically" as if there were a single
+stack, which is exactly the framing that would make a model stop after the
+first, more prominent table. Fixed by rewriting the prompt to explicitly
+describe the two-page/two-table pattern and instruct the model to scan the
+entire photo, plus adding a self-reported `sections_found` count — not a
+correctness guarantee by itself, but it forces the model to consider the
+question and gives the app something concrete to log per upload.
+
+**Two-pass extraction:** first pass runs exactly as before, no reference
+photos attached, on every upload. Only flocks that end up flagged (low
+self-reported confidence or a structural validation mismatch) trigger a
+second pass — one batched call per upload (not per flagged flock) that
+re-sends the original photo plus up to 4 reference photos, pulled directly
+from rows the owner has already confirmed correct on `/flagged`
+(`reviewed_by_owner = true`, `flagged = false`) — no separate curation step.
+A recheck's value only overwrites the first-pass value if it comes back at
+confidence ≥0.6 and at least as confident as the original read; otherwise
+the row stays flagged with its original reasons, same as if no recheck had
+run. Before enough rows have been reviewed to supply references, the second
+pass simply has nothing to draw on and the row stays flagged for manual
+review — same fallback as today, just reached from a different path.
+Batching into one call per upload (rather than one per flagged flock)
+matters for cost: the reference photos are the expensive part of this call,
+and a handwriting-heavy page can flag several flocks at once.
+
 ## Noted for later phases (no Phase 1 action)
 
 - **Trays-vs-eggs magnitude heuristic (owner addendum, 2026-07-09):** register
