@@ -347,6 +347,52 @@ match now resolves all 10 cleanly, it was formatting; if any still land in
 `unresolved_extractions`, that specific label's history coverage needs a
 look next.
 
+## Phase 3 increment 5: drop shed_code from extraction; HD% trace (2026-09-18)
+
+**shed_code no longer extracted (owner decision):** it was adding noise,
+not signal — a low-confidence read of it could flag an entire row via the
+low-confidence-on-any-field rule even when the six fields that actually
+matter (label + the five `RECHECKABLE_FIELDS`) were all read cleanly, and
+unlike those five it was never part of any structural validation rule to
+begin with. Removed from `ExtractedFlockRow`, the tool schema (including
+its own `required` list and the per-field `confidence` object), and the
+prompt text in `lib/extraction/dailyProduction.ts`. The
+`daily_production.shed_code` **column stays** — manual entry
+(`ProductionEntryForm.tsx`) still writes it — this is purely an extraction
+scope change, not a schema change. Downstream call sites in
+`app/upload/actions.ts` now pass `shedCode: null` explicitly; the
+"Unmatched flock labels" table on `/flagged` dropped its Shed column since
+it would always read empty for extraction-sourced rows now.
+
+**HD% ~10x-off trace (owner report on BAB-9):** grepped every file in the
+repo referencing `hd_percent`, `eggs_total`, or `bird_population`. There is
+exactly one place HD% math happens — `fn_validate_daily_production` Rule 1,
+`eggs_total / bird_population * 100` — the standard hen-day-percent
+formula, and it's identical between the 0006 version (superseded) and the
+0007 version that's actually live. `hd_percent` itself is never computed or
+overwritten anywhere else; it's stored exactly as extracted or as typed
+manually. Also checked both INSERT statements that populate
+`daily_production` for a column-order/swap bug (a "wrong column read into
+the formula," per the owner's own hypothesis) — none found; parameter
+order matches column order in both `lib/extraction/writeDailyProduction.ts`
+and `app/production/actions.ts`.
+
+**Conclusion: no divisor bug found in this code.** The formula divides
+exactly the two numbers it should. A clean ~10x discrepancy is far more
+consistent with a genuine misread of one of the three numbers involved
+(`eggs_total`, `bird_population`, or the written `hd_percent` itself) — a
+decimal-point placement error is the classic way a handwritten or
+photographed percentage ends up exactly ~10x off, and this system has no
+way to detect that from the numbers alone (a plausible-looking wrong
+number passes the same arithmetic check a correct one would, just at the
+wrong scale). Rather than guess further without BAB-9's actual stored
+values, migration `0012` makes every future HD% mismatch self-diagnosing:
+the flag reason now states `eggs_total` and `bird_population` directly
+(`"HD% mismatch: written X%, calculated Y% (E eggs / B birds x 100)"`),
+visible on `/flagged` with no second lookup — satisfies "trace exactly
+which two numbers it's dividing" as a standing feature, not a one-time
+debugging answer.
+
 ## Noted for later phases (no Phase 1 action)
 
 - **Trays-vs-eggs magnitude heuristic (owner addendum, 2026-07-09):** register

@@ -143,15 +143,14 @@ export async function uploadAndExtractDailyProduction(
           // row like this CAN live until it's resolved.
           await client.query(
             `INSERT INTO unresolved_extractions
-                 (farm_code, register_type, date, display_label_as_written, shed_code,
+                 (farm_code, register_type, date, display_label_as_written,
                   mortality, feed_bags, eggs_total, bird_population, hd_percent,
                   ocr_confidence, source_photo_url, sections_found, page_notes)
-             VALUES ($1,'daily_production',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+             VALUES ($1,'daily_production',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
             [
               ACTIVE_FARM,
               date,
               flock.display_label_as_written,
-              flock.shed_code,
               flock.mortality,
               flock.feed_bags,
               flock.eggs_total,
@@ -174,7 +173,10 @@ export async function uploadAndExtractDailyProduction(
           match.flockInternalId,
           {
             displayLabelAsWritten: flock.display_label_as_written,
-            shedCode: flock.shed_code,
+            // shed_code is no longer extracted (owner decision, 2026-09-18)
+            // — the column stays for manual entry, extraction just doesn't
+            // populate it.
+            shedCode: null,
             mortality: flock.mortality,
             feedBags: flock.feed_bags,
             eggsTotal: flock.eggs_total,

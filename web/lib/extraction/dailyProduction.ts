@@ -19,9 +19,16 @@ export type RecheckableField = (typeof RECHECKABLE_FIELDS)[number];
 // to ignore those blocks rather than half-extract them, since the write
 // paths for those two tables aren't wired up yet. That's the next increment,
 // not this one.
+//
+// shed_code is deliberately NOT extracted (owner decision, 2026-09-18): it
+// was adding noise, not signal — a low-confidence read of it could flag an
+// entire row (via the low-confidence-on-any-field rule) even when every
+// number the row actually needs was read cleanly, and unlike the five
+// fields below it was never part of any structural validation rule. The
+// daily_production.shed_code COLUMN still exists (manual entry can still
+// set it) — this only stops the extraction pass from asking for it.
 export interface ExtractedFlockRow {
   display_label_as_written: string;
-  shed_code: string | null;
   mortality: number | null;
   feed_bags: number | null;
   eggs_total: number | null;
@@ -29,7 +36,6 @@ export interface ExtractedFlockRow {
   hd_percent: number | null;
   confidence: {
     display_label: number;
-    shed_code: number;
     mortality: number;
     feed_bags: number;
     eggs_total: number;
@@ -85,7 +91,6 @@ const EXTRACT_TOOL = {
               type: "string",
               description: "The flock block header exactly as written, e.g. 'BAB-I'. Never normalize or guess a different label.",
             },
-            shed_code: { type: ["string", "null"] },
             mortality: {
               type: ["number", "null"],
               description: "The 'Mort' column — the day's-end total, NOT the stacked first-row sub-number if one is shown.",
@@ -99,7 +104,6 @@ const EXTRACT_TOOL = {
               description: "0.0-1.0 self-assessed confidence per field, independent of any arithmetic check.",
               properties: {
                 display_label: { type: "number" },
-                shed_code: { type: "number" },
                 mortality: { type: "number" },
                 feed_bags: { type: "number" },
                 eggs_total: { type: "number" },
@@ -107,13 +111,13 @@ const EXTRACT_TOOL = {
                 hd_percent: { type: "number" },
               },
               required: [
-                "display_label", "shed_code", "mortality", "feed_bags",
+                "display_label", "mortality", "feed_bags",
                 "eggs_total", "bird_population", "hd_percent",
               ],
             },
           },
           required: [
-            "display_label_as_written", "shed_code", "mortality", "feed_bags",
+            "display_label_as_written", "mortality", "feed_bags",
             "eggs_total", "bird_population", "hd_percent", "confidence",
           ],
         },
@@ -130,7 +134,6 @@ CRITICAL — do not stop after the first table you find. This is very often a ph
 Field mapping (extract exactly these, nothing else) — apply to EVERY flock block in EVERY section you find:
 - Date at the top of the page.
 - Each flock block's header text, EXACTLY as written (do not normalize "BAB-I" to "BAB-1" or vice versa, do not guess a label based on sequence).
-- The row under the flock name (often just a shed identifier).
 - "Mort" column: the day's-end total for that flock. Some pages show a stacked pair of numbers (a running sub-total and a day total) — take the day's-end total, not the cumulative/stacked sub-number.
 - "Feed" column: bags issued.
 - "Total" column: total eggs. Ignore the "I" and "II" sub-columns entirely — they are not used at this farm.

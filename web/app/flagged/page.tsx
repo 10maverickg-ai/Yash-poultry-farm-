@@ -50,7 +50,6 @@ export default async function FlaggedPage() {
                 <table>
                   <thead>
                     <tr>
-                      <th>Shed</th>
                       <th>Mort</th>
                       <th>Feed</th>
                       <th>Total eggs</th>
@@ -60,7 +59,6 @@ export default async function FlaggedPage() {
                   </thead>
                   <tbody>
                     <tr>
-                      <td>{item.shed_code ?? "—"}</td>
                       <td>{item.mortality ?? "—"}</td>
                       <td>{item.feed_bags ?? "—"}</td>
                       <td>{item.eggs_total ?? "—"}</td>
