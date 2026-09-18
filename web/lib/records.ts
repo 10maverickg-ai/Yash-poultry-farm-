@@ -174,3 +174,36 @@ export async function listFlagged(): Promise<FlaggedItem[]> {
   ];
   return items.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
 }
+
+export interface UnresolvedExtraction {
+  id: number;
+  register_type: string;
+  date: string;
+  display_label_as_written: string;
+  shed_code: string | null;
+  mortality: number | null;
+  feed_bags: number | null;
+  eggs_total: number | null;
+  bird_population: number | null;
+  hd_percent: string | null;
+  source_photo_url: string | null;
+  sections_found: number | null;
+}
+
+// Extracted rows whose label didn't match any flock active on that date,
+// even after forgiving-formatting normalization (lib/extraction/flockMatch.ts)
+// — raw numbers preserved, never discarded, waiting for the owner to pick
+// the right flock on /flagged.
+export async function listUnresolvedExtractions(): Promise<UnresolvedExtraction[]> {
+  const { rows } = await pool.query(
+    `SELECT id, register_type, date, display_label_as_written, shed_code,
+            mortality, feed_bags, eggs_total, bird_population, hd_percent,
+            source_photo_url, sections_found
+       FROM unresolved_extractions
+      WHERE farm_code = $1 AND resolved_at IS NULL
+      ORDER BY date DESC, display_label_as_written
+      LIMIT 100`,
+    [ACTIVE_FARM]
+  );
+  return rows;
+}

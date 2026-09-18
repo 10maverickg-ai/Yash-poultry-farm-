@@ -1,11 +1,17 @@
 import Link from "next/link";
-import { listFlagged } from "@/lib/records";
-import { markReviewed } from "./actions";
+import { listFlagged, listUnresolvedExtractions } from "@/lib/records";
+import { listFlocks } from "@/lib/flocks";
+import { markReviewed, resolveExtraction } from "./actions";
 
 export const dynamic = "force-dynamic";
 
 export default async function FlaggedPage() {
-  const items = await listFlagged();
+  const [items, unresolved, flocks] = await Promise.all([
+    listFlagged(),
+    listUnresolvedExtractions(),
+    listFlocks(),
+  ]);
+  const activeFlocks = flocks.filter((f) => f.status === "active");
 
   return (
     <>
@@ -15,6 +21,91 @@ export default async function FlaggedPage() {
         Fix a data error on its entry screen (re-saving re-checks and clears
         the flag), or mark a genuine event as reviewed to acknowledge it.
       </p>
+
+      {unresolved.length > 0 && (
+        <>
+          <h2>Unmatched flock labels</h2>
+          <p className="muted">
+            Read from a photo, but the label didn&apos;t match any active
+            flock — not even after allowing for spacing, case, or minor
+            punctuation differences. Nothing here is lost: pick the flock it
+            actually belongs to below and the numbers save normally.
+          </p>
+          {unresolved.map((item) => (
+            <div key={`unresolved-${item.id}`} className="card stack">
+              <h3 style={{ margin: 0 }}>
+                &ldquo;{item.display_label_as_written}&rdquo;{" "}
+                <span className="muted">· {item.date}</span>
+              </h3>
+              <div className="flag-banner">
+                Could not match this label to a known flock — please confirm.
+              </div>
+              {item.sections_found !== null && (
+                <p className="muted" style={{ margin: 0 }}>
+                  Model reported {item.sections_found} flock table section
+                  {item.sections_found === 1 ? "" : "s"} found in this photo.
+                </p>
+              )}
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Shed</th>
+                      <th>Mort</th>
+                      <th>Feed</th>
+                      <th>Total eggs</th>
+                      <th>Bal bird</th>
+                      <th>%</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td>{item.shed_code ?? "—"}</td>
+                      <td>{item.mortality ?? "—"}</td>
+                      <td>{item.feed_bags ?? "—"}</td>
+                      <td>{item.eggs_total ?? "—"}</td>
+                      <td>{item.bird_population ?? "—"}</td>
+                      <td>{item.hd_percent ?? "—"}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              {item.source_photo_url && (
+                <a href={item.source_photo_url} target="_blank" rel="noreferrer">
+                  {
+                    // eslint-disable-next-line @next/next/no-img-element -- external Supabase Storage URL, no next/image loader configured for it
+                    <img
+                      src={item.source_photo_url}
+                      alt={`Source register photo for "${item.display_label_as_written}"`}
+                      className="flagged-photo-thumb"
+                    />
+                  }
+                </a>
+              )}
+              <form action={resolveExtraction.bind(null, item.id)} className="actions-bar" style={{ marginBottom: 0 }}>
+                <label className="field" style={{ flex: 1, minWidth: 200 }}>
+                  <span>This is actually…</span>
+                  <select name="flockInternalId" required defaultValue="">
+                    <option value="" disabled>
+                      Choose a flock
+                    </option>
+                    {activeFlocks.map((f) => (
+                      <option key={f.flock_internal_id} value={f.flock_internal_id}>
+                        {f.display_label}
+                        {f.current_shed ? ` — ${f.current_shed}` : ""}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <button type="submit" className="btn">
+                  Save to this flock
+                </button>
+              </form>
+            </div>
+          ))}
+          <h2>Flagged records</h2>
+        </>
+      )}
 
       {items.length === 0 ? (
         <p className="card muted">

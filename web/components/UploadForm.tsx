@@ -140,8 +140,9 @@ export function UploadForm() {
             <div className="error-banner">
               Could not match {result.unresolved.length === 1 ? "this label" : "these labels"} to
               any flock active on {result.date}: <strong>{result.unresolved.join(", ")}</strong>.
-              These rows were NOT saved. Check the Flock Register — this usually means a
-              renumbering event hasn&apos;t been logged yet, or the label was misread.
+              The numbers were saved — nothing was lost — but need you to pick the
+              right flock.{" "}
+              <Link href="/flagged">Resolve on the Flagged page</Link>.
             </div>
           )}
 

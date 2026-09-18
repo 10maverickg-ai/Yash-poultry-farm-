@@ -294,6 +294,59 @@ itself is unchanged (owner confirmed: write immediately, flag for review,
 same as manual entry already works) — this only narrows what the
 *downstream mirror* is allowed to trust.
 
+**Multi-section fix confirmed working (2026-09-18):** the Aug 1 live test
+proved the vision/prompt side is genuinely fixed — the model's own notes
+show it correctly found both table sections with the right subtotals. But
+every one of the 10 flocks then failed to write a row: `resolve_flock_internal_id`
+did (and by design was always meant to do) an exact, case-sensitive,
+whitespace-sensitive string match between the extracted label and
+`flock_label_history.display_label`. A handwritten register will never be
+that literal day to day — "BAB 1" vs "BAB-1" is normal variation, not an
+error — and the old code treated any such mismatch as "this flock doesn't
+exist," discarding the row's numbers entirely (only ever visible in the
+ephemeral upload-result screen, gone the moment the owner navigated away).
+
+## Phase 3 increment 4: forgiving label matching + never lose extracted data (2026-09-18)
+
+**Fuzzy matching (`lib/extraction/flockMatch.ts`):** labels are now
+compared after normalizing case, whitespace, hyphen-vs-space-vs-nothing,
+and leading zeros — "BAB 1", "Bab-1", "bab1", and "BAB-01" all normalize to
+the same form as the stored "BAB-1". Deliberately NOT edit-distance /
+typo-tolerant matching on the identifying digits themselves: this farm's
+labels (BAB-1 .. BAB-10) differ from each other by exactly one character,
+so treating a one-character difference as "probably the same flock" would
+risk silently filing one flock's numbers under a different real flock's
+identity — confirmed safe by testing that all ten labels still normalize to
+ten distinct forms, no collisions.
+
+**Never silently drop unmatched data:** even after normalization, a label
+that matches zero (or, in the case of a `flock_label_history` data problem,
+more than one) active flocks used to mean the row was discarded outright —
+`daily_production.flock_internal_id` is `NOT NULL` (Phase 1, owner-approved),
+so there was nowhere else for it to go. New `unresolved_extractions` table
+(migration `0011`) holds the raw numbers plus the exact as-written label
+instead; `/flagged` gets a new "Unmatched flock labels" section showing
+those numbers with a dropdown of active flocks, and picking one calls
+`resolveExtraction` (`app/flagged/actions.ts`), which writes a normal
+`daily_production` row via the same `insertDailyProductionRow` helper the
+upload path itself uses — new shared module
+(`lib/extraction/writeDailyProduction.ts`) so the insert/validate/flag logic
+isn't duplicated a third time. `register_type` is a text discriminator, not
+an enum, so Egg Stock Ledger and Feed Bag Stock extraction can reuse this
+same holding table later without another migration.
+
+**Open question, not yet resolved:** why did all 10 labels fail uniformly
+rather than a handful — a fully systematic formatting difference (e.g. the
+model consistently writing "BAB 1" with a space because that's how the
+label and number are visually stacked on the page) and a `flock_label_history`
+date-coverage gap for 2026-08-01 would both present as "100% failure," and
+this sandbox has no way to query the live database to tell them apart.
+Asked the owner to check `flock_label_history` coverage for that date
+directly in Supabase's Table Editor as a parallel diagnostic. If the fuzzy
+match now resolves all 10 cleanly, it was formatting; if any still land in
+`unresolved_extractions`, that specific label's history coverage needs a
+look next.
+
 ## Noted for later phases (no Phase 1 action)
 
 - **Trays-vs-eggs magnitude heuristic (owner addendum, 2026-07-09):** register

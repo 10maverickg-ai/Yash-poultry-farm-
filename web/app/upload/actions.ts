@@ -8,6 +8,8 @@ import { extractDailyProduction } from "@/lib/extraction/dailyProduction";
 import { getReferenceExamples } from "@/lib/extraction/references";
 import { reextractFlaggedFlocks, impliedFields, type FlockRecheckRequest } from "@/lib/extraction/reextract";
 import type { RecheckableField } from "@/lib/extraction/dailyProduction";
+import { getActiveLabels, matchFlockLabel } from "@/lib/extraction/flockMatch";
+import { insertDailyProductionRow } from "@/lib/extraction/writeDailyProduction";
 
 export interface UploadOutcome {
   error: string | null;
@@ -24,11 +26,13 @@ export interface UploadOutcome {
     // reached them, not just flagged and left alone.
     autoRechecked: boolean;
   }[];
-  // Labels the model read but that don't resolve to any flock active on that
-  // date via flock_label_history — daily_production.flock_internal_id is
-  // NOT NULL, so these genuinely cannot be written as rows. Surfaced
-  // directly here rather than silently dropped: usually means an unlogged
-  // renumbering event, or the label was misread.
+  // Labels the model read that don't match any flock active on that date,
+  // even after forgiving-formatting matching (see lib/extraction/flockMatch.ts).
+  // These are NOT discarded — their raw numbers are saved to
+  // unresolved_extractions (visible on /flagged, "Unmatched flock labels")
+  // so the owner can manually point them at the right flock without ever
+  // having to re-read the photo or re-type the numbers. This array is just
+  // the as-written labels, for the immediate on-screen summary.
   unresolved: string[];
 }
 
@@ -121,70 +125,67 @@ export async function uploadAndExtractDailyProduction(
 
   try {
     await withTransaction(async (client) => {
+      // Fetched once per upload (every flock on this photo shares the same
+      // date) rather than resolved one label at a time — needed anyway so
+      // fuzzy matching has the full candidate list to normalize against.
+      const activeLabels = await getActiveLabels(client, ACTIVE_FARM, date);
+
       for (const flock of extraction.flocks) {
-        const { rows: resolvedRows } = await client.query(
-          `SELECT resolve_flock_internal_id($1, $2, $3) AS flock_id`,
-          [ACTIVE_FARM, flock.display_label_as_written, date]
-        );
-        const flockId: string | null = resolvedRows[0].flock_id;
-        if (!flockId) {
+        const match = matchFlockLabel(flock.display_label_as_written, activeLabels);
+
+        if (!match.flockInternalId) {
+          // No flock matches this label, even after forgiving-formatting
+          // normalization — genuinely don't know which flock this is. The
+          // raw numbers are never discarded: they're saved here so the
+          // owner can manually match them on /flagged without re-reading
+          // the photo. daily_production.flock_internal_id is NOT NULL
+          // (Phase 1, owner-approved), so this table is the only place a
+          // row like this CAN live until it's resolved.
+          await client.query(
+            `INSERT INTO unresolved_extractions
+                 (farm_code, register_type, date, display_label_as_written, shed_code,
+                  mortality, feed_bags, eggs_total, bird_population, hd_percent,
+                  ocr_confidence, source_photo_url, sections_found, page_notes)
+             VALUES ($1,'daily_production',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+            [
+              ACTIVE_FARM,
+              date,
+              flock.display_label_as_written,
+              flock.shed_code,
+              flock.mortality,
+              flock.feed_bags,
+              flock.eggs_total,
+              flock.bird_population,
+              flock.hd_percent,
+              JSON.stringify(flock.confidence),
+              photoUrl,
+              extraction.sections_found,
+              extraction.page_notes,
+            ]
+          );
           unresolved.push(flock.display_label_as_written);
           continue;
         }
 
-        const { rows } = await client.query(
-          `INSERT INTO daily_production
-               (date, farm_code, flock_internal_id, display_label_as_written,
-                shed_code, mortality, feed_bags, eggs_total, bird_population,
-                hd_percent, ocr_confidence, source_photo_url, sections_found, page_notes)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
-           ON CONFLICT (flock_internal_id, date) DO UPDATE SET
-               display_label_as_written = EXCLUDED.display_label_as_written,
-               shed_code       = EXCLUDED.shed_code,
-               mortality       = EXCLUDED.mortality,
-               feed_bags       = EXCLUDED.feed_bags,
-               eggs_total      = EXCLUDED.eggs_total,
-               bird_population = EXCLUDED.bird_population,
-               hd_percent      = EXCLUDED.hd_percent,
-               ocr_confidence  = EXCLUDED.ocr_confidence,
-               source_photo_url = EXCLUDED.source_photo_url,
-               sections_found  = EXCLUDED.sections_found,
-               page_notes      = EXCLUDED.page_notes,
-               reviewed_by_owner = false
-           RETURNING id`,
-          [
-            date,
-            ACTIVE_FARM,
-            flockId,
-            flock.display_label_as_written,
-            flock.shed_code,
-            flock.mortality,
-            flock.feed_bags,
-            flock.eggs_total,
-            flock.bird_population,
-            flock.hd_percent,
-            JSON.stringify(flock.confidence),
-            photoUrl,
-            extraction.sections_found,
-            extraction.page_notes,
-          ]
+        const { rowId, reasons } = await insertDailyProductionRow(
+          client,
+          ACTIVE_FARM,
+          date,
+          match.flockInternalId,
+          {
+            displayLabelAsWritten: flock.display_label_as_written,
+            shedCode: flock.shed_code,
+            mortality: flock.mortality,
+            feedBags: flock.feed_bags,
+            eggsTotal: flock.eggs_total,
+            birdPopulation: flock.bird_population,
+            hdPercent: flock.hd_percent,
+            confidence: flock.confidence,
+            sourcePhotoUrl: photoUrl,
+            sectionsFound: extraction.sections_found,
+            pageNotes: extraction.page_notes,
+          }
         );
-        const rowId: number = rows[0].id;
-
-        // Same structural validation the manual entry screen uses — runs
-        // independent of the model's own confidence score, per the
-        // extraction spec ("independent of OCR confidence").
-        const { rows: valRows } = await client.query(
-          `SELECT fn_validate_daily_production($1) AS reasons`,
-          [rowId]
-        );
-        const reasons: string[] = valRows[0].reasons;
-        // Low self-reported confidence on any field is itself a flag trigger,
-        // per the extraction spec's flag-triggers list.
-        const lowConfidence = Object.entries(flock.confidence).filter(([, v]) => v < 0.6);
-        for (const [field] of lowConfidence) {
-          reasons.push(`low OCR confidence on ${field}`);
-        }
 
         if (reasons.length > 0) {
           const fields = impliedFields(reasons);
@@ -196,16 +197,13 @@ export async function uploadAndExtractDailyProduction(
               confidence: { ...flock.confidence },
               reasons,
             });
-            // Finalized below, after the batched second pass — skip the
-            // usual flagged/flag_reason write for this row for now.
+            // Finalized below, after the batched second pass — the row is
+            // already saved with its first-pass flagged/flag_reason from
+            // insertDailyProductionRow, which the second pass may overwrite.
             continue;
           }
         }
 
-        await client.query(
-          `UPDATE daily_production SET flagged = $2, flag_reason = $3 WHERE id = $1`,
-          [rowId, reasons.length > 0, reasons.length > 0 ? reasons.join("; ") : null]
-        );
         written.push({
           label: flock.display_label_as_written,
           flagged: reasons.length > 0,
