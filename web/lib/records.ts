@@ -107,12 +107,18 @@ export interface FlaggedItem {
   flag_reason: string | null;
   entry_href: string; // where to fix it
   source_photo_url: string | null; // set once Phase 3 extraction writes it
+  // Daily Production rows written by photo extraction only — the model's
+  // self-reported count of distinct flock-table blocks found in the source
+  // photo. Lets the owner check a specific upload's diagnostics right here
+  // instead of hunting through Vercel logs. Null for manual entries, rows
+  // from before this column existed, or non-production sources.
+  sections_found: number | null;
 }
 
 export async function listFlagged(): Promise<FlaggedItem[]> {
   const [prod, egg, feed] = await Promise.all([
     pool.query(
-      `SELECT id, date, display_label_as_written AS label, flag_reason, source_photo_url
+      `SELECT id, date, display_label_as_written AS label, flag_reason, source_photo_url, sections_found
          FROM daily_production
         WHERE farm_code = $1 AND flagged AND NOT reviewed_by_owner
         ORDER BY date DESC LIMIT 100`,
@@ -143,6 +149,7 @@ export async function listFlagged(): Promise<FlaggedItem[]> {
       flag_reason: r.flag_reason,
       entry_href: `/production?date=${r.date}`,
       source_photo_url: r.source_photo_url,
+      sections_found: r.sections_found,
     })),
     ...egg.rows.map((r) => ({
       source: "egg_stock" as const,
@@ -152,6 +159,7 @@ export async function listFlagged(): Promise<FlaggedItem[]> {
       flag_reason: r.flag_reason,
       entry_href: `/egg-stock?date=${r.date}`,
       source_photo_url: r.source_photo_url,
+      sections_found: null,
     })),
     ...feed.rows.map((r) => ({
       source: "feed_stock" as const,
@@ -161,6 +169,7 @@ export async function listFlagged(): Promise<FlaggedItem[]> {
       flag_reason: r.flag_reason,
       entry_href: `/feed-stock?date=${r.date}`,
       source_photo_url: r.source_photo_url,
+      sections_found: null,
     })),
   ];
   return items.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));

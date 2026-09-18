@@ -100,6 +100,11 @@ export async function saveProduction(
 
       // Also update each saved flock's latest known population (mirrors the
       // schema note: current_bird_count is the latest daily figure).
+      // Flagged rows are excluded both as the source AND from the "later
+      // reading exists" check — an unreviewed flagged entry (this screen's
+      // own validation can flag a manual entry too, e.g. an HD% mismatch
+      // that suggests a typo) must not push a wrong number into the live
+      // flock register before the owner has reviewed it.
       await client.query(
         `UPDATE flocks f
             SET current_bird_count = dp.bird_population
@@ -107,10 +112,12 @@ export async function saveProduction(
           WHERE dp.flock_internal_id = f.flock_internal_id
             AND dp.date = $1
             AND dp.bird_population IS NOT NULL
+            AND dp.flagged = false
             AND NOT EXISTS (
                 SELECT 1 FROM daily_production later
                  WHERE later.flock_internal_id = f.flock_internal_id
                    AND later.date > $1 AND later.bird_population IS NOT NULL
+                   AND later.flagged = false
             )`,
         [date]
       );

@@ -256,6 +256,44 @@ Batching into one call per upload (rather than one per flagged flock)
 matters for cost: the reference photos are the expensive part of this call,
 and a handwriting-heavy page can flag several flocks at once.
 
+**Correction (2026-09-18):** the live test on the real Aug 1 two-section
+photo showed the prompt fix above did NOT resolve the bug — BAB-1 through
+BAB-7 were still completely missing from the extraction (no row, no flag,
+nothing), only BAB-8/9/10 came through. The root cause is still open; see
+the next entry for the diagnostic groundwork needed to actually
+distinguish "model still isn't seeing the second table" from "it saw both
+but something downstream dropped one" before attempting another fix.
+
+## Phase 3 increment 3: extraction diagnostics in the DB, not just logs (2026-09-18)
+
+Every diagnostic from the extraction call (`sections_found`, `page_notes`)
+was previously console.log'd only — visible in Vercel's function logs,
+which the owner cannot reliably reach from the mobile interface. Added
+`sections_found` and `page_notes` columns directly on `daily_production`
+(migration `0010_extraction_diagnostics.sql`), populated by every photo
+upload and surfaced on `/flagged` right under the flag reason. Follows the
+same denormalized pattern already used for `source_photo_url`: these are
+properties of the whole photo/extraction call, not of any one flock, so
+every flock row from one upload carries identical values — redundant, but
+visible per-row in Supabase's Table Editor with no join and no log access
+needed. This is what actually lets us tell apart the two candidate causes
+of the still-open multi-section bug: `sections_found = 1` means the model
+never saw the second table at all; `sections_found = 2` with flocks still
+missing means extraction found both but something downstream dropped one.
+
+**`flocks.current_bird_count` mirror — flagged rows excluded (owner
+request, 2026-09-18):** the mirror-update query (present in both the photo
+upload path and manual production entry — same query, same bug in both
+places) previously used the latest dated `bird_population` reading
+regardless of `flagged` status. Fixed in both places: a flagged row is now
+excluded both as the update's source AND from the "does a later reading
+exist" check, so an unreviewed OCR misread — or an unreviewed manual-entry
+typo — can no longer push a wrong number into the live flock register
+before the owner reviews it on `/flagged`. Flagged-data write behavior
+itself is unchanged (owner confirmed: write immediately, flag for review,
+same as manual entry already works) — this only narrows what the
+*downstream mirror* is allowed to trust.
+
 ## Noted for later phases (no Phase 1 action)
 
 - **Trays-vs-eggs magnitude heuristic (owner addendum, 2026-07-09):** register

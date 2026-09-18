@@ -28,6 +28,12 @@ export default async function FlaggedPage() {
               {item.title} <span className="muted">· {item.date}</span>
             </h2>
             <div className="flag-banner">{item.flag_reason ?? "flagged"}</div>
+            {item.sections_found !== null && (
+              <p className="muted" style={{ margin: 0 }}>
+                Model reported {item.sections_found} flock table section
+                {item.sections_found === 1 ? "" : "s"} found in this photo.
+              </p>
+            )}
             {item.source_photo_url && (
               <a href={item.source_photo_url} target="_blank" rel="noreferrer">
                 {

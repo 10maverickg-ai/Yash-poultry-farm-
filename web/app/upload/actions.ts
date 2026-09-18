@@ -136,8 +136,8 @@ export async function uploadAndExtractDailyProduction(
           `INSERT INTO daily_production
                (date, farm_code, flock_internal_id, display_label_as_written,
                 shed_code, mortality, feed_bags, eggs_total, bird_population,
-                hd_percent, ocr_confidence, source_photo_url)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+                hd_percent, ocr_confidence, source_photo_url, sections_found, page_notes)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
            ON CONFLICT (flock_internal_id, date) DO UPDATE SET
                display_label_as_written = EXCLUDED.display_label_as_written,
                shed_code       = EXCLUDED.shed_code,
@@ -148,6 +148,8 @@ export async function uploadAndExtractDailyProduction(
                hd_percent      = EXCLUDED.hd_percent,
                ocr_confidence  = EXCLUDED.ocr_confidence,
                source_photo_url = EXCLUDED.source_photo_url,
+               sections_found  = EXCLUDED.sections_found,
+               page_notes      = EXCLUDED.page_notes,
                reviewed_by_owner = false
            RETURNING id`,
           [
@@ -163,6 +165,8 @@ export async function uploadAndExtractDailyProduction(
             flock.hd_percent,
             JSON.stringify(flock.confidence),
             photoUrl,
+            extraction.sections_found,
+            extraction.page_notes,
           ]
         );
         const rowId: number = rows[0].id;
@@ -289,6 +293,13 @@ export async function uploadAndExtractDailyProduction(
       }
 
       if (written.length > 0) {
+        // Flagged rows never feed this mirror — an unreviewed OCR read
+        // (e.g. a misread digit) must not silently push a wrong number into
+        // the live flock register before the owner has had a chance to
+        // catch it on /flagged. A flagged row is excluded both as the
+        // source of the update AND from the "is there a later reading"
+        // check below, since an unreviewed later row shouldn't be able to
+        // block an earlier CONFIRMED-clean reading from applying either.
         await client.query(
           `UPDATE flocks f
               SET current_bird_count = dp.bird_population
@@ -296,10 +307,12 @@ export async function uploadAndExtractDailyProduction(
             WHERE dp.flock_internal_id = f.flock_internal_id
               AND dp.date = $1
               AND dp.bird_population IS NOT NULL
+              AND dp.flagged = false
               AND NOT EXISTS (
                   SELECT 1 FROM daily_production later
                    WHERE later.flock_internal_id = f.flock_internal_id
                      AND later.date > $1 AND later.bird_population IS NOT NULL
+                     AND later.flagged = false
               )`,
           [date]
         );
