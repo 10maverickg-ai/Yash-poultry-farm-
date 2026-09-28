@@ -775,6 +775,29 @@ sandbox doesn't have (no ANTHROPIC_API_KEY, no WebKit browser reachable
 through the network policy here). The next real upload is the first true
 test of the prompt-level changes.
 
+**Follow-up, same day: owner confirmed the tray-of-30 question** ("a tray
+of egg sold is of 30 eggs per tray"). Fixing the answer surfaced a real
+gap in the increment above: the tray-of-30 signal was only ever consulted
+*inside* the readings-disagreement and digit-substitution-suggestion
+checks — a consistently-misread eggs figure (all three column copies
+agreeing with each other on the same wrong number, e.g. "315" read the
+same way three times) had no disagreement to catch it and sailed through
+un-flagged, even though the brief's section 4.2 explicitly asked for
+`eggs % 30 != 0` to be its own standalone flag-and-suggest trigger.
+Fixed: `writeDailyProduction.ts` now flags any saved `eggs_total` that
+isn't a multiple of 30 on its own, calling `suggestEggsCandidate` for a
+suggestion — still never auto-corrected, same as every other eggs
+suggestion in this pass. Verified against the Aug 1 BAB-9 fixture with
+all three readings set to agree with each other (315, 315, 315 — the
+harder, more realistic version of that test case, since a consistent
+misread naturally reproduces itself across repeated reads): now flags
+with "eggs_total 315 is not a multiple of 30 ... — suggested: 3150"
+independent of whether HD% also happens to catch it. `impliedFields`
+maps the new reason text to `eggs_total` so it joins the same automatic
+second-pass recheck as every other localized field flag. Prompt wording
+and code comments updated from "typically"/"a soft signal, not a hard
+rule" to stating the trays-of-30 convention as owner-confirmed.
+
 ## Noted for later phases (no Phase 1 action)
 
 - **Trays-vs-eggs magnitude heuristic (owner addendum, 2026-07-09):** register

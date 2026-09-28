@@ -234,7 +234,7 @@ DIGIT SHAPES — this specific writer's handwriting is easy to misread in a few 
 - 1 vs 7: a bare vertical stroke (maybe with a small flag at the top) is "1"; a stroke with a flat top bar and a diagonal descender is "7".
 - 5 vs 6, 4 vs 9: less common but seen — check these too if a number looks arithmetically odd.
 - A trailing zero is easy to drop entirely (e.g. writing "315" when "3150" is meant) — if an egg count looks unusually small compared to this flock's usual range, consider whether a zero was dropped.
-- Egg counts (the "Total" column, and its "I"/"II" siblings) on this register are typically written in whole trays of 30 eggs — i.e. usually a multiple of 30. This is a useful sanity check while reading, NOT a rule to force a number into: if what's actually written isn't a multiple of 30, write down exactly what's written and lower its confidence, don't round it to the nearest multiple of 30.
+- Egg counts (the "Total" column, and its "I"/"II" siblings) on this farm are ALWAYS counted in whole trays of 30 eggs, confirmed by the owner — every real figure is a multiple of 30. Use this as a strong sanity check: if what you're about to write isn't a multiple of 30, look again before finalizing it, since it's very likely a misread digit (a dropped zero, or a 3/8/1/7/5/6/4/9 confusion). This is still NOT a license to force a number to the nearest multiple of 30 if, after a careful second look, it genuinely reads differently — write down exactly what's written and lower its confidence instead. A downstream system also checks this and will flag it either way.
 
 Field mapping (extract exactly these, nothing else) — apply to EVERY flock block in EVERY section you find:
 - Date at the top of the page.

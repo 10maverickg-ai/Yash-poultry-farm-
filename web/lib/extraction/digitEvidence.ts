@@ -23,10 +23,15 @@ const DIGIT_CONFUSION_PAIRS: [string, string][] = [
 // one constant so the two stay in sync.
 export const HD_CORROBORATION_TOLERANCE = 0.15;
 
-/** eggs are sold/counted in trays of 30 (owner's register convention,
- * verified across all 30 flock-days in the Aug 1-3 fixtures and every
- * subtotal) — a soft signal, not a hard rule: see the standing question to
- * the owner in the report this shipped with. */
+/** Eggs are always counted in whole trays of 30 on this farm — owner-
+ * confirmed 2026-09-28 ("a tray of egg sold is of 30 eggs per tray"),
+ * and independently verified across all 30 flock-days in the Aug 1-3
+ * fixtures and every subtotal. Used as a flag-and-suggest signal (never
+ * an auto-correct) throughout this module and writeDailyProduction.ts —
+ * confirmed as a real rule of this farm's bookkeeping, not just an
+ * observed pattern, but still never strong enough alone to silently
+ * pick a value: a genuine partial tray or an unusual real figure could
+ * still legitimately not be a multiple of 30. */
 export function isMultipleOf30(n: number): boolean {
   return n % 30 === 0;
 }

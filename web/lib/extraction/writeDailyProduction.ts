@@ -1,5 +1,5 @@
 import type { PoolClient } from "pg";
-import { pickBestReading, isMultipleOf30, calcHd, hdWithinTolerance } from "./digitEvidence";
+import { pickBestReading, isMultipleOf30, calcHd, hdWithinTolerance, suggestEggsCandidate } from "./digitEvidence";
 
 export interface DailyProductionRowInput {
   displayLabelAsWritten: string;
@@ -218,6 +218,23 @@ export async function insertDailyProductionRow(
   }
   if (readingsDisagree(data.birdPopulationReadings)) {
     stableReasons.push(birdPopulationDisagreementReason(data.birdPopulationReadings!, data.eggsTotal, data.hdPercentWritten));
+  }
+  // Owner-confirmed, 2026-09-28: eggs on this register are always counted
+  // in whole trays of 30 — a saved eggs_total that isn't a multiple of 30
+  // is worth a flag on its own, even when every reading of it agreed with
+  // itself (readingsDisagree above only catches the case where the page's
+  // own repeated copies disagree with EACH OTHER; a value that's
+  // consistently misread the same wrong way every time needs this separate
+  // check). Never auto-corrected — only ever a flag with a suggestion, per
+  // the same "eggs are suggestion-only" rule as the digit-substitution
+  // search itself.
+  if (data.eggsTotal !== null && !isMultipleOf30(data.eggsTotal)) {
+    const suggestion = suggestEggsCandidate(data.eggsTotal, data.birdPopulation, data.hdPercentWritten);
+    stableReasons.push(
+      suggestion !== null
+        ? `eggs_total ${data.eggsTotal} is not a multiple of 30 (this farm counts eggs in trays of 30) — suggested: ${suggestion}`
+        : `eggs_total ${data.eggsTotal} is not a multiple of 30 (this farm counts eggs in trays of 30)`
+    );
   }
   if (data.extraReasons) {
     stableReasons.push(...data.extraReasons);

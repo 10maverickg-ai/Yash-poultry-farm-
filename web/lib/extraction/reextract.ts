@@ -167,6 +167,11 @@ export function impliedFields(reasons: string[]): RecheckableField[] {
       // flock's bird_population specifically (not eggs_total or hd_percent,
       // since the chain check already isolates the discrepancy there).
       set.add("bird_population");
+    } else if (r.startsWith("eggs_total ") && r.includes("not a multiple of 30")) {
+      // Owner-confirmed, 2026-09-28: eggs on this register are always
+      // whole trays of 30 — a saved figure that isn't one is worth a
+      // second look even when nothing else about the row looked wrong.
+      set.add("eggs_total");
     }
     // Deliberately NOT mapped here: a page-level checksum issue (see
     // pageChecksum.ts) never appears in a per-flock `reasons` array at all
