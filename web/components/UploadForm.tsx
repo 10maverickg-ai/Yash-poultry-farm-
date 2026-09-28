@@ -64,6 +64,11 @@ export function UploadForm() {
     <>
       <form action={formAction} className="stack card">
         {shownError && <div className="error-banner">{shownError}</div>}
+        {result?.technicalDetail && (
+          <p className="muted" style={{ margin: 0 }}>
+            Technical detail (for reporting this): {result.technicalDetail}
+          </p>
+        )}
         <label className="field">
           <span>
             Date on the page <span className="hint">(used if the photo&apos;s date isn&apos;t legible)</span>

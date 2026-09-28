@@ -157,7 +157,19 @@ export function impliedFields(reasons: string[]): RecheckableField[] {
       set.add("mortality");
     } else if (r.startsWith("bird_population increased")) {
       set.add("bird_population");
+    } else if (r.startsWith("eggs_total readings disagree")) {
+      set.add("eggs_total");
+    } else if (r.startsWith("bird_population readings disagree")) {
+      set.add("bird_population");
     }
+    // Deliberately NOT mapped here: "page checksum mismatch" — it's a
+    // page-wide discrepancy (individual flock reads vs. the page's own
+    // subtotal), not a signal that points at any ONE flock's field. Mapping
+    // it to eggs_total would auto-recheck every flagged row on the page for
+    // a single page-level discrepancy, which is expensive and no more
+    // likely to land on the actual culprit than owner review is. It still
+    // flags every row (so the page is visible on /flagged) — just doesn't
+    // trigger the batched recheck on its own.
   }
   return [...set];
 }

@@ -517,6 +517,139 @@ paired with matching `ON CONFLICT ... WHERE` clauses) — all 14
 migrations and 3 seeds applied cleanly, and the functional tests above
 were run against the resulting schema, not just reviewed by inspection.
 
+## Phase 3 increment 8: runaway-extraction defenses + digit-accuracy pass (2026-09-28)
+
+**Root cause of the Aug 2 upload failure (owner report):** a photo of the
+2026-08-02 register came back from extraction reporting 2774, then 2784,
+"flocks" for a 10-flock page — the model got stuck in a repetition loop
+instead of stopping once it had covered every flock. No schema change was
+needed to fix this (owner's explicit constraint) — everything below is
+prompt, application logic, and one new defensive layering, all in
+`lib/extraction/`.
+
+**Layered defenses, in the order they actually run:**
+1. **Schema hint:** `flocks` gained `maxItems: 20` (double the farm's
+   current 10-flock count, headroom for growth) — a strong hint to the
+   model, not a guarantee, since Anthropic's tool-use JSON schema isn't
+   grammar-enforced for array-length constraints the way `required`/types
+   are.
+2. **Token ceiling:** `max_tokens` is now a named, reasoned constant
+   (5000 — comfortably fits a genuine ~20-flock extraction with the richer
+   per-flock schema below, per the token-budget math in the code comment)
+   instead of an unexamined round number. A response that hits this ceiling
+   (`stop_reason === "max_tokens"`) is never trusted as a real result — it
+   throws `ExtractionTruncated` immediately, since a cut-off tool call's
+   JSON may be structurally patched up but isn't a genuine read of the page.
+3. **Dedupe + sanity check (`extractDailyProductionSafely`):** after
+   extraction, rows are deduped by normalized label (collapsing a harmless
+   verbatim repeat of the same flock down to one entry). If the *distinct*
+   count still exceeds active-flock-count + 2, that's treated as a real
+   failure, not a data-quality issue. Verified directly (not just by
+   inspection): a simulated 2774-row loop that just repeats the same 10
+   labels collapses to 10 (passes, upload proceeds normally); a simulated
+   loop of 500 *genuinely varying* labels stays at 500 distinct (correctly
+   fails) — dedup only forgives harmless exact repetition, never masks
+   actual hallucinated content.
+4. **One retry, stricter prompt:** on a first-pass failure (truncation or
+   the sanity check), a second attempt runs with an added instruction
+   naming exactly what likely went wrong ("you were repeating rows —
+   each flock appears exactly once, stop the moment you'd repeat a label").
+5. **Clean rejection, never saved:** if the retry also fails, the upload
+   returns a plain friendly error ("extraction returned an implausible
+   number of rows... please retry") and **no transaction is ever opened** —
+   this isn't "we chose not to call INSERT," there's structurally no DB
+   write path reachable for a rejected extraction.
+
+**Prefix normalization (owner report — "18AB-1", "13AB-1" both meaning
+BAB-1):** `normalizeFlockLabel` (`lib/extraction/flockMatch.ts`) gained a
+rule collapsing a leading 1-2 digit run immediately followed by "AB" to
+"BAB" — this scribe's "B" is sometimes misread as a stray digit or two,
+but the letters "AB" still come through, and a genuine "BAB-N" label never
+starts with a digit so this can't misfire on an already-correct one. Unit
+tested directly against all the reported garbled forms plus edge cases
+(hyphenated, spaced, no separator, a hypothetical real "BAB-18"). This
+also strengthens the dedupe step above, since it's the same normalization
+function.
+
+**Technical-detail line on save failure (owner report — "please retry"
+with nothing else to go on):** a DB write failure now also returns the
+real Postgres/driver error text (never the primary message — that stays
+plain — as a secondary "Technical detail" line on the page) so the owner
+has something concrete to relay when reporting a stuck upload.
+
+**Digit-accuracy pass, same upload flow:**
+- **Repeated-copy cross-check:** the register actually writes each flock's
+  egg figure up to three times (the "I", "II", "Total" columns) and, when a
+  flock's block spans two written lines, writes Bal Bird on both lines —
+  confirmed by zooming into the real sample photos (not assumed): "II" and
+  "Total" are NOT the same figure in general, and both lines of a two-line
+  block repeat the same numbers verbatim. The model now reads each
+  appearance independently into `eggs_total_readings`/
+  `bird_population_readings`; if they disagree, the row is flagged with
+  both readings spelled out directly in `flag_reason` (e.g. "eggs_total
+  readings disagree: 6270, 6270, 8679") — verified against the real
+  `insertDailyProductionRow` path on a local DB, both the disagreeing case
+  (correctly flagged, reasons in-place) and the agreeing case (correctly
+  left clean). These readings are diagnostic-only — they do NOT change
+  what gets saved to `eggs_total`/`bird_population`, matching this
+  system's standing rule of flagging for review rather than silently
+  picking between disagreeing reads.
+- **Page checksum:** the register's own subtotal row (previously read only
+  to know where a table ends, never for its own figure) is now captured
+  into `table_subtotals`; the app sums every flock's `eggs_total` and
+  compares against the page's own subtotal, flagging every row from the
+  upload on a mismatch. Deliberately does **not** auto-trigger a
+  second-pass recheck on its own (`impliedFields` in `reextract.ts`
+  explicitly excludes it) — a page-wide sum mismatch doesn't point at any
+  one flock's field, so auto-rechecking every flagged row on the page would
+  be expensive without being any more likely to land on the actual culprit
+  than owner review.
+- **Automatic second pass:** reuses the existing batched
+  `reextractFlaggedFlocks` mechanism (built in increment 2) rather than a
+  new one — `impliedFields` now recognizes the two readings-disagreement
+  reason strings and maps them to the right field, so a disagreeing row
+  automatically joins the same batched recheck call as any other flagged
+  field. **Scope cut, stated plainly:** the owner asked for this second
+  pass to run "cropped, at higher resolution." That part is NOT
+  implemented — doing it properly needs the model to return approximate
+  bounding-box coordinates for each flock block (a new capability with no
+  way to verify accuracy without live testing against the real vision API,
+  which this environment has no credentials for) plus a new image-cropping
+  dependency. The recheck re-sends the full photo, same as it already did
+  for every other flagged-field case. Flagged as a real follow-up, not
+  silently dropped.
+- **Compression settings:** `compressImageForUpload`'s defaults were
+  1600px/0.82 — shrinking a two-page-spread photo's already-small
+  handwritten digits before the model ever saw the page. Bumped to
+  2000px/0.9. Checked against two real sample photos: both are already
+  under 2000px on their long edge (no upscaling triggered), and a
+  from-scratch resize+recompress at the new settings stayed under 0.5MB,
+  comfortably inside the existing 7MB client-side / 8MB server-side limits.
+- **Few-shot digit examples:** two crops from an already-reviewed sample
+  page (BAB-2 and BAB-4/5 rows, chosen after visually confirming they
+  contain clean, unambiguous 3s, 8s, 1s, and 7s) are sent as extra image
+  content in every extraction call, with neutral factual captions ("this
+  row reads 8940... this row reads 3, 24...") rather than asserted
+  stroke-shape descriptions that couldn't be independently verified.
+  Embedded as base64 constants in `fewShotExamples.ts`, not read from disk
+  at runtime — nothing else in this codebase reads a bundled file inside a
+  serverless function, and relying on Next.js's file-tracing to correctly
+  include an `fs.readFileSync`'d asset would be a new, unverified
+  assumption; a base64 literal is unambiguously part of the compiled
+  module. Round-trip verified (decoded the embedded constants back to JPEG
+  bytes and confirmed an exact byte match against the source crops).
+
+**What could not be verified here:** every prompt change, the few-shot
+examples' actual effect on read accuracy, and the retry/reject flow's
+behavior against a REAL runaway response all depend on the Anthropic
+vision API, which this sandbox has no credentials for. What COULD be
+verified directly was verified directly (dedupe math against both a
+simulated repeating-loop and a simulated varying-hallucination case, the
+prefix normalization against every reported garbled form, the disagreement
+flagging and checksum-reason wiring against a live local database) rather
+than reviewed by inspection alone. The next real upload is the first true
+test of the prompt-level changes.
+
 ## Noted for later phases (no Phase 1 action)
 
 - **Trays-vs-eggs magnitude heuristic (owner addendum, 2026-07-09):** register

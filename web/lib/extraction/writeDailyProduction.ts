@@ -20,6 +20,27 @@ export interface DailyProductionRowInput {
   sourcePhotoUrl: string | null;
   sectionsFound: number | null;
   pageNotes: string | null;
+  // Digit-accuracy pass (owner report, 2026-09-28): independent readings of
+  // a value that's written more than once on the page (eggs_total: the
+  // "I"/"II"/"Total" columns; bird_population: both lines of a two-line
+  // flock block). Optional — the manual "resolve unmatched label" path that
+  // shares this function doesn't have these, and undefined simply skips the
+  // check. When present and the readings disagree, flags the row with both
+  // readings spelled out in flag_reason rather than silently picking one.
+  eggsTotalReadings?: (number | null)[];
+  birdPopulationReadings?: (number | null)[];
+  // Externally-computed reasons to merge into this row's flag_reason — e.g.
+  // a page-level checksum mismatch computed once per upload, not per row.
+  extraReasons?: string[];
+}
+
+/** True if two or more non-null readings of what's supposed to be the same
+ * figure disagree — a single reading, or all-null, can't disagree. */
+function readingsDisagree(readings: (number | null)[] | undefined): boolean {
+  if (!readings) return false;
+  const present = readings.filter((n): n is number => n !== null);
+  if (present.length < 2) return false;
+  return !present.every((n) => n === present[0]);
 }
 
 /**
@@ -93,6 +114,22 @@ export async function insertDailyProductionRow(
     for (const [field] of lowConfidence) {
       reasons.push(`low OCR confidence on ${field}`);
     }
+  }
+
+  // Digit-accuracy pass: a value written more than once on the page that
+  // doesn't agree with itself is worth a human look even if OCR confidence
+  // came back high on each individual read — high confidence on two
+  // different numbers just means the model was sure each time, not that it
+  // was right. Both readings go straight into flag_reason so the owner sees
+  // exactly what disagreed without opening the source photo first.
+  if (readingsDisagree(data.eggsTotalReadings)) {
+    reasons.push(`eggs_total readings disagree: ${data.eggsTotalReadings!.filter((n) => n !== null).join(", ")}`);
+  }
+  if (readingsDisagree(data.birdPopulationReadings)) {
+    reasons.push(`bird_population readings disagree: ${data.birdPopulationReadings!.filter((n) => n !== null).join(", ")}`);
+  }
+  if (data.extraReasons) {
+    reasons.push(...data.extraReasons);
   }
 
   await client.query(

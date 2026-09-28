@@ -8,7 +8,13 @@ export interface CompressOptions {
 
 export async function compressImageForUpload(
   file: File,
-  { maxDimension = 1600, quality = 0.82 }: CompressOptions = {}
+  // Digit-accuracy pass (owner report, 2026-09-28): 1600px/0.82 was
+  // shrinking small handwritten digits into a handful of pixels each on a
+  // typical two-page-spread register photo, making 3-vs-8 and 1-vs-7
+  // confusion more likely before the model ever sees the page. Long edge
+  // 2000px + quality 0.9 keeps digits meaningfully sharper while staying
+  // well under MAX_UPLOAD_BYTES (UploadForm.tsx) for a typical photo.
+  { maxDimension = 2000, quality = 0.9 }: CompressOptions = {}
 ): Promise<File> {
   try {
     const bitmap = await createImageBitmap(file);

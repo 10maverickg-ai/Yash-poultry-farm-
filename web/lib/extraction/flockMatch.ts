@@ -1,4 +1,4 @@
-import type { PoolClient } from "pg";
+import type { Pool, PoolClient } from "pg";
 
 export interface ActiveLabel {
   displayLabel: string;
@@ -21,6 +21,18 @@ export interface ActiveLabel {
 export function normalizeFlockLabel(label: string): string {
   let s = label.trim().toUpperCase();
   s = s.replace(/[\s_]+/g, "-"); // spaces/underscores -> hyphen
+
+  // This farm's flocks are always "BAB-<number>" (see the extraction
+  // prompt's LABELS section), but a handwritten "B" is sometimes OCR'd as a
+  // stray leading digit or two before the real "AB" is read correctly —
+  // observed on the 2026-08-02 page as "18AB-1" and "13AB-1" (both meaning
+  // BAB-1). A leading 1-2 digit run directly followed by "AB" is normalized
+  // to "BAB" here; the flock NUMBER itself (whatever follows "AB") is never
+  // touched — only the misread prefix is corrected, and only when it's
+  // unambiguously this specific pattern (a real "BAB-<n>" label never
+  // starts with a digit, so this can't misfire on an already-correct one).
+  s = s.replace(/^\d{1,2}-?AB(?![A-Z])/, "BAB");
+
   s = s.replace(/([A-Z]+)(\d)/g, "$1-$2"); // "BAB1" -> "BAB-1"
   s = s.replace(/(\d)([A-Z]+)/g, "$1-$2"); // "1BAB" -> "1-BAB"
   s = s.replace(/-+/g, "-").replace(/^-+|-+$/g, "");
@@ -30,9 +42,12 @@ export function normalizeFlockLabel(label: string): string {
 
 /** Every label active for this farm on this date, per flock_label_history —
  * fetched once per upload and matched against in memory, rather than one
- * query per flock. */
+ * query per flock. Takes a plain Pool as well as a transaction's PoolClient
+ * (both expose a compatible .query) so the upload flow can fetch this once,
+ * before opening the write transaction — needed to sanity-check a runaway
+ * extraction's row count before any DB work starts. */
 export async function getActiveLabels(
-  client: PoolClient,
+  client: Pool | PoolClient,
   farmCode: string,
   date: string
 ): Promise<ActiveLabel[]> {
@@ -120,4 +135,35 @@ export function matchFlockLabel(rawLabel: string, active: ActiveLabel[]): LabelM
   // misreading the untidy "BAB" prefix as stray digits/letters while
   // reading the actual flock number correctly).
   return matchByNumber(rawLabel, active);
+}
+
+/**
+ * Collapses rows sharing the same normalized label down to the first
+ * occurrence of each — a defense against a runaway extraction that repeats
+ * the same flock block over and over (owner report, 2026-09-28: a photo of
+ * the Aug 2 register came back with 2774+ "flocks" for a 10-flock page).
+ * This is a coarse sanity-check tool, not a data-quality mechanism: it
+ * doesn't try to pick the "best" of several genuinely different readings
+ * for the same flock, it just removes exact-label repeats so a repetition
+ * loop that emits identical rows over and over doesn't get mistaken for
+ * hundreds of distinct flocks. A loop that mutates its output slightly each
+ * time (different label text each repeat) won't collapse here — that's by
+ * design, since it means the extraction is actually inventing content
+ * rather than harmlessly repeating good data, and the caller's row-count
+ * sanity check (against the farm's known active flock count) is what
+ * catches that case.
+ */
+export function dedupeByNormalizedLabel<T>(
+  rows: T[],
+  labelOf: (row: T) => string
+): T[] {
+  const seen = new Set<string>();
+  const result: T[] = [];
+  for (const row of rows) {
+    const key = normalizeFlockLabel(labelOf(row));
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(row);
+  }
+  return result;
 }

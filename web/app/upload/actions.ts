@@ -1,10 +1,14 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { withTransaction } from "@/lib/db";
+import { pool, withTransaction } from "@/lib/db";
 import { ACTIVE_FARM } from "@/lib/farm";
 import { uploadRegisterPhoto } from "@/lib/storage";
-import { extractDailyProduction } from "@/lib/extraction/dailyProduction";
+import {
+  extractDailyProductionSafely,
+  ExtractionRejected,
+  type ExtractedFlockRow,
+} from "@/lib/extraction/dailyProduction";
 import { getReferenceExamples } from "@/lib/extraction/references";
 import { reextractFlaggedFlocks, impliedFields, type FlockRecheckRequest } from "@/lib/extraction/reextract";
 import type { RecheckableField } from "@/lib/extraction/dailyProduction";
@@ -14,6 +18,11 @@ import { compareLabels } from "@/lib/naturalSort";
 
 export interface UploadOutcome {
   error: string | null;
+  // Set only alongside a "database write failed" error — the real
+  // Postgres/driver error text, for the owner to relay when reporting a
+  // bug. Never shown as the primary error (that stays plain/friendly), only
+  // as a secondary technical-detail line.
+  technicalDetail: string | null;
   photoUrl: string | null;
   date: string | null;
   pageNotes: string | null;
@@ -38,17 +47,33 @@ export interface UploadOutcome {
 }
 
 const EMPTY: UploadOutcome = {
-  error: null, photoUrl: null, date: null, pageNotes: null, written: [], unresolved: [],
+  error: null, technicalDetail: null, photoUrl: null, date: null,
+  pageNotes: null, written: [], unresolved: [],
 };
 
 // Every error shown to the end user must be plain, non-technical text —
 // this app is used daily by a farm manager, not a developer. Full technical
 // detail (SDK error text, stack traces) is logged server-side via
-// console.error, visible in Vercel's function logs, and never returned to
-// the client.
-function logAndFriendly(context: string, err: unknown, friendly: string): string {
+// console.error, visible in Vercel's function logs. It's also returned
+// alongside the friendly message (as `detail`) so a DB-write failure can
+// additionally show it as a technical-detail line on the page — owner
+// report, 2026-09-28: "please retry" with no detail left the owner unable
+// to say anything more specific when reporting a stuck upload.
+function logAndFriendly(
+  context: string,
+  err: unknown,
+  friendly: string
+): { friendly: string; detail: string } {
+  const detail = err instanceof Error ? err.message : String(err);
   console.error(`[upload] ${context}:`, err);
-  return friendly;
+  return { friendly, detail };
+}
+
+/** True if two or more non-null readings of the same figure disagree. */
+function readingsDisagree(readings: (number | null)[]): boolean {
+  const present = readings.filter((n): n is number => n !== null);
+  if (present.length < 2) return false;
+  return !present.every((n) => n === present[0]);
 }
 
 export async function uploadAndExtractDailyProduction(
@@ -68,34 +93,54 @@ export async function uploadAndExtractDailyProduction(
   try {
     photoUrl = await uploadRegisterPhoto(file, "production", dateHint);
   } catch (err) {
-    return {
-      ...EMPTY,
-      error: logAndFriendly(
-        "storage upload failed",
-        err,
-        "Photo couldn't be uploaded — please try again."
-      ),
-    };
+    const { friendly } = logAndFriendly(
+      "storage upload failed",
+      err,
+      "Photo couldn't be uploaded — please try again."
+    );
+    return { ...EMPTY, error: friendly };
   }
 
+  // Fetched once, before extraction, using the owner-supplied date hint —
+  // needed to bound how many flocks a "sane" extraction could plausibly
+  // return (owner report, 2026-09-28: a runaway extraction returned 2774+
+  // "flocks" for a 10-flock page). Flock counts essentially never change
+  // day to day, so the hint is a fine stand-in for whatever date the model
+  // eventually reads off the page; if that turns out to differ, the labels
+  // used for actual matching below are re-fetched for the real date.
+  const precheckLabels = await getActiveLabels(pool, ACTIVE_FARM, dateHint);
+
   const photoMediaType = file.type || "image/jpeg";
-  let extraction;
   let photoBase64: string;
+  let extraction;
+  let flocks: ExtractedFlockRow[];
   try {
     photoBase64 = Buffer.from(await file.arrayBuffer()).toString("base64");
-    extraction = await extractDailyProduction(photoBase64, photoMediaType);
+    const safe = await extractDailyProductionSafely(
+      photoBase64,
+      photoMediaType,
+      precheckLabels.length
+    );
+    extraction = safe.extraction;
+    flocks = safe.flocks;
   } catch (err) {
     // Photo is already stored even though extraction failed — matches the
     // spec's rule 1 (store the photo regardless of downstream outcome).
-    return {
-      ...EMPTY,
-      photoUrl,
-      error: logAndFriendly(
-        "extraction call failed",
-        err,
-        "Couldn't read the register from that photo — please try again, or enter this page manually on the Daily Production screen."
-      ),
-    };
+    // ExtractionRejected's own message is already plain and friendly (it's
+    // written for the owner, not logged-and-swapped like other errors) —
+    // and critically, nothing has been written to the DB at this point, no
+    // transaction has even been opened, so "never attempt to save it" holds
+    // unconditionally for a rejected extraction.
+    if (err instanceof ExtractionRejected) {
+      console.warn(`[upload] extraction rejected: ${err.message}`);
+      return { ...EMPTY, photoUrl, error: err.message };
+    }
+    const { friendly } = logAndFriendly(
+      "extraction call failed",
+      err,
+      "Couldn't read the register from that photo — please try again, or enter this page manually on the Daily Production screen."
+    );
+    return { ...EMPTY, photoUrl, error: friendly };
   }
 
   // The date on the page is authoritative if legible; the date the
@@ -104,7 +149,34 @@ export async function uploadAndExtractDailyProduction(
 
   // Diagnostic only — sections_found doesn't gate anything, but is worth
   // having in the logs while we build confidence in the multi-section fix.
-  console.log(`[upload] extraction found ${extraction.flocks.length} flock(s) across ${extraction.sections_found} table section(s) for ${date}`);
+  console.log(`[upload] extraction found ${flocks.length} flock(s) across ${extraction.sections_found} table section(s) for ${date}`);
+
+  const activeLabels = date === dateHint ? precheckLabels : await getActiveLabels(pool, ACTIVE_FARM, date);
+
+  // Page checksum (owner report, 2026-09-28): the register's own subtotal
+  // row is a second, independent arithmetic check — if the individual
+  // flock reads don't sum to what the page itself says they sum to, at
+  // least one flock's egg total is probably misread, even if every
+  // individual read looked confident on its own. Computed once per upload,
+  // against every flock the model found (matched or not — the page's own
+  // arithmetic doesn't care whether a label matched a known flock), and
+  // attached to every MATCHED row below via extraReasons so every row from
+  // this upload is flagged and visible on /flagged. Deliberately does NOT
+  // trigger an automatic second-pass recheck on its own (see impliedFields
+  // in reextract.ts) — a page-wide sum mismatch doesn't point at any one
+  // flock's field, so auto-rechecking everything would be expensive without
+  // being any more likely to land on the actual culprit than owner review.
+  const sumFlockEggs = flocks.reduce((s, f) => s + (f.eggs_total ?? 0), 0);
+  const subtotals = extraction.table_subtotals ?? [];
+  const sumSubtotals = subtotals.reduce((s, t) => s + (t.eggs_total ?? 0), 0);
+  const hasSubtotalData = subtotals.some((t) => t.eggs_total !== null);
+  const checksumReasons: string[] =
+    hasSubtotalData && sumFlockEggs !== sumSubtotals
+      ? [`page checksum mismatch: flocks sum to ${sumFlockEggs} eggs, page subtotal reads ${sumSubtotals}`]
+      : [];
+  if (checksumReasons.length > 0) {
+    console.warn(`[upload] ${checksumReasons[0]}`);
+  }
 
   const written: UploadOutcome["written"] = [];
   const unresolved: string[] = [];
@@ -122,17 +194,18 @@ export async function uploadAndExtractDailyProduction(
     confidence: Record<string, number>;
     reasons: string[];
     hdPercentNote: string | null;
+    // App-side reasons (readings-disagreement, page checksum) that
+    // fn_validate_daily_production has no way to reproduce — must be
+    // re-merged after a reval overwrites `reasons`, the same way
+    // hdPercentNote is preserved, or a recheck that touches an unrelated
+    // field would silently wipe a legitimate first-pass flag.
+    stableReasons: string[];
   }
   const pendingRechecks: PendingRecheck[] = [];
 
   try {
     await withTransaction(async (client) => {
-      // Fetched once per upload (every flock on this photo shares the same
-      // date) rather than resolved one label at a time — needed anyway so
-      // fuzzy matching has the full candidate list to normalize against.
-      const activeLabels = await getActiveLabels(client, ACTIVE_FARM, date);
-
-      for (const flock of extraction.flocks) {
+      for (const flock of flocks) {
         const match = matchFlockLabel(flock.display_label_as_written, activeLabels);
 
         if (!match.flockInternalId) {
@@ -188,12 +261,24 @@ export async function uploadAndExtractDailyProduction(
             sourcePhotoUrl: photoUrl,
             sectionsFound: extraction.sections_found,
             pageNotes: extraction.page_notes,
+            eggsTotalReadings: flock.eggs_total_readings,
+            birdPopulationReadings: flock.bird_population_readings,
+            extraReasons: checksumReasons,
           }
         );
 
         if (reasons.length > 0) {
           const fields = impliedFields(reasons);
           if (fields.length > 0) {
+            const stableReasons = [
+              ...(readingsDisagree(flock.eggs_total_readings)
+                ? [`eggs_total readings disagree: ${flock.eggs_total_readings.filter((n) => n !== null).join(", ")}`]
+                : []),
+              ...(readingsDisagree(flock.bird_population_readings)
+                ? [`bird_population readings disagree: ${flock.bird_population_readings.filter((n) => n !== null).join(", ")}`]
+                : []),
+              ...checksumReasons,
+            ];
             pendingRechecks.push({
               rowId,
               flockLabel: flock.display_label_as_written,
@@ -201,6 +286,7 @@ export async function uploadAndExtractDailyProduction(
               confidence: { ...flock.confidence },
               reasons,
               hdPercentNote,
+              stableReasons,
             });
             // Finalized below, after the batched second pass — the row is
             // already saved with its first-pass flagged/flag_reason from
@@ -291,6 +377,10 @@ export async function uploadAndExtractDailyProduction(
               hdPercentNote = revalRows[0].hd_percent_note;
               const stillLow = Object.entries(confidence).filter(([, v]) => v < 0.6);
               for (const [field] of stillLow) reasons.push(`low OCR confidence on ${field}`);
+              // fn_validate_daily_production only knows its own SQL-side
+              // rules — re-merge the app-side reasons it can't reproduce,
+              // same reasoning as preserving hdPercentNote above.
+              reasons.push(...pending.stableReasons);
             }
           }
 
@@ -338,15 +428,12 @@ export async function uploadAndExtractDailyProduction(
       }
     });
   } catch (err) {
-    return {
-      ...EMPTY,
-      photoUrl,
-      error: logAndFriendly(
-        "database write failed",
-        err,
-        "Photo was read, but something went wrong saving the results — please try again."
-      ),
-    };
+    const { friendly, detail } = logAndFriendly(
+      "database write failed",
+      err,
+      "Photo was read, but something went wrong saving the results — please try again."
+    );
+    return { ...EMPTY, photoUrl, error: friendly, technicalDetail: detail };
   }
 
   revalidatePath("/production");
@@ -361,6 +448,7 @@ export async function uploadAndExtractDailyProduction(
 
   return {
     error: null,
+    technicalDetail: null,
     photoUrl,
     date,
     pageNotes: extraction.page_notes,
