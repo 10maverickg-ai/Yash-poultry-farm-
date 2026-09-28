@@ -89,7 +89,7 @@ const EXTRACT_TOOL = {
           properties: {
             display_label_as_written: {
               type: "string",
-              description: "The flock block header exactly as written, e.g. 'BAB-I'. Never normalize or guess a different label.",
+              description: "The flock's label, normalized to 'BAB-<number>' with an ordinary digit — see the LABELS section of the instructions. Never a Roman numeral, never any other prefix.",
             },
             mortality: {
               type: ["number", "null"],
@@ -127,13 +127,17 @@ const EXTRACT_TOOL = {
   },
 };
 
-const PROMPT = `You are reading a photographed page from a Daily Production register at an Indian layer poultry farm. Each flock's data is recorded in a block headed by a label like "BAB-I", "BAB-1", "18 BAB", etc., under column headers "Mort, Feed | I | II | Total | Bal Bird | %".
+const PROMPT = `You are reading a photographed page from a Daily Production register at an Indian layer poultry farm, under column headers "Mort, Feed | I | II | Total | Bal Bird | %".
+
+LABELS — read this carefully, it is the single most error-prone part of this task. Every flock on this farm is labeled "BAB" followed by a number from 1 to 10 — nothing else. There is no other prefix and no other naming scheme. The handwriting is often untidy, and the letters "BAB" in particular are frequently scrawled in a way that can look like stray digits or other letters — do NOT try to carefully transcribe the letters; they are always "BAB". Instead, spend your effort on reading the NUMBER correctly, since that is the only part that actually distinguishes one flock from another. Always output the label as "BAB-<number>" using an ordinary Arabic digit (1, 2, 3, ...) — if the number is written as a Roman numeral (I, II, III, IV, V, VI, VII, VIII, IX, X), convert it: I=1, II=2, III=3, IV=4, V=5, VI=6, VII=7, VIII=8, IX=9, X=10.
+
+Flocks appear in a fixed, known order: BAB-1 through BAB-7 in the main table, then BAB-8 through BAB-10 in the shorter continuation table (see the two-table note below). Use this expected ascending sequence as a cross-check on the number you read — if a number you read breaks the sequence (e.g. you read the same number twice, or jump straight from BAB-2 to BAB-7 with nothing between), look at that label again before finalizing it. But if, after a careful second look, the label genuinely still reads differently from what the sequence would predict, extract exactly what is written and lower that flock's display_label confidence rather than silently forcing it to match the expected sequence — the sequence is a hint for catching your own misreads, not a license to overwrite a real digit.
 
 CRITICAL — do not stop after the first table you find. This is very often a photo of a two-page spread, and the flock blocks are frequently split across TWO SEPARATE physical tables: a main table with most flocks on one page, and a second, often shorter, continuation table with the REMAINING flocks on the facing page. That second table is easy to miss because it's often positioned below unrelated handwritten arithmetic (subtraction sums, running totals) that can look like it isn't part of the register at all. Before answering, scan the ENTIRE photo — both pages if two are visible — for every occurrence of a flock label followed by Mort/Feed/Total/Bal Bird/% data, not just the most prominent block. Set sections_found to how many separate table blocks you actually found flock data in.
 
 Field mapping (extract exactly these, nothing else) — apply to EVERY flock block in EVERY section you find:
 - Date at the top of the page.
-- Each flock block's header text, EXACTLY as written (do not normalize "BAB-I" to "BAB-1" or vice versa, do not guess a label based on sequence).
+- Each flock block's label, per the LABELS section above.
 - "Mort" column: the day's-end total for that flock. Some pages show a stacked pair of numbers (a running sub-total and a day total) — take the day's-end total, not the cumulative/stacked sub-number.
 - "Feed" column: bags issued.
 - "Total" column: total eggs. Ignore the "I" and "II" sub-columns entirely — they are not used at this farm.

@@ -393,6 +393,55 @@ visible on `/flagged` with no second lookup — satisfies "trace exactly
 which two numbers it's dividing" as a standing feature, not a one-time
 debugging answer.
 
+## Phase 3 increment 6: label misread root cause found — the "BAB" prefix, not the number (2026-09-28)
+
+**Root cause of the 10/10 match failure (owner diagnosis, confirmed by
+inspecting `unresolved_extractions`):** not a formatting convention issue
+and not a `flock_label_history` coverage gap — genuine OCR misreads of
+untidy handwriting, e.g. "18AB-2", "18BB-6", "BAB-I". The numbers/eggs/
+mortality/feed themselves were being read correctly throughout; only the
+label was wrong. Every flock on this farm is "BAB" plus a number 1–10 —
+nothing else — so the letters carry zero identifying information and were
+exactly the part of the label the model was struggling to read cleanly.
+
+**Prompt fix (`lib/extraction/dailyProduction.ts`):** added a dedicated
+LABELS section telling the model the label convention directly (BAB +
+1–10, nothing else), that the handwriting is untidy, to spend its reading
+effort on the number rather than the letters, to always output
+"BAB-<number>" with an ordinary digit, and to convert a Roman numeral if
+it sees one (explicit I–X mapping, since "BAB-I" was one of the actual
+failures). Also told it the expected ascending order (1–7 main table, 8–10
+continuation table) as a self-check — phrased as "look again if a number
+breaks the sequence," explicitly NOT as license to force a digit to fit
+the sequence when it genuinely reads differently, matching this system's
+standing rule of never guessing a plausible value over a real illegible
+one. The "1 to 10" range is hardcoded to this farm's current flock count —
+flagged in the code comment as needing a manual update after the next
+renumbering event (per `flock_label_history`'s own migration note,
+roughly an annual event), rather than built to auto-derive the live range
+from the database, since that would add a moving part this specific fix
+doesn't need yet.
+
+**Matching fix (`lib/extraction/flockMatch.ts`):** added `matchByNumber` as
+a further fallback after byte-exact and cosmetic-normalized matching both
+fail — extracts the LAST contiguous digit run from both the raw label and
+each active label (not the first: the observed failure mode is a spurious
+*leading* digit run from a garbled "BAB" prefix, e.g. "18AB-2" — the real
+flock number is the trailing "2"), and matches only when exactly one
+active flock shares that number. Comparison stays exact-once-parsed on the
+digit itself (never edit-distance/"close enough" between different
+numbers) — same standing rule as `normalizeFlockLabel`, re-verified here:
+tested all ten real labels (BAB-1..BAB-10) plus the actual six garbled
+strings from `unresolved_extractions` against this logic. Four of the six
+garbled labels ("18AB-2", "18AB-3", "18BB-6", "18AB-7") now resolve
+correctly through matching alone; the two Roman-numeral cases ("18AB-I",
+"BAB-I") have no digit at all for `matchByNumber` to find and stay
+unresolved — matching can't recover a digit the model never output, so
+these depend on the prompt fix converging on "BAB-1" going forward. The
+two fixes are complementary, not redundant: prompt fix reduces how often
+the number-only fallback is needed at all; matching fix is the safety net
+for whatever garbled reads still get through.
+
 ## Noted for later phases (no Phase 1 action)
 
 - **Trays-vs-eggs magnitude heuristic (owner addendum, 2026-07-09):** register

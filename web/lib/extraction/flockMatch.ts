@@ -53,11 +53,51 @@ export async function getActiveLabels(
 
 export interface LabelMatch {
   flockInternalId: string | null;
-  // True if the match only succeeded after normalization (not a byte-exact
-  // match) — worth knowing even on a successful match, since a persistently
-  // fuzzy-only match for a label might mean flock_label_history itself
-  // should be updated to match how the register is actually written.
+  // True if the match only succeeded after normalization or number-only
+  // matching (not a byte-exact match) — worth knowing even on a successful
+  // match, since a persistently fuzzy-only match for a label might mean
+  // flock_label_history itself should be updated to match how the register
+  // is actually written.
   wasFuzzy: boolean;
+}
+
+/** Last contiguous run of digits in the label, as an integer — e.g. "18AB-2"
+ * (a real misread: the model's "BAB" letters came out as a stray leading
+ * "18") gives 2, not 18, because the flock number is what comes after the
+ * letters, and a spurious leading digit run from a garbled prefix is the
+ * observed failure mode here. Returns null if the label has no digits at
+ * all (e.g. a Roman numeral the extraction prompt failed to convert). */
+function lastDigitRun(label: string): number | null {
+  const runs = label.match(/\d+/g);
+  if (!runs || runs.length === 0) return null;
+  return parseInt(runs[runs.length - 1], 10);
+}
+
+/**
+ * Matches by flock number ALONE, ignoring any letter prefix entirely —
+ * every flock on this farm is "BAB" followed by a number, the letters carry
+ * no identifying information, and they're exactly the part of the label
+ * handwriting recognition struggles with (see normalizeFlockLabel's own
+ * note on this farm's numbers, BAB-1..BAB-10, differing by one character).
+ * Comparison is still EXACT on the number itself once parsed — never "off
+ * by one" or edit-distance tolerant — so BAB-1 and BAB-10 still can never
+ * be confused; this only removes the requirement that the prefix letters
+ * also match, since they were never what distinguished one flock from
+ * another in the first place.
+ */
+function matchByNumber(rawLabel: string, active: ActiveLabel[]): LabelMatch {
+  const rawNumber = lastDigitRun(rawLabel);
+  if (rawNumber === null) return { flockInternalId: null, wasFuzzy: false };
+
+  const candidates = active.filter((a) => lastDigitRun(a.displayLabel) === rawNumber);
+  if (candidates.length === 1) {
+    return { flockInternalId: candidates[0].flockInternalId, wasFuzzy: true };
+  }
+  // Zero candidates: no active flock has this number. More than one: two
+  // active labels share a number (only possible if this farm ever has
+  // flocks under different prefixes at once) — genuinely ambiguous once the
+  // prefix is ignored, so don't guess between them.
+  return { flockInternalId: null, wasFuzzy: false };
 }
 
 export function matchFlockLabel(rawLabel: string, active: ActiveLabel[]): LabelMatch {
@@ -66,12 +106,18 @@ export function matchFlockLabel(rawLabel: string, active: ActiveLabel[]): LabelM
 
   const normalized = normalizeFlockLabel(rawLabel);
   const candidates = active.filter((a) => normalizeFlockLabel(a.displayLabel) === normalized);
-
   if (candidates.length === 1) {
     return { flockInternalId: candidates[0].flockInternalId, wasFuzzy: true };
   }
-  // Zero candidates: genuinely no match. More than one: two active labels
-  // normalize to the same form, which is itself a flock_label_history data
-  // problem — don't guess between them either way.
-  return { flockInternalId: null, wasFuzzy: false };
+  if (candidates.length > 1) {
+    // Two active labels normalize to the same form — a flock_label_history
+    // data problem, not something to guess between.
+    return { flockInternalId: null, wasFuzzy: false };
+  }
+
+  // Full-label normalization found nothing — fall back to matching on the
+  // number alone (owner report, 2026-09-28: the model was consistently
+  // misreading the untidy "BAB" prefix as stray digits/letters while
+  // reading the actual flock number correctly).
+  return matchByNumber(rawLabel, active);
 }
