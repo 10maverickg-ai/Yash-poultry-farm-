@@ -426,14 +426,21 @@ button:hover,
   z-index: 1;
 }
 
-/* Date filter: fixed-width fields in their own row (so a Safari date
-   input's native chrome never gets squeezed into overlap), the Filter/Clear
-   actions in a visually separate group, and both groups free to wrap
-   independently on narrow screens. */
+/* Date filter. Each field lays out as its own flex column instead of
+   sharing .field's display:grid — a grid-in-flex ancestor let Safari's
+   <input type="date"> shadow content ignore the intended width (confirmed
+   on iPad Safari: fields rendered ~270px wide with no gap between them,
+   despite width:150px on the ancestor). The width is set directly on the
+   <input> itself, in px, not inherited via width:100% from an ancestor's
+   computed size — Safari's date-picker chrome respects an explicit pixel
+   width on the control but not a percentage one resolved through a mixed
+   grid/flex chain. margin-right backs up `gap` in case a WebKit version
+   doesn't honor gap on this nested flex row. Filter/Clear sit on their own
+   row below the fields unconditionally (flex-direction: column on the
+   form) rather than only when wrapping forces it. */
 .date-filter-form {
   display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
+  flex-direction: column;
   gap: 0.8rem;
 }
 
@@ -444,8 +451,23 @@ button:hover,
 }
 
 .date-filter-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
   flex: 0 0 auto;
   width: 150px;
+}
+
+.date-filter-field:not(:last-child) {
+  margin-right: 0.6rem;
+}
+
+.date-filter-field input[type="date"] {
+  box-sizing: border-box;
+  width: 150px;
+  max-width: 150px;
+  min-width: 0;
+  height: 2.5rem;
 }
 
 .date-filter-actions {

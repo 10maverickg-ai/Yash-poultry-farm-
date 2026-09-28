@@ -41,11 +41,21 @@ export default async function FlaggedPage({
         <div className="date-filter-fields">
           <label className="field date-filter-field">
             <span>From</span>
-            <input type="date" name="from" defaultValue={dateFilter.from ?? ""} />
+            <input
+              type="date"
+              name="from"
+              defaultValue={dateFilter.from ?? ""}
+              aria-label="From date"
+            />
           </label>
           <label className="field date-filter-field">
             <span>To</span>
-            <input type="date" name="to" defaultValue={dateFilter.to ?? ""} />
+            <input
+              type="date"
+              name="to"
+              defaultValue={dateFilter.to ?? ""}
+              aria-label="To date"
+            />
           </label>
         </div>
         <div className="date-filter-actions">
