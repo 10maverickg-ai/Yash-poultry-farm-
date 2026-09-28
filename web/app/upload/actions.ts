@@ -10,6 +10,7 @@ import { reextractFlaggedFlocks, impliedFields, type FlockRecheckRequest } from 
 import type { RecheckableField } from "@/lib/extraction/dailyProduction";
 import { getActiveLabels, matchFlockLabel } from "@/lib/extraction/flockMatch";
 import { insertDailyProductionRow } from "@/lib/extraction/writeDailyProduction";
+import { compareLabels } from "@/lib/naturalSort";
 
 export interface UploadOutcome {
   error: string | null;
@@ -351,6 +352,12 @@ export async function uploadAndExtractDailyProduction(
   revalidatePath("/production");
   revalidatePath("/flagged");
   revalidatePath("/records");
+
+  // `written` is built in whatever order the model read flocks off the
+  // photo (plus rechecked rows appended after the main loop), not flock
+  // order — sort both result lists to natural label order for display.
+  written.sort((a, b) => compareLabels(a.label, b.label));
+  unresolved.sort(compareLabels);
 
   return {
     error: null,

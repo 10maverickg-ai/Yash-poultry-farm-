@@ -1,5 +1,6 @@
 import { pool } from "@/lib/db";
 import { ACTIVE_FARM } from "@/lib/farm";
+import { compareLabels } from "@/lib/naturalSort";
 
 export type FlockStage = "chick" | "grower" | "layer";
 export type FlockStatus = "active" | "depleted";
@@ -36,10 +37,23 @@ export async function listFlocks(): Promise<Flock[]> {
   const { rows } = await pool.query<Flock>(
     `SELECT * FROM flocks
       WHERE farm_code = $1
-      ORDER BY status, placement_date DESC NULLS LAST, display_label`,
+      ORDER BY status, placement_date DESC NULLS LAST`,
     [ACTIVE_FARM]
   );
-  return rows;
+  // The SQL ORDER BY groups by status and recency; ties within a group
+  // (most often "same status, same placement_date" for a batch of flocks
+  // placed together) are broken here by natural label order instead of a
+  // plain string sort, which is what was putting BAB-10 between BAB-1 and
+  // BAB-2.
+  return rows.sort((a, b) => {
+    if (a.status !== b.status) return a.status < b.status ? -1 : 1;
+    if (a.placement_date !== b.placement_date) {
+      if (a.placement_date === null) return 1;
+      if (b.placement_date === null) return -1;
+      return a.placement_date < b.placement_date ? 1 : -1;
+    }
+    return compareLabels(a.display_label, b.display_label);
+  });
 }
 
 export async function getFlock(id: string): Promise<Flock | null> {

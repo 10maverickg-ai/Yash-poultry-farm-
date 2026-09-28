@@ -1,5 +1,6 @@
 import { pool } from "@/lib/db";
 import { ACTIVE_FARM } from "@/lib/farm";
+import { compareLabels } from "@/lib/naturalSort";
 
 // Read-only records views (increment 5): recent rows per register so the
 // owner can verify what's been entered, and the flagged queue — the seed of
@@ -41,7 +42,13 @@ export async function listProductionRecords(limit = 60): Promise<ProductionRecor
       LIMIT $2`,
     [ACTIVE_FARM, limit]
   );
-  return rows;
+  // SQL's ORDER BY already picked the right LIMIT rows; re-sort just the
+  // label tiebreak within each date to natural order (SQL string order put
+  // BAB-10 between BAB-1 and BAB-2).
+  return rows.sort((a, b) => {
+    if (a.date !== b.date) return a.date < b.date ? 1 : -1;
+    return compareLabels(a.display_label_as_written ?? "", b.display_label_as_written ?? "");
+  });
 }
 
 export interface EggStockRecord {

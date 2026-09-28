@@ -1,5 +1,6 @@
 import { pool } from "@/lib/db";
 import { ACTIVE_FARM } from "@/lib/farm";
+import { sortByLabel } from "@/lib/naturalSort";
 
 // One entry slot per flock whose display label is effective on the chosen
 // date (via flock_label_history — mirrors what the paper register showed
@@ -42,11 +43,10 @@ export async function getProductionSheet(date: string): Promise<ProductionSlot[]
         AND dp.deleted_at IS NULL
       WHERE f.farm_code = $1
         AND h.effective_from <= $2
-        AND (h.effective_to IS NULL OR h.effective_to >= $2)
-      ORDER BY h.display_label`,
+        AND (h.effective_to IS NULL OR h.effective_to >= $2)`,
     [ACTIVE_FARM, date]
   );
-  return rows.map((r) => ({
+  const slots = rows.map((r) => ({
     flock_internal_id: r.flock_internal_id,
     display_label: r.display_label,
     default_shed: r.default_shed,
@@ -65,4 +65,5 @@ export async function getProductionSheet(date: string): Promise<ProductionSlot[]
             flag_reason: r.flag_reason,
           },
   }));
+  return sortByLabel(slots, (s) => s.display_label);
 }

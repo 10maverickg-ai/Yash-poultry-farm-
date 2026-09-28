@@ -1,5 +1,6 @@
 import { pool } from "@/lib/db";
 import { ACTIVE_FARM } from "@/lib/farm";
+import { sortByLabel } from "@/lib/naturalSort";
 
 export interface FeedBagGroupRow {
   id: number;
@@ -57,8 +58,7 @@ export async function getFeedBagStockDay(date: string): Promise<FeedBagStockDay>
           AND dp.deleted_at IS NULL
         WHERE f.farm_code = $1
           AND h.effective_from <= $2
-          AND (h.effective_to IS NULL OR h.effective_to >= $2)
-        ORDER BY h.display_label`,
+          AND (h.effective_to IS NULL OR h.effective_to >= $2)`,
       [ACTIVE_FARM, date]
     ),
     pool.query(
@@ -70,7 +70,7 @@ export async function getFeedBagStockDay(date: string): Promise<FeedBagStockDay>
 
   return {
     groups: groupsRes.rows,
-    activeFlocks: flocksRes.rows,
+    activeFlocks: sortByLabel(flocksRes.rows, (r) => r.display_label),
     knownGroupNames: namesRes.rows.map((r) => r.flock_group),
   };
 }
