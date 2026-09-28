@@ -28,11 +28,12 @@ export async function getReferenceExamples(
 ): Promise<ReferenceExample[]> {
   const { rows } = await client.query(
     `SELECT display_label_as_written, source_photo_url,
-            mortality, feed_bags, eggs_total, bird_population, hd_percent
+            mortality, feed_bags, eggs_total, bird_population, hd_percent_written
        FROM daily_production
       WHERE farm_code = $1
         AND reviewed_by_owner = true
         AND flagged = false
+        AND deleted_at IS NULL
         AND source_photo_url IS NOT NULL
       ORDER BY date DESC
       LIMIT $2`,
@@ -61,7 +62,7 @@ export async function getReferenceExamples(
           feed_bags: row.feed_bags,
           eggs_total: row.eggs_total,
           bird_population: row.bird_population,
-          hd_percent: row.hd_percent,
+          hd_percent: row.hd_percent_written,
         },
       });
     } catch {

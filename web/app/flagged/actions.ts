@@ -44,7 +44,8 @@ export async function resolveExtraction(unresolvedId: number, formData: FormData
 
   await withTransaction(async (client) => {
     const { rows } = await client.query(
-      `SELECT * FROM unresolved_extractions WHERE id = $1 AND farm_code = $2 AND resolved_at IS NULL`,
+      `SELECT * FROM unresolved_extractions
+        WHERE id = $1 AND farm_code = $2 AND resolved_at IS NULL AND deleted_at IS NULL`,
       [unresolvedId, ACTIVE_FARM]
     );
     const row = rows[0];
@@ -61,7 +62,7 @@ export async function resolveExtraction(unresolvedId: number, formData: FormData
       feedBags: row.feed_bags,
       eggsTotal: row.eggs_total,
       birdPopulation: row.bird_population,
-      hdPercent: row.hd_percent,
+      hdPercentWritten: row.hd_percent_written,
       confidence: row.ocr_confidence,
       sourcePhotoUrl: row.source_photo_url,
       sectionsFound: row.sections_found,
@@ -78,4 +79,43 @@ export async function resolveExtraction(unresolvedId: number, formData: FormData
   revalidatePath("/production");
   revalidatePath("/records");
   redirect("/flagged");
+}
+
+// Soft delete for wrong or duplicate data (old test uploads, a duplicate
+// upload of the same page, etc.) — distinct from "Mark reviewed", which
+// acknowledges a flag that reflects a real event. Never a hard DELETE: sets
+// deleted_at, and every query this app runs against daily_production /
+// unresolved_extractions excludes deleted rows, including the analytics
+// paths (fn_validate_daily_production's trailing-average and previous-
+// population lookups, fn_bv300_cum_mortality, the flocks.current_bird_count
+// mirror). Handles both a single delete and a multi-select bulk delete —
+// same action, just pass one id or many in whichever array applies.
+export async function deleteFlaggedRecords(input: {
+  productionIds?: number[];
+  unresolvedIds?: number[];
+}) {
+  const productionIds = input.productionIds ?? [];
+  const unresolvedIds = input.unresolvedIds ?? [];
+  if (productionIds.length === 0 && unresolvedIds.length === 0) return;
+
+  await withTransaction(async (client) => {
+    if (productionIds.length > 0) {
+      await client.query(
+        `UPDATE daily_production SET deleted_at = now()
+          WHERE farm_code = $1 AND id = ANY($2::bigint[]) AND deleted_at IS NULL`,
+        [ACTIVE_FARM, productionIds]
+      );
+    }
+    if (unresolvedIds.length > 0) {
+      await client.query(
+        `UPDATE unresolved_extractions SET deleted_at = now()
+          WHERE farm_code = $1 AND id = ANY($2::bigint[]) AND deleted_at IS NULL`,
+        [ACTIVE_FARM, unresolvedIds]
+      );
+    }
+  });
+
+  revalidatePath("/flagged");
+  revalidatePath("/production");
+  revalidatePath("/records");
 }

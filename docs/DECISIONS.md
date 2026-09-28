@@ -442,6 +442,81 @@ two fixes are complementary, not redundant: prompt fix reduces how often
 the number-only fallback is needed at all; matching fix is the safety net
 for whatever garbled reads still get through.
 
+## Phase 3 increment 7: soft delete for flagged records + HD% official/written split (2026-09-28)
+
+**Soft delete (owner request — old test uploads were piling up in
+`/flagged` with no way to clear them):** added `deleted_at timestamptz`
+to `daily_production` and `unresolved_extractions` (migration
+`0013_soft_delete.sql`). Never a hard `DELETE` — matches this system's
+standing "write but flag/mark, never destroy" philosophy, now extended to
+"clear but don't destroy." Every query touching either table was audited
+and given a `deleted_at IS NULL` filter (or the LEFT JOIN-condition
+equivalent, so a deleted row behaves as "not entered" rather than
+excluding the whole flock/date slot) — not just `/flagged` itself but
+every downstream analytics/cross-register query: `lib/production.ts`
+(entry-screen JOIN), `lib/eggstock.ts` (production-sum cross-check for
+the Egg Stock Ledger), `lib/feedBagStock.ts` (feed-bag entry-screen
+JOIN), the `flocks.current_bird_count` mirror updates in both write
+paths, and both `fn_validate_daily_production` and
+`fn_bv300_cum_mortality`'s own internal lookups. The old table-level
+`UNIQUE (flock_internal_id, date)` became a partial unique index
+(`WHERE deleted_at IS NULL`) so a soft-deleted row no longer blocks
+re-inserting a fresh row for the same flock+day — verified locally: a
+deleted row stays in place untouched, a fresh insert for the same
+flock+date succeeds, and a second insert against the new active row
+correctly hits `ON CONFLICT ... WHERE deleted_at IS NULL` instead of
+erroring. "Mark reviewed" is unchanged and stays semantically distinct
+from Delete: reviewed acknowledges a genuine event (e.g. a real
+mortality spike); delete is for wrong or duplicate data (e.g. a
+re-uploaded test photo). `/flagged` gained a per-card Delete button (with
+a `confirm()` naming the flock and date) on both flagged Daily Production
+cards and Unmatched flock label cards, a GET date-range filter, and
+checkbox multi-select with a sticky bulk-delete bar — implemented as a
+client component (`FlaggedProductionSection.tsx`) that calls the new
+`deleteFlaggedRecords` server action directly (not via `<form action>`)
+and follows up with `router.refresh()`, since Next.js Server Actions can
+be called like plain async functions from a Client Component event
+handler. egg_stock/feed_stock cards are unaffected — the owner's request
+named Daily Production and Unmatched labels specifically, and those two
+registers have no extraction pipeline or `deleted_at` column yet.
+
+**HD% official/written split (owner request — rounding differences
+between the supervisor's written HD% and the app's calculated HD% were
+flooding `/flagged`):** `hd_percent` is now a Postgres `GENERATED ALWAYS
+... STORED` column (`eggs_total / bird_population * 100`, rounded to 2
+decimals) — permanently correct, un-writable, and used everywhere as the
+"official" analytics value with zero code changes needed on the read
+side (`/records` reads plain `hd_percent` and got the new official value
+for free). The supervisor's originally written/typed value moved to a
+new `hd_percent_written` column, kept purely for reference/audit — every
+INSERT and `ON CONFLICT ... DO UPDATE` that used to target `hd_percent`
+now targets `hd_percent_written` instead (Postgres rejects any explicit
+write to a generated column). The mismatch-flag rule in
+`fn_validate_daily_production` (migration `0014_hd_percent_split.sql` —
+required a `DROP FUNCTION` + fresh `CREATE FUNCTION` since changing a
+function's OUT-parameter shape isn't allowed via `CREATE OR REPLACE`)
+now flags only when `abs(hd_percent - hd_percent_written) > 1.0` point;
+a gap of 0.2–1.0 points is written to a new `hd_percent_note` column
+instead — a quiet, non-flagging note shown on the entry screen under the
+HD% field — and a gap under 0.2 is treated as exact. Verified locally:
+an 85%-written vs. 90%-calculated row (5-point gap) flags with the exact
+expected reason string; a 90.5%-written vs. 90%-calculated row (0.5-point
+gap) does not flag and gets the expected quiet-note text. One
+self-caught bug during implementation: the two-pass recheck/reapply path
+was initializing `hd_percent_note` to `null` on every reapply regardless
+of whether that recheck touched HD-related fields, which would silently
+wipe a legitimate note computed on the first pass — fixed by threading
+the first pass's note through `PendingRecheck` and defaulting the
+reapply loop to preserve it.
+
+Both migrations (`0013_soft_delete.sql`, `0014_hd_percent_split.sql`)
+were run end-to-end against a local Postgres 16 instance via
+`scripts/apply.sh` before shipping, given the unusual SQL involved
+(generated columns, a function signature change, partial unique indexes
+paired with matching `ON CONFLICT ... WHERE` clauses) — all 14
+migrations and 3 seeds applied cleanly, and the functional tests above
+were run against the resulting schema, not just reviewed by inspection.
+
 ## Noted for later phases (no Phase 1 action)
 
 - **Trays-vs-eggs magnitude heuristic (owner addendum, 2026-07-09):** register

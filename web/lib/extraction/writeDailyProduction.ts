@@ -7,7 +7,11 @@ export interface DailyProductionRowInput {
   feedBags: number | null;
   eggsTotal: number | null;
   birdPopulation: number | null;
-  hdPercent: number | null;
+  // The register's own written "%" figure — NOT the official hd_percent,
+  // which is a GENERATED ALWAYS column (eggs_total / bird_population * 100)
+  // and cannot be written to directly; Postgres rejects any INSERT/UPDATE
+  // that tries.
+  hdPercentWritten: number | null;
   // Null for a row written outside the extraction flow (e.g. the manual
   // "resolve this unmatched label" form re-uses this same helper, but with
   // whatever confidence was originally stored on unresolved_extractions —
@@ -31,21 +35,21 @@ export async function insertDailyProductionRow(
   date: string,
   flockInternalId: string,
   data: DailyProductionRowInput
-): Promise<{ rowId: number; reasons: string[] }> {
+): Promise<{ rowId: number; reasons: string[]; hdPercentNote: string | null }> {
   const { rows } = await client.query(
     `INSERT INTO daily_production
          (date, farm_code, flock_internal_id, display_label_as_written,
           shed_code, mortality, feed_bags, eggs_total, bird_population,
-          hd_percent, ocr_confidence, source_photo_url, sections_found, page_notes)
+          hd_percent_written, ocr_confidence, source_photo_url, sections_found, page_notes)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
-     ON CONFLICT (flock_internal_id, date) DO UPDATE SET
+     ON CONFLICT (flock_internal_id, date) WHERE deleted_at IS NULL DO UPDATE SET
          display_label_as_written = EXCLUDED.display_label_as_written,
          shed_code       = EXCLUDED.shed_code,
          mortality       = EXCLUDED.mortality,
          feed_bags       = EXCLUDED.feed_bags,
          eggs_total      = EXCLUDED.eggs_total,
          bird_population = EXCLUDED.bird_population,
-         hd_percent      = EXCLUDED.hd_percent,
+         hd_percent_written = EXCLUDED.hd_percent_written,
          ocr_confidence  = EXCLUDED.ocr_confidence,
          source_photo_url = EXCLUDED.source_photo_url,
          sections_found  = EXCLUDED.sections_found,
@@ -62,7 +66,7 @@ export async function insertDailyProductionRow(
       data.feedBags,
       data.eggsTotal,
       data.birdPopulation,
-      data.hdPercent,
+      data.hdPercentWritten,
       data.confidence ? JSON.stringify(data.confidence) : null,
       data.sourcePhotoUrl,
       data.sectionsFound,
@@ -73,12 +77,14 @@ export async function insertDailyProductionRow(
 
   // Same structural validation the manual entry screen uses — runs
   // independent of the model's own confidence score, per the extraction
-  // spec ("independent of OCR confidence").
+  // spec ("independent of OCR confidence"). Also returns hd_percent_note,
+  // the quiet (non-flagging) note for a small written-vs-calculated HD% gap.
   const { rows: valRows } = await client.query(
-    `SELECT fn_validate_daily_production($1) AS reasons`,
+    `SELECT * FROM fn_validate_daily_production($1)`,
     [rowId]
   );
   const reasons: string[] = valRows[0].reasons;
+  const hdPercentNote: string | null = valRows[0].hd_percent_note;
 
   // Low self-reported confidence on any field is itself a flag trigger, per
   // the extraction spec's flag-triggers list.
@@ -90,9 +96,9 @@ export async function insertDailyProductionRow(
   }
 
   await client.query(
-    `UPDATE daily_production SET flagged = $2, flag_reason = $3 WHERE id = $1`,
-    [rowId, reasons.length > 0, reasons.length > 0 ? reasons.join("; ") : null]
+    `UPDATE daily_production SET flagged = $2, flag_reason = $3, hd_percent_note = $4 WHERE id = $1`,
+    [rowId, reasons.length > 0, reasons.length > 0 ? reasons.join("; ") : null, hdPercentNote]
   );
 
-  return { rowId, reasons };
+  return { rowId, reasons, hdPercentNote };
 }

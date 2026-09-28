@@ -1,17 +1,30 @@
 import Link from "next/link";
-import { listFlagged, listUnresolvedExtractions } from "@/lib/records";
+import { listFlagged, listUnresolvedExtractions, type DateFilter } from "@/lib/records";
 import { listFlocks } from "@/lib/flocks";
-import { markReviewed, resolveExtraction } from "./actions";
+import { markReviewed } from "./actions";
+import { FlaggedProductionSection } from "@/components/FlaggedProductionSection";
 
 export const dynamic = "force-dynamic";
 
-export default async function FlaggedPage() {
+export default async function FlaggedPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ from?: string; to?: string }>;
+}) {
+  const sp = await searchParams;
+  const dateFilter: DateFilter = {
+    from: /^\d{4}-\d{2}-\d{2}$/.test(sp.from ?? "") ? sp.from : undefined,
+    to: /^\d{4}-\d{2}-\d{2}$/.test(sp.to ?? "") ? sp.to : undefined,
+  };
+
   const [items, unresolved, flocks] = await Promise.all([
-    listFlagged(),
-    listUnresolvedExtractions(),
+    listFlagged(dateFilter),
+    listUnresolvedExtractions(dateFilter),
     listFlocks(),
   ]);
   const activeFlocks = flocks.filter((f) => f.status === "active");
+  const productionItems = items.filter((i) => i.source === "production");
+  const otherItems = items.filter((i) => i.source !== "production");
 
   return (
     <>
@@ -20,134 +33,72 @@ export default async function FlaggedPage() {
         Records that failed a validation rule and haven&apos;t been handled.
         Fix a data error on its entry screen (re-saving re-checks and clears
         the flag), or mark a genuine event as reviewed to acknowledge it.
+        Wrong or duplicate data (e.g. an old test upload) can be deleted
+        instead — that&apos;s a separate action from marking it reviewed.
       </p>
 
-      {unresolved.length > 0 && (
-        <>
-          <h2>Unmatched flock labels</h2>
-          <p className="muted">
-            Read from a photo, but the label didn&apos;t match any active
-            flock — not even after allowing for spacing, case, or minor
-            punctuation differences. Nothing here is lost: pick the flock it
-            actually belongs to below and the numbers save normally.
-          </p>
-          {unresolved.map((item) => (
-            <div key={`unresolved-${item.id}`} className="card stack">
-              <h3 style={{ margin: 0 }}>
-                &ldquo;{item.display_label_as_written}&rdquo;{" "}
-                <span className="muted">· {item.date}</span>
-              </h3>
-              <div className="flag-banner">
-                Could not match this label to a known flock — please confirm.
-              </div>
-              {item.sections_found !== null && (
-                <p className="muted" style={{ margin: 0 }}>
-                  Model reported {item.sections_found} flock table section
-                  {item.sections_found === 1 ? "" : "s"} found in this photo.
-                </p>
-              )}
-              <div className="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Mort</th>
-                      <th>Feed</th>
-                      <th>Total eggs</th>
-                      <th>Bal bird</th>
-                      <th>%</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr>
-                      <td>{item.mortality ?? "—"}</td>
-                      <td>{item.feed_bags ?? "—"}</td>
-                      <td>{item.eggs_total ?? "—"}</td>
-                      <td>{item.bird_population ?? "—"}</td>
-                      <td>{item.hd_percent ?? "—"}</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-              {item.source_photo_url && (
-                <a href={item.source_photo_url} target="_blank" rel="noreferrer">
-                  {
-                    // eslint-disable-next-line @next/next/no-img-element -- external Supabase Storage URL, no next/image loader configured for it
-                    <img
-                      src={item.source_photo_url}
-                      alt={`Source register photo for "${item.display_label_as_written}"`}
-                      className="flagged-photo-thumb"
-                    />
-                  }
-                </a>
-              )}
-              <form action={resolveExtraction.bind(null, item.id)} className="actions-bar" style={{ marginBottom: 0 }}>
-                <label className="field" style={{ flex: 1, minWidth: 200 }}>
-                  <span>This is actually…</span>
-                  <select name="flockInternalId" required defaultValue="">
-                    <option value="" disabled>
-                      Choose a flock
-                    </option>
-                    {activeFlocks.map((f) => (
-                      <option key={f.flock_internal_id} value={f.flock_internal_id}>
-                        {f.display_label}
-                        {f.current_shed ? ` — ${f.current_shed}` : ""}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <button type="submit" className="btn">
-                  Save to this flock
-                </button>
-              </form>
-            </div>
-          ))}
-          <h2>Flagged records</h2>
-        </>
+      <form method="get" className="card actions-bar" style={{ alignItems: "end" }}>
+        <label className="field">
+          <span>From</span>
+          <input type="date" name="from" defaultValue={dateFilter.from ?? ""} />
+        </label>
+        <label className="field">
+          <span>To</span>
+          <input type="date" name="to" defaultValue={dateFilter.to ?? ""} />
+        </label>
+        <button type="submit" className="btn-secondary">
+          Filter
+        </button>
+        {(dateFilter.from || dateFilter.to) && (
+          <Link href="/flagged" className="btn-secondary">
+            Clear filter
+          </Link>
+        )}
+      </form>
+
+      <FlaggedProductionSection
+        productionItems={productionItems}
+        unresolvedItems={unresolved}
+        activeFlocks={activeFlocks}
+      />
+
+      {items.length === 0 && unresolved.length === 0 && (
+        <p className="card muted">
+          Nothing in the queue{dateFilter.from || dateFilter.to ? " for this date range" : ""} —
+          every saved record passes its checks or has been reviewed.
+        </p>
       )}
 
-      {items.length === 0 ? (
-        <p className="card muted">
-          Nothing in the queue — every saved record passes its checks or has
-          been reviewed.
-        </p>
-      ) : (
-        items.map((item) => (
-          <div key={`${item.source}-${item.id}`} className="card stack">
-            <h2 style={{ margin: 0 }}>
-              {item.title} <span className="muted">· {item.date}</span>
-            </h2>
-            <div className="flag-banner">{item.flag_reason ?? "flagged"}</div>
-            {item.sections_found !== null && (
-              <p className="muted" style={{ margin: 0 }}>
-                Model reported {item.sections_found} flock table section
-                {item.sections_found === 1 ? "" : "s"} found in this photo.
-              </p>
-            )}
-            {item.source_photo_url && (
-              <a href={item.source_photo_url} target="_blank" rel="noreferrer">
-                {
-                  // eslint-disable-next-line @next/next/no-img-element -- external Supabase Storage URL, no next/image loader configured for it
-                  <img
-                    src={item.source_photo_url}
-                    alt={`Source register photo for ${item.title}`}
-                    className="flagged-photo-thumb"
-                  />
-                }
-              </a>
-            )}
-            <div className="actions-bar" style={{ marginBottom: 0 }}>
-              <Link href={item.entry_href} className="btn">
-                Open entry screen
-              </Link>
-              <form action={markReviewed.bind(null, item.source, item.id)}>
-                <button type="submit" className="btn-secondary">
-                  Mark reviewed
-                </button>
-              </form>
-            </div>
+      {otherItems.map((item) => (
+        <div key={`${item.source}-${item.id}`} className="card stack">
+          <h2 style={{ margin: 0 }}>
+            {item.title} <span className="muted">· {item.date}</span>
+          </h2>
+          <div className="flag-banner">{item.flag_reason ?? "flagged"}</div>
+          {item.source_photo_url && (
+            <a href={item.source_photo_url} target="_blank" rel="noreferrer">
+              {
+                // eslint-disable-next-line @next/next/no-img-element -- external Supabase Storage URL, no next/image loader configured for it
+                <img
+                  src={item.source_photo_url}
+                  alt={`Source register photo for ${item.title}`}
+                  className="flagged-photo-thumb"
+                />
+              }
+            </a>
+          )}
+          <div className="actions-bar" style={{ marginBottom: 0 }}>
+            <Link href={item.entry_href} className="btn">
+              Open entry screen
+            </Link>
+            <form action={markReviewed.bind(null, item.source, item.id)}>
+              <button type="submit" className="btn-secondary">
+                Mark reviewed
+              </button>
+            </form>
           </div>
-        ))
-      )}
+        </div>
+      ))}
     </>
   );
 }

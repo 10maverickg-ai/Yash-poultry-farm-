@@ -57,16 +57,16 @@ export async function saveProduction(
           `INSERT INTO daily_production
                (date, farm_code, flock_internal_id, display_label_as_written,
                 shed_code, mortality, feed_bags, eggs_total, bird_population,
-                hd_percent)
+                hd_percent_written)
            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
-           ON CONFLICT (flock_internal_id, date) DO UPDATE SET
+           ON CONFLICT (flock_internal_id, date) WHERE deleted_at IS NULL DO UPDATE SET
                display_label_as_written = EXCLUDED.display_label_as_written,
                shed_code       = EXCLUDED.shed_code,
                mortality       = EXCLUDED.mortality,
                feed_bags       = EXCLUDED.feed_bags,
                eggs_total      = EXCLUDED.eggs_total,
                bird_population = EXCLUDED.bird_population,
-               hd_percent      = EXCLUDED.hd_percent,
+               hd_percent_written = EXCLUDED.hd_percent_written,
                reviewed_by_owner = false
            RETURNING id`,
           [
@@ -83,12 +83,15 @@ export async function saveProduction(
           ]
         );
 
-        // Run the spec's flag rules; record saved either way.
+        // Run the spec's flag rules; record saved either way. hd_percent_note
+        // holds the quiet (non-flagging) note for a small written-vs-
+        // calculated HD% gap — see fn_validate_daily_production Rule 1.
         await client.query(
           `UPDATE daily_production
               SET flagged = cardinality(v.reasons) > 0,
-                  flag_reason = nullif(array_to_string(v.reasons, '; '), '')
-             FROM (SELECT fn_validate_daily_production($1) AS reasons) v
+                  flag_reason = nullif(array_to_string(v.reasons, '; '), ''),
+                  hd_percent_note = v.hd_percent_note
+             FROM fn_validate_daily_production($1) v
             WHERE id = $1`,
           [rows[0].id]
         );
@@ -100,11 +103,12 @@ export async function saveProduction(
 
       // Also update each saved flock's latest known population (mirrors the
       // schema note: current_bird_count is the latest daily figure).
-      // Flagged rows are excluded both as the source AND from the "later
-      // reading exists" check — an unreviewed flagged entry (this screen's
-      // own validation can flag a manual entry too, e.g. an HD% mismatch
-      // that suggests a typo) must not push a wrong number into the live
-      // flock register before the owner has reviewed it.
+      // Flagged and soft-deleted rows are excluded both as the source AND
+      // from the "later reading exists" check — an unreviewed flagged entry
+      // (this screen's own validation can flag a manual entry too, e.g. an
+      // HD% mismatch that suggests a typo) or wrong/duplicate data marked
+      // deleted must not push a wrong number into the live flock register
+      // before the owner has reviewed it.
       await client.query(
         `UPDATE flocks f
             SET current_bird_count = dp.bird_population
@@ -113,11 +117,13 @@ export async function saveProduction(
             AND dp.date = $1
             AND dp.bird_population IS NOT NULL
             AND dp.flagged = false
+            AND dp.deleted_at IS NULL
             AND NOT EXISTS (
                 SELECT 1 FROM daily_production later
                  WHERE later.flock_internal_id = f.flock_internal_id
                    AND later.date > $1 AND later.bird_population IS NOT NULL
                    AND later.flagged = false
+                   AND later.deleted_at IS NULL
             )`,
         [date]
       );

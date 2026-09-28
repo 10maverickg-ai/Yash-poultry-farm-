@@ -14,7 +14,13 @@ export interface ProductionSlot {
     feed_bags: number | null;
     eggs_total: number | null;
     bird_population: number | null;
-    hd_percent: string | null; // pg numeric comes back as string
+    // What was actually written on the register / typed here — the
+    // editable value. hd_percent (the app-calculated figure) is generated
+    // and shown live in the form instead of read back from the saved row.
+    hd_percent_written: string | null; // pg numeric comes back as string
+    // Set when hd_percent_written and the calculated hd_percent differ by
+    // 0.2-1.0 percentage points — a normal-rounding gap, not a flag.
+    hd_percent_note: string | null;
     flagged: boolean;
     flag_reason: string | null;
   };
@@ -27,11 +33,13 @@ export async function getProductionSheet(date: string): Promise<ProductionSlot[]
             f.current_shed AS default_shed,
             dp.id AS row_id,
             dp.shed_code, dp.mortality, dp.feed_bags, dp.eggs_total,
-            dp.bird_population, dp.hd_percent, dp.flagged, dp.flag_reason
+            dp.bird_population, dp.hd_percent_written, dp.hd_percent_note,
+            dp.flagged, dp.flag_reason
        FROM flock_label_history h
        JOIN flocks f USING (flock_internal_id)
        LEFT JOIN daily_production dp
          ON dp.flock_internal_id = f.flock_internal_id AND dp.date = $2
+        AND dp.deleted_at IS NULL
       WHERE f.farm_code = $1
         AND h.effective_from <= $2
         AND (h.effective_to IS NULL OR h.effective_to >= $2)
@@ -51,7 +59,8 @@ export async function getProductionSheet(date: string): Promise<ProductionSlot[]
             feed_bags: r.feed_bags,
             eggs_total: r.eggs_total,
             bird_population: r.bird_population,
-            hd_percent: r.hd_percent,
+            hd_percent_written: r.hd_percent_written,
+            hd_percent_note: r.hd_percent_note,
             flagged: r.flagged,
             flag_reason: r.flag_reason,
           },

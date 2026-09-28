@@ -13,7 +13,7 @@ export async function getEggStockDay(date: string): Promise<EggStockDay> {
     ),
     pool.query(
       `SELECT sum(eggs_total)::int AS s FROM daily_production
-        WHERE farm_code = $1 AND date = $2`,
+        WHERE farm_code = $1 AND date = $2 AND deleted_at IS NULL`,
       [ACTIVE_FARM, date]
     ),
     pool.query(

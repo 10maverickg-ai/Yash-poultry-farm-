@@ -120,6 +120,7 @@ export async function uploadAndExtractDailyProduction(
     fields: RecheckableField[];
     confidence: Record<string, number>;
     reasons: string[];
+    hdPercentNote: string | null;
   }
   const pendingRechecks: PendingRecheck[] = [];
 
@@ -144,7 +145,7 @@ export async function uploadAndExtractDailyProduction(
           await client.query(
             `INSERT INTO unresolved_extractions
                  (farm_code, register_type, date, display_label_as_written,
-                  mortality, feed_bags, eggs_total, bird_population, hd_percent,
+                  mortality, feed_bags, eggs_total, bird_population, hd_percent_written,
                   ocr_confidence, source_photo_url, sections_found, page_notes)
              VALUES ($1,'daily_production',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
             [
@@ -166,7 +167,7 @@ export async function uploadAndExtractDailyProduction(
           continue;
         }
 
-        const { rowId, reasons } = await insertDailyProductionRow(
+        const { rowId, reasons, hdPercentNote } = await insertDailyProductionRow(
           client,
           ACTIVE_FARM,
           date,
@@ -181,7 +182,7 @@ export async function uploadAndExtractDailyProduction(
             feedBags: flock.feed_bags,
             eggsTotal: flock.eggs_total,
             birdPopulation: flock.bird_population,
-            hdPercent: flock.hd_percent,
+            hdPercentWritten: flock.hd_percent,
             confidence: flock.confidence,
             sourcePhotoUrl: photoUrl,
             sectionsFound: extraction.sections_found,
@@ -198,6 +199,7 @@ export async function uploadAndExtractDailyProduction(
               fields,
               confidence: { ...flock.confidence },
               reasons,
+              hdPercentNote,
             });
             // Finalized below, after the batched second pass — the row is
             // already saved with its first-pass flagged/flag_reason from
@@ -240,6 +242,12 @@ export async function uploadAndExtractDailyProduction(
 
         for (const pending of pendingRechecks) {
           let reasons = pending.reasons;
+          // Defaults to preserving whatever the first pass already computed
+          // — only overwritten below if this recheck actually touched an
+          // HD%-related field and re-ran validation. Without this, a
+          // recheck for an unrelated field (e.g. mortality) would wipe out
+          // a legitimate quiet note from the first pass by writing null.
+          let hdPercentNote = pending.hdPercentNote;
           const recheck = resultsByLabel.get(pending.flockLabel);
           const autoRechecked = references.length > 0;
 
@@ -263,25 +271,31 @@ export async function uploadAndExtractDailyProduction(
             }
 
             if (acceptedFields.length > 0) {
-              const setClause = acceptedFields.map((f, i) => `${f} = $${i + 2}`).join(", ");
+              // hd_percent is a recheckable field conceptually (the
+              // register's own "%" column), but the daily_production.hd_percent
+              // column is GENERATED ALWAYS now — a recheck's accepted value
+              // writes to hd_percent_written instead.
+              const dbColumn = (f: string) => (f === "hd_percent" ? "hd_percent_written" : f);
+              const setClause = acceptedFields.map((f, i) => `${dbColumn(f)} = $${i + 2}`).join(", ");
               await client.query(
                 `UPDATE daily_production SET ${setClause}, ocr_confidence = $${acceptedFields.length + 2} WHERE id = $1`,
                 [pending.rowId, ...acceptedValues, JSON.stringify(confidence)]
               );
 
               const { rows: revalRows } = await client.query(
-                `SELECT fn_validate_daily_production($1) AS reasons`,
+                `SELECT * FROM fn_validate_daily_production($1)`,
                 [pending.rowId]
               );
               reasons = revalRows[0].reasons;
+              hdPercentNote = revalRows[0].hd_percent_note;
               const stillLow = Object.entries(confidence).filter(([, v]) => v < 0.6);
               for (const [field] of stillLow) reasons.push(`low OCR confidence on ${field}`);
             }
           }
 
           await client.query(
-            `UPDATE daily_production SET flagged = $2, flag_reason = $3 WHERE id = $1`,
-            [pending.rowId, reasons.length > 0, reasons.length > 0 ? reasons.join("; ") : null]
+            `UPDATE daily_production SET flagged = $2, flag_reason = $3, hd_percent_note = $4 WHERE id = $1`,
+            [pending.rowId, reasons.length > 0, reasons.length > 0 ? reasons.join("; ") : null, hdPercentNote]
           );
           written.push({
             label: pending.flockLabel,
@@ -300,6 +314,8 @@ export async function uploadAndExtractDailyProduction(
         // source of the update AND from the "is there a later reading"
         // check below, since an unreviewed later row shouldn't be able to
         // block an earlier CONFIRMED-clean reading from applying either.
+        // Soft-deleted rows (owner request, 2026-09-28) are excluded on the
+        // same basis — wrong/duplicate data must not feed analytics.
         await client.query(
           `UPDATE flocks f
               SET current_bird_count = dp.bird_population
@@ -308,11 +324,13 @@ export async function uploadAndExtractDailyProduction(
               AND dp.date = $1
               AND dp.bird_population IS NOT NULL
               AND dp.flagged = false
+              AND dp.deleted_at IS NULL
               AND NOT EXISTS (
                   SELECT 1 FROM daily_production later
                    WHERE later.flock_internal_id = f.flock_internal_id
                      AND later.date > $1 AND later.bird_population IS NOT NULL
                      AND later.flagged = false
+                     AND later.deleted_at IS NULL
               )`,
           [date]
         );

@@ -6,7 +6,14 @@ import { ACTIVE_FARM } from "@/lib/farm";
 // Phase 3's review queue, minus photos. Queue = flagged AND not yet
 // reviewed; a flag clears by fixing the data on its entry screen (re-save
 // re-validates) or by "mark reviewed" for flags that reflect a real event
-// rather than a data error (e.g. a genuine mortality spike).
+// rather than a data error (e.g. a genuine mortality spike). Soft-deleted
+// rows (owner request, 2026-09-28 — wrong or duplicate data cleared from
+// /flagged) are excluded from every query below.
+
+export interface DateFilter {
+  from?: string; // YYYY-MM-DD, inclusive
+  to?: string; // YYYY-MM-DD, inclusive
+}
 
 export interface ProductionRecord {
   id: number;
@@ -29,7 +36,7 @@ export async function listProductionRecords(limit = 60): Promise<ProductionRecor
             eggs_total, bird_population, hd_percent, flagged, reviewed_by_owner,
             flag_reason
        FROM daily_production
-      WHERE farm_code = $1
+      WHERE farm_code = $1 AND deleted_at IS NULL
       ORDER BY date DESC, display_label_as_written
       LIMIT $2`,
     [ACTIVE_FARM, limit]
@@ -115,28 +122,35 @@ export interface FlaggedItem {
   sections_found: number | null;
 }
 
-export async function listFlagged(): Promise<FlaggedItem[]> {
+export async function listFlagged(filter: DateFilter = {}): Promise<FlaggedItem[]> {
+  // egg_stock and feed_stock extraction aren't wired up yet (Phase 3 scope
+  // is Daily Production only), so they have no deleted_at column — the date
+  // filter still applies to them for consistent browsing, delete just isn't
+  // offered for those two sources.
   const [prod, egg, feed] = await Promise.all([
     pool.query(
       `SELECT id, date, display_label_as_written AS label, flag_reason, source_photo_url, sections_found
          FROM daily_production
-        WHERE farm_code = $1 AND flagged AND NOT reviewed_by_owner
+        WHERE farm_code = $1 AND flagged AND NOT reviewed_by_owner AND deleted_at IS NULL
+          AND ($2::date IS NULL OR date >= $2) AND ($3::date IS NULL OR date <= $3)
         ORDER BY date DESC LIMIT 100`,
-      [ACTIVE_FARM]
+      [ACTIVE_FARM, filter.from ?? null, filter.to ?? null]
     ),
     pool.query(
       `SELECT id, date, flag_reason, source_photo_url
          FROM daily_egg_stock_summary
         WHERE farm_code = $1 AND flagged AND NOT reviewed_by_owner
+          AND ($2::date IS NULL OR date >= $2) AND ($3::date IS NULL OR date <= $3)
         ORDER BY date DESC LIMIT 100`,
-      [ACTIVE_FARM]
+      [ACTIVE_FARM, filter.from ?? null, filter.to ?? null]
     ),
     pool.query(
       `SELECT id, date, material_name, flag_reason, source_photo_url
          FROM feed_stock
         WHERE farm_code = $1 AND flagged AND NOT reviewed_by_owner
+          AND ($2::date IS NULL OR date >= $2) AND ($3::date IS NULL OR date <= $3)
         ORDER BY date DESC LIMIT 100`,
-      [ACTIVE_FARM]
+      [ACTIVE_FARM, filter.from ?? null, filter.to ?? null]
     ),
   ]);
 
@@ -185,7 +199,7 @@ export interface UnresolvedExtraction {
   feed_bags: number | null;
   eggs_total: number | null;
   bird_population: number | null;
-  hd_percent: string | null;
+  hd_percent_written: string | null;
   source_photo_url: string | null;
   sections_found: number | null;
 }
@@ -194,16 +208,19 @@ export interface UnresolvedExtraction {
 // even after forgiving-formatting normalization (lib/extraction/flockMatch.ts)
 // — raw numbers preserved, never discarded, waiting for the owner to pick
 // the right flock on /flagged.
-export async function listUnresolvedExtractions(): Promise<UnresolvedExtraction[]> {
+export async function listUnresolvedExtractions(
+  filter: DateFilter = {}
+): Promise<UnresolvedExtraction[]> {
   const { rows } = await pool.query(
     `SELECT id, register_type, date, display_label_as_written, shed_code,
-            mortality, feed_bags, eggs_total, bird_population, hd_percent,
+            mortality, feed_bags, eggs_total, bird_population, hd_percent_written,
             source_photo_url, sections_found
        FROM unresolved_extractions
-      WHERE farm_code = $1 AND resolved_at IS NULL
+      WHERE farm_code = $1 AND resolved_at IS NULL AND deleted_at IS NULL
+        AND ($2::date IS NULL OR date >= $2) AND ($3::date IS NULL OR date <= $3)
       ORDER BY date DESC, display_label_as_written
       LIMIT 100`,
-    [ACTIVE_FARM]
+    [ACTIVE_FARM, filter.from ?? null, filter.to ?? null]
   );
   return rows;
 }

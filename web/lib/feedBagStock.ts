@@ -54,6 +54,7 @@ export async function getFeedBagStockDay(date: string): Promise<FeedBagStockDay>
          JOIN flocks f USING (flock_internal_id)
          LEFT JOIN daily_production dp
            ON dp.flock_internal_id = f.flock_internal_id AND dp.date = $2
+          AND dp.deleted_at IS NULL
         WHERE f.farm_code = $1
           AND h.effective_from <= $2
           AND (h.effective_to IS NULL OR h.effective_to >= $2)

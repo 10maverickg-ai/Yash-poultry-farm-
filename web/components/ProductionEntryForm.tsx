@@ -137,10 +137,15 @@ function FlockCard({
             min="0"
             step="0.01"
             name={`hd_percent_${id}`}
-            defaultValue={seed("hd_percent", slot.saved?.hd_percent ?? null)}
+            defaultValue={seed("hd_percent", slot.saved?.hd_percent_written ?? null)}
           />
         </label>
       </div>
+      {slot.saved?.hd_percent_note && (
+        <p className="muted" style={{ margin: 0 }}>
+          {slot.saved.hd_percent_note}
+        </p>
+      )}
     </div>
   );
 }
