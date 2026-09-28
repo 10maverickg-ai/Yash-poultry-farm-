@@ -146,6 +146,11 @@ function FlockCard({
           {slot.saved.hd_percent_note}
         </p>
       )}
+      {slot.saved?.auto_correction_note && (
+        <p className="muted" style={{ margin: 0 }}>
+          {slot.saved.auto_correction_note}
+        </p>
+      )}
     </div>
   );
 }

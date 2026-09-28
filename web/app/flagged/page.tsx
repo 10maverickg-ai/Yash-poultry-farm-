@@ -1,7 +1,7 @@
 import Link from "next/link";
-import { listFlagged, listUnresolvedExtractions, type DateFilter } from "@/lib/records";
+import { listFlagged, listUnresolvedExtractions, listOpenPageIssues, type DateFilter } from "@/lib/records";
 import { listFlocks } from "@/lib/flocks";
-import { markReviewed } from "./actions";
+import { markReviewed, markPageIssueReviewed, deletePageIssue } from "./actions";
 import { FlaggedProductionSection } from "@/components/FlaggedProductionSection";
 
 export const dynamic = "force-dynamic";
@@ -17,10 +17,11 @@ export default async function FlaggedPage({
     to: /^\d{4}-\d{2}-\d{2}$/.test(sp.to ?? "") ? sp.to : undefined,
   };
 
-  const [items, unresolved, flocks] = await Promise.all([
+  const [items, unresolved, flocks, pageIssues] = await Promise.all([
     listFlagged(dateFilter),
     listUnresolvedExtractions(dateFilter),
     listFlocks(),
+    listOpenPageIssues(dateFilter),
   ]);
   const activeFlocks = flocks.filter((f) => f.status === "active");
   const productionItems = items.filter((i) => i.source === "production");
@@ -70,13 +71,61 @@ export default async function FlaggedPage({
         </div>
       </form>
 
+      {pageIssues.length > 0 && (
+        <>
+          <h2>Page-level issues</h2>
+          <p className="muted">
+            Something about a whole uploaded page didn&apos;t add up — usually
+            the register&apos;s own subtotal row not matching what the
+            flocks on that page sum to. This doesn&apos;t mean every flock
+            on the page is wrong, just that one number is worth a second
+            look against the photo.
+          </p>
+          {pageIssues.map((issue) => (
+            <div key={issue.id} className="card stack">
+              <h3 style={{ margin: 0 }}>
+                {issue.date} <span className="muted">· page checksum</span>
+              </h3>
+              <div className="flag-banner">{issue.issue_text}</div>
+              {issue.source_photo_url && (
+                <a href={issue.source_photo_url} target="_blank" rel="noreferrer">
+                  {
+                    // eslint-disable-next-line @next/next/no-img-element -- external Supabase Storage URL, no next/image loader configured for it
+                    <img
+                      src={issue.source_photo_url}
+                      alt={`Source register photo for ${issue.date}`}
+                      className="flagged-photo-thumb"
+                    />
+                  }
+                </a>
+              )}
+              <div className="actions-bar" style={{ marginBottom: 0 }}>
+                <Link href={`/production?date=${issue.date}`} className="btn">
+                  Open entry screen
+                </Link>
+                <form action={markPageIssueReviewed.bind(null, issue.id)}>
+                  <button type="submit" className="btn-secondary">
+                    Mark reviewed
+                  </button>
+                </form>
+                <form action={deletePageIssue.bind(null, issue.id)}>
+                  <button type="submit" className="btn-danger">
+                    Delete
+                  </button>
+                </form>
+              </div>
+            </div>
+          ))}
+        </>
+      )}
+
       <FlaggedProductionSection
         productionItems={productionItems}
         unresolvedItems={unresolved}
         activeFlocks={activeFlocks}
       />
 
-      {items.length === 0 && unresolved.length === 0 && (
+      {items.length === 0 && unresolved.length === 0 && pageIssues.length === 0 && (
         <p className="card muted">
           Nothing in the queue{dateFilter.from || dateFilter.to ? " for this date range" : ""} —
           every saved record passes its checks or has been reviewed.

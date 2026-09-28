@@ -231,3 +231,28 @@ export async function listUnresolvedExtractions(
   );
   return rows;
 }
+
+export interface PageIssue {
+  id: number;
+  date: string;
+  source_photo_url: string | null;
+  issue_text: string;
+}
+
+// Page-level extraction checksum issues (lib/extraction/pageChecksum.ts) —
+// belong to a whole upload, not any single flock, so they're not part of
+// listFlagged above. Shown once as a banner at the top of /flagged rather
+// than duplicated onto every flock row from that page (owner report,
+// 2026-09-28).
+export async function listOpenPageIssues(filter: DateFilter = {}): Promise<PageIssue[]> {
+  const { rows } = await pool.query(
+    `SELECT id, date, source_photo_url, issue_text
+       FROM daily_production_page_issues
+      WHERE farm_code = $1 AND NOT reviewed_by_owner AND deleted_at IS NULL
+        AND ($2::date IS NULL OR date >= $2) AND ($3::date IS NULL OR date <= $3)
+      ORDER BY date DESC
+      LIMIT 50`,
+    [ACTIVE_FARM, filter.from ?? null, filter.to ?? null]
+  );
+  return rows;
+}

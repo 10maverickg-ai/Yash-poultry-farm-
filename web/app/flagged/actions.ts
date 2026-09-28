@@ -31,6 +31,29 @@ export async function markReviewed(source: FlaggedSource, id: number) {
   redirect("/flagged");
 }
 
+// Page-level checksum issues (lib/extraction/pageChecksum.ts) belong to the
+// whole upload, not any one flock row — same reviewed/deleted lifecycle as
+// every other flagged thing in this app, just its own small table
+// (daily_production_page_issues, migration 0015) so a page issue can be
+// acknowledged or dismissed independently of any flock's own flag.
+export async function markPageIssueReviewed(id: number) {
+  await pool.query(
+    `UPDATE daily_production_page_issues SET reviewed_by_owner = true WHERE id = $1 AND farm_code = $2`,
+    [id, ACTIVE_FARM]
+  );
+  revalidatePath("/flagged");
+  redirect("/flagged");
+}
+
+export async function deletePageIssue(id: number) {
+  await pool.query(
+    `UPDATE daily_production_page_issues SET deleted_at = now() WHERE id = $1 AND farm_code = $2 AND deleted_at IS NULL`,
+    [id, ACTIVE_FARM]
+  );
+  revalidatePath("/flagged");
+  redirect("/flagged");
+}
+
 // Manually points an unresolved_extractions row (a photo-extracted flock
 // whose label didn't match any active flock, even after forgiving-formatting
 // matching) at the flock the owner identifies it as. Writes a normal

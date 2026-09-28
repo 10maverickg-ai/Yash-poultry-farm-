@@ -110,6 +110,30 @@ export function UploadForm() {
             </p>
           )}
 
+          {result.pageIssue && (
+            <div className="flag-banner">
+              Page checksum: {result.pageIssue}
+            </div>
+          )}
+
+          {result.autoCorrections.length > 0 && (
+            <div className="saved-banner">
+              <strong>
+                Auto-corrected {result.autoCorrections.length} value
+                {result.autoCorrections.length === 1 ? "" : "s"}
+              </strong>
+              <ul style={{ margin: "0.4rem 0 0", paddingLeft: "1.2rem" }}>
+                {result.autoCorrections.map((c, i) => (
+                  <li key={i}>
+                    {c.label} {c.field}: {c.from} → {c.to}
+                    <br />
+                    <span className="muted">{c.note}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
           {result.written.length > 0 && (
             <div className="table-wrap">
               <table>

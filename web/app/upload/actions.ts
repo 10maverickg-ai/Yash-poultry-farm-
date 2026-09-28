@@ -14,6 +14,8 @@ import { reextractFlaggedFlocks, impliedFields, type FlockRecheckRequest } from 
 import type { RecheckableField } from "@/lib/extraction/dailyProduction";
 import { getActiveLabels, matchFlockLabel } from "@/lib/extraction/flockMatch";
 import { insertDailyProductionRow } from "@/lib/extraction/writeDailyProduction";
+import { checkBalBirdChain } from "@/lib/extraction/balBirdChain";
+import { checkPageChecksums, buildPageIssueText, type SectionFlock } from "@/lib/extraction/pageChecksum";
 import { compareLabels } from "@/lib/naturalSort";
 
 export interface UploadOutcome {
@@ -26,6 +28,13 @@ export interface UploadOutcome {
   photoUrl: string | null;
   date: string | null;
   pageNotes: string | null;
+  // One page-level checksum issue, if the section subtotals the register
+  // itself writes didn't match what the flock rows summed to — shown ONCE
+  // on the upload result, not copied onto every flock (owner report,
+  // 2026-09-28: the previous design flagged an entire correct page over
+  // one misread subtotal). Also persisted to daily_production_page_issues
+  // so it's still visible on /flagged later, not just on this response.
+  pageIssue: string | null;
   written: {
     label: string;
     flagged: boolean;
@@ -44,11 +53,22 @@ export interface UploadOutcome {
   // having to re-read the photo or re-type the numbers. This array is just
   // the as-written labels, for the immediate on-screen summary.
   unresolved: string[];
+  // Bal-bird values the day-to-day chain check auto-corrected (see
+  // balBirdChain.ts) — saved clean, not flagged, but surfaced here so the
+  // owner sees exactly what changed and why without having to go looking.
+  autoCorrections: {
+    label: string;
+    date: string;
+    field: string;
+    from: number;
+    to: number;
+    note: string;
+  }[];
 }
 
 const EMPTY: UploadOutcome = {
   error: null, technicalDetail: null, photoUrl: null, date: null,
-  pageNotes: null, written: [], unresolved: [],
+  pageNotes: null, pageIssue: null, written: [], unresolved: [], autoCorrections: [],
 };
 
 // Every error shown to the end user must be plain, non-technical text —
@@ -67,13 +87,6 @@ function logAndFriendly(
   const detail = err instanceof Error ? err.message : String(err);
   console.error(`[upload] ${context}:`, err);
   return { friendly, detail };
-}
-
-/** True if two or more non-null readings of the same figure disagree. */
-function readingsDisagree(readings: (number | null)[]): boolean {
-  const present = readings.filter((n): n is number => n !== null);
-  if (present.length < 2) return false;
-  return !present.every((n) => n === present[0]);
 }
 
 export async function uploadAndExtractDailyProduction(
@@ -153,33 +166,31 @@ export async function uploadAndExtractDailyProduction(
 
   const activeLabels = date === dateHint ? precheckLabels : await getActiveLabels(pool, ACTIVE_FARM, date);
 
-  // Page checksum (owner report, 2026-09-28): the register's own subtotal
-  // row is a second, independent arithmetic check — if the individual
-  // flock reads don't sum to what the page itself says they sum to, at
-  // least one flock's egg total is probably misread, even if every
-  // individual read looked confident on its own. Computed once per upload,
-  // against every flock the model found (matched or not — the page's own
-  // arithmetic doesn't care whether a label matched a known flock), and
-  // attached to every MATCHED row below via extraReasons so every row from
-  // this upload is flagged and visible on /flagged. Deliberately does NOT
-  // trigger an automatic second-pass recheck on its own (see impliedFields
-  // in reextract.ts) — a page-wide sum mismatch doesn't point at any one
-  // flock's field, so auto-rechecking everything would be expensive without
-  // being any more likely to land on the actual culprit than owner review.
-  const sumFlockEggs = flocks.reduce((s, f) => s + (f.eggs_total ?? 0), 0);
-  const subtotals = extraction.table_subtotals ?? [];
-  const sumSubtotals = subtotals.reduce((s, t) => s + (t.eggs_total ?? 0), 0);
-  const hasSubtotalData = subtotals.some((t) => t.eggs_total !== null);
-  const checksumReasons: string[] =
-    hasSubtotalData && sumFlockEggs !== sumSubtotals
-      ? [`page checksum mismatch: flocks sum to ${sumFlockEggs} eggs, page subtotal reads ${sumSubtotals}`]
-      : [];
-  if (checksumReasons.length > 0) {
-    console.warn(`[upload] ${checksumReasons[0]}`);
+  // Page checksum, rebuilt (owner report, 2026-09-28: the previous version
+  // summed every flock against every subtotal indiscriminately, so one
+  // section's misread subtotal flagged the OTHER section's correct flocks
+  // too — see pageChecksum.ts and docs/DECISIONS.md for exactly where that
+  // came from). Computed against every flock the model found (matched or
+  // not — the page's own arithmetic doesn't care whether a label matched a
+  // known flock), section-by-section. A finding becomes ONE page-level
+  // issue (never copied onto every flock row) — see the transaction below.
+  const sectionFlocks: SectionFlock[] = flocks.map((f) => ({
+    label: f.display_label_as_written,
+    section: f.section,
+    mortality: f.mortality,
+    feed_bags: f.feed_bags,
+    eggs_total: f.eggs_total,
+    bird_population: f.bird_population,
+  }));
+  const checksumFindings = checkPageChecksums(sectionFlocks, extraction.section_subtotals ?? []);
+  const pageIssueText = buildPageIssueText(checksumFindings);
+  if (pageIssueText) {
+    console.warn(`[upload] page checksum issue: ${pageIssueText}`);
   }
 
   const written: UploadOutcome["written"] = [];
   const unresolved: string[] = [];
+  const autoCorrections: UploadOutcome["autoCorrections"] = [];
 
   // First-pass results that ended up flagged with at least one recheckable
   // field, collected across the whole photo so the second pass can batch
@@ -194,17 +205,27 @@ export async function uploadAndExtractDailyProduction(
     confidence: Record<string, number>;
     reasons: string[];
     hdPercentNote: string | null;
-    // App-side reasons (readings-disagreement, page checksum) that
-    // fn_validate_daily_production has no way to reproduce — must be
-    // re-merged after a reval overwrites `reasons`, the same way
+    // App-side reasons (readings-disagreement, the chain check's own note,
+    // ...) that fn_validate_daily_production has no way to reproduce — must
+    // be re-merged after a reval overwrites `reasons`, the same way
     // hdPercentNote is preserved, or a recheck that touches an unrelated
-    // field would silently wipe a legitimate first-pass flag.
+    // field would silently wipe a legitimate first-pass flag. Returned
+    // directly by insertDailyProductionRow rather than recomputed here, so
+    // there's exactly one place that decides what counts as "stable".
     stableReasons: string[];
   }
   const pendingRechecks: PendingRecheck[] = [];
 
   try {
     await withTransaction(async (client) => {
+      if (pageIssueText) {
+        await client.query(
+          `INSERT INTO daily_production_page_issues (farm_code, date, source_photo_url, issue_text)
+           VALUES ($1, $2, $3, $4)`,
+          [ACTIVE_FARM, date, photoUrl, pageIssueText]
+        );
+      }
+
       for (const flock of flocks) {
         const match = matchFlockLabel(flock.display_label_as_written, activeLabels);
 
@@ -241,7 +262,71 @@ export async function uploadAndExtractDailyProduction(
           continue;
         }
 
-        const { rowId, reasons, hdPercentNote } = await insertDailyProductionRow(
+        // Day-to-day bal-bird chain check (owner-verified, 2026-09-28: held
+        // exactly for all 10 flocks across two consecutive real pages) —
+        // only applies against the IMMEDIATELY PRECEDING calendar day; a
+        // gap (e.g. a skipped upload) means there's nothing to check against.
+        const { rows: prevRows } = await client.query(
+          `SELECT bird_population, eggs_total, hd_percent_written
+             FROM daily_production
+            WHERE flock_internal_id = $1 AND date = $2::date - 1 AND deleted_at IS NULL
+            LIMIT 1`,
+          [match.flockInternalId, date]
+        );
+        const prev = prevRows[0] as
+          | { bird_population: number | null; eggs_total: number | null; hd_percent_written: string | null }
+          | undefined;
+
+        const chain = checkBalBirdChain({
+          eggsTotal: flock.eggs_total,
+          todayMortality: flock.mortality,
+          todayExtractedBalBird: flock.bird_population,
+          todayWrittenHd: flock.hd_percent,
+          previousBalBird: prev?.bird_population ?? null,
+          previousEggs: prev?.eggs_total ?? null,
+          previousWrittenHd: prev?.hd_percent_written !== undefined && prev?.hd_percent_written !== null
+            ? Number(prev.hd_percent_written)
+            : null,
+        });
+
+        let birdPopulationForSave = flock.bird_population;
+        let birdPopulationOriginal: number | null = null;
+        let autoCorrectionNote: string | null = null;
+        let suppressBirdPopulationIncreaseFlag = false;
+        const chainExtraReasons: string[] = [];
+
+        if (chain.kind === "auto_correct") {
+          birdPopulationOriginal = flock.bird_population;
+          birdPopulationForSave = chain.correctedBalBird;
+          autoCorrectionNote = chain.note;
+          autoCorrections.push({
+            label: flock.display_label_as_written,
+            date,
+            field: "bird_population",
+            from: flock.bird_population as number,
+            to: chain.correctedBalBird,
+            note: chain.note,
+          });
+        } else if (chain.kind === "flag_previous") {
+          // Today's own reading stays as extracted — it's the previous
+          // day's SAVED row that looks wrong. Never rewritten automatically;
+          // flagged with a suggestion for the owner to confirm.
+          suppressBirdPopulationIncreaseFlag = true;
+          await client.query(
+            `UPDATE daily_production
+                SET flagged = true,
+                    flag_reason = CASE
+                        WHEN flag_reason IS NULL OR flag_reason = '' THEN $2
+                        ELSE flag_reason || '; ' || $2
+                    END
+              WHERE flock_internal_id = $1 AND date = $3::date - 1 AND deleted_at IS NULL`,
+            [match.flockInternalId, chain.note, date]
+          );
+        } else if (chain.kind === "flag_today") {
+          chainExtraReasons.push(chain.note);
+        }
+
+        const { rowId, reasons, hdPercentNote, stableReasons } = await insertDailyProductionRow(
           client,
           ACTIVE_FARM,
           date,
@@ -255,7 +340,7 @@ export async function uploadAndExtractDailyProduction(
             mortality: flock.mortality,
             feedBags: flock.feed_bags,
             eggsTotal: flock.eggs_total,
-            birdPopulation: flock.bird_population,
+            birdPopulation: birdPopulationForSave,
             hdPercentWritten: flock.hd_percent,
             confidence: flock.confidence,
             sourcePhotoUrl: photoUrl,
@@ -263,22 +348,16 @@ export async function uploadAndExtractDailyProduction(
             pageNotes: extraction.page_notes,
             eggsTotalReadings: flock.eggs_total_readings,
             birdPopulationReadings: flock.bird_population_readings,
-            extraReasons: checksumReasons,
+            birdPopulationOriginal,
+            autoCorrectionNote,
+            suppressBirdPopulationIncreaseFlag,
+            extraReasons: chainExtraReasons,
           }
         );
 
         if (reasons.length > 0) {
           const fields = impliedFields(reasons);
           if (fields.length > 0) {
-            const stableReasons = [
-              ...(readingsDisagree(flock.eggs_total_readings)
-                ? [`eggs_total readings disagree: ${flock.eggs_total_readings.filter((n) => n !== null).join(", ")}`]
-                : []),
-              ...(readingsDisagree(flock.bird_population_readings)
-                ? [`bird_population readings disagree: ${flock.bird_population_readings.filter((n) => n !== null).join(", ")}`]
-                : []),
-              ...checksumReasons,
-            ];
             pendingRechecks.push({
               rowId,
               flockLabel: flock.display_label_as_written,
@@ -452,7 +531,9 @@ export async function uploadAndExtractDailyProduction(
     photoUrl,
     date,
     pageNotes: extraction.page_notes,
+    pageIssue: pageIssueText,
     written,
     unresolved,
+    autoCorrections,
   };
 }

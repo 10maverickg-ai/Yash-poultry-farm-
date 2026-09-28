@@ -650,6 +650,131 @@ flagging and checksum-reason wiring against a live local database) rather
 than reviewed by inspection alone. The next real upload is the first true
 test of the prompt-level changes.
 
+## Phase 3 increment 9: near-zero false flags — page-checksum rebuild, bal-bird chain, digit evidence (2026-09-28)
+
+**Context:** a full page of 10 correct flocks came back with all 10
+flagged. The owner was explicit: flags must mean "a human should look",
+not "the app got confused by its own arithmetic" — and handed over
+verified ground truth from three real register pages (2026-08-01/02/03,
+including exact subtotal rows) as test fixtures, plus a diagnosis to
+confirm or refute. All of section 2's fixtures now live as literal
+values in a verification script run against this migration and the real
+`insertDailyProductionRow`/`checkBalBirdChain`/`checkPageChecksums` code
+(not reimplemented for the test) — see the 8-case output this shipped
+with. No schema change was strictly required for the checksum rebuild
+itself, but two were for the other half of this increment (see below).
+
+**Where the 71850 false-positive number actually came from (owner asked
+for this explicitly):** the MODEL, not this app's summing code. The
+previous increment's `table_subtotals` had no per-section tagging, so
+`app/upload/actions.ts` summed every subtotal entry together and compared
+against every flock together. On the real Aug 3 page, the model correctly
+read the main section's subtotal (56070) but, for the continuation
+section, read a stock-ledger carry-forward line (15780 = 14490 + a 1290
+carry) instead of the actual subtotal row one line above it — the app then
+mechanically summed 56070 + 15780 = 71850 and compared it against the true
+flock sum (70560), correctly-per-its-own-math but on a wrong input. Fixed
+two ways: (1) the prompt now spells out the full page layout — main/
+continuation tables, the ledger below each subtotal row with concrete
+examples (`(+) 185550`, `Buy (−) 216300`, tray counts), Feed Bag Stock
+boxes, Chicks rows, bleed-through — and tells the model to read ONLY the
+row directly beneath the last flock, never anything below it, never
+compute or invent a figure; (2) even if the model still misreads a
+subtotal, `pageChecksum.ts` now compares each section's subtotal ONLY
+against that section's own flocks (each flock and subtotal explicitly
+tagged `section: "main" | "continuation"`), so a bad read in one section
+can no longer implicate the other's correct flocks. Verified directly:
+feeding the exact 56070/15780 pair back in isolates the finding to the
+continuation section alone (main: zero findings) — the old code would
+have flagged all 10.
+
+**A page issue is a property of the page, not a flock.** New table
+`daily_production_page_issues` (migration 0015) gives page-level checksum
+findings their own flagged/reviewed/deleted lifecycle, mirroring every
+other register in this schema, shown once as a banner at the top of
+`/flagged` and on the upload result — never copied onto every flock row.
+Mortality/feed-bag subtotal mismatches are exact checks (same tier as
+eggs); a bal-bird subtotal mismatch is informational-only with a ±2
+tolerance (verified: Aug 3's real subtotal, 71207, is one off the true sum
+71208 — a normal register rounding/carry, not a flag) and never triggers a
+page issue by itself, since bal_bird already gets a far more precise,
+per-flock check below. When a mismatch traces to exactly one flock's
+plausible digit substitution, that flock is named in the banner.
+
+**Bal-bird day-to-day chain (owner-verified: held exactly for all 10
+flocks, Aug 2 → Aug 3): `bird_population[today] = bird_population[prev
+day] − mortality[today]`.** `lib/extraction/balBirdChain.ts` is a pure
+function implementing the owner's exact four-way rule: match; auto-correct
+today's figure to the chain-expected value ONLY when that value's implied
+HD corroborates today's written HD within 0.15 points (the one place this
+whole pass ever auto-applies a value, and only bal_bird, never eggs);
+flag the PREVIOUS day's row with a suggestion (never auto-rewritten) when
+today's own reading is what actually corroborates written HD instead;
+otherwise flag today's row naming the previous day's entry as the likely
+culprit rather than the old, misleading "increased" message that blamed
+whichever row happened to be newer. Verified against the exact Aug 3
+fixtures: BAB-3 (misread 6894) auto-corrects to 6394 with the identical
+80.70%-vs-80.7% corroboration in the brief; BAB-1 keeps today's correct
+8582 and flags *Aug 2's* stored row with suggestion 8588, reproducing the
+brief's own corroboration arithmetic (71.66%, 71.26%) exactly. The SQL
+"bird_population increased" rule is suppressed on today's row specifically
+in the flag-previous case (`suppressBirdPopulationIncreaseFlag`), since
+blaming today's row is exactly the old bug.
+
+**Digit evidence, shared by both of the above plus repeated-reading
+disagreement:** `lib/extraction/digitEvidence.ts` — confusion-pair digit
+substitution (3↔8, 1↔7, 5↔6, 4↔9, trailing zero dropped/added) plus a
+tray-of-30 divisibility check and HD-tolerance scoring, all pure and unit
+tested. Reproduces the brief's Aug 1 BAB-9 case exactly: `315` → unique
+candidate `3150` (the only substitution divisible by 30), returned as a
+**suggestion only** — eggs are never auto-corrected regardless of how
+confident the candidate looks, only shown in the flag text, even when (as
+in that case) the written HD used for corroboration is itself wrong. When
+the three egg-column readings or two bal-bird-line readings disagree,
+`writeDailyProduction.ts` now names which one the evidence prefers instead
+of just listing them.
+
+**Standing question for the owner, stated as such rather than assumed:**
+every egg figure across all three fixture pages (30 flock-days) and every
+subtotal was divisible by 30 — treated here as a **soft** signal
+(triggers the candidate search, never forces a value, never auto-corrects
+eggs) pending confirmation that this farm always counts eggs in whole
+trays of 30. If confirmed, later work could reasonably lean on it harder.
+
+**Missing written HD% is no longer a flag** (Rule 4 in
+`fn_validate_daily_production`, migration 0015, same OUT-parameter shape
+as 0014 so `CREATE OR REPLACE` applies) — `hd_percent` is the generated,
+app-calculated figure and doesn't depend on the supervisor having written
+one; `hd_percent_written` is a cross-check only, per the owner's framing
+("correct eggs and correct bal bird are what matter most").
+
+**Thumbnail clipping on `/flagged` (owner report: thin strip visible,
+large blank area below, iPad Safari):** not reproducible in Chromium here
+at any width tested — the image rendered at full, correctly-proportioned
+size every time, the same "real bug on Safari, absent in Chromium" pattern
+as this project's date-filter bug two increments ago. Replaced the
+`max-height` soft-cap approach with the standard, most defensive
+responsive-image pattern (`width: 100%; height: auto; object-fit:
+contain`) rather than iterating on the max-height version blind. Could not
+confirm the fix against real WebKit — flagged here rather than implied
+tested, matching this project's own established practice for this exact
+class of bug.
+
+**Verification approach, in full:** every pure function
+(`digitEvidence.ts`, `balBirdChain.ts`, `pageChecksum.ts`) is independently
+unit tested with no API or DB dependency. The three DB-dependent brief
+test cases (1-3) were run against the real `insertDailyProductionRow` and
+a real local Postgres 16 instance with this migration applied, seeding
+actual Aug 2 rows and running the actual Aug 3 upload-time logic
+end-to-end — not reimplemented or mocked. All 8 of the brief's section-7
+cases produced the exact expected output; see the increment's report for
+the full transcript. **What remains genuinely untested:** the prompt
+rewrite's actual effect on the model's reads, the few-shot examples, and
+the thumbnail CSS fix against real Safari — all require live access this
+sandbox doesn't have (no ANTHROPIC_API_KEY, no WebKit browser reachable
+through the network policy here). The next real upload is the first true
+test of the prompt-level changes.
+
 ## Noted for later phases (no Phase 1 action)
 
 - **Trays-vs-eggs magnitude heuristic (owner addendum, 2026-07-09):** register

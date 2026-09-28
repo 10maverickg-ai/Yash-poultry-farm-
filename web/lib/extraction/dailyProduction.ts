@@ -1,6 +1,7 @@
 import { getAnthropicClient, EXTRACTION_MODEL } from "./anthropicClient";
 import { dedupeByNormalizedLabel } from "./flockMatch";
 import { FEW_SHOT_DIGIT_EXAMPLES } from "./fewShotExamples";
+import type { Section, SectionSubtotal } from "./pageChecksum";
 
 // The numeric fields a recheck pass can target — shared with reextract.ts so
 // both passes agree on the same five names used in ocr_confidence and in
@@ -12,14 +13,9 @@ export type RecheckableField = (typeof RECHECKABLE_FIELDS)[number];
 
 // Field mapping per docs/source-specs/extraction-logic.txt, section 1
 // (Daily Production register): header row "Mort, Feed | I | II | Total |
-// Bal Bird | %", flock blocks stacked.
-//
-// This pass extracts Daily Production ONLY. The extraction-logic doc notes
-// the Egg Stock Ledger (and, per the owner, Feed Bag Stock) often appear on
-// the same photographed page — the prompt below explicitly tells the model
-// to ignore those blocks rather than half-extract them, since the write
-// paths for those two tables aren't wired up yet. That's the next increment,
-// not this one.
+// Bal Bird | %", flock blocks stacked. Full page-layout ground truth
+// (owner report, 2026-09-28, verified against three real photographed
+// pages) is in docs/DECISIONS.md — the prompt below encodes it directly.
 //
 // shed_code is deliberately NOT extracted (owner decision, 2026-09-18): it
 // was adding noise, not signal — a low-confidence read of it could flag an
@@ -30,6 +26,13 @@ export type RecheckableField = (typeof RECHECKABLE_FIELDS)[number];
 // set it) — this only stops the extraction pass from asking for it.
 export interface ExtractedFlockRow {
   display_label_as_written: string;
+  // Which physical table this flock's block was read from — needed to
+  // compare each flock against the RIGHT section's own subtotal (owner
+  // report, 2026-09-28: the previous page-checksum design summed every
+  // flock against every subtotal indiscriminately, which is how one
+  // section's misread subtotal flagged the OTHER section's perfectly
+  // correct flocks too).
+  section: Section;
   mortality: number | null;
   feed_bags: number | null;
   eggs_total: number | null;
@@ -58,20 +61,16 @@ export interface ExtractedFlockRow {
   };
 }
 
-// One table section's own subtotal row (sum across that section's own
-// flocks) — read separately from the flock rows themselves (a subtotal row
-// is explicitly NOT extracted as a flock) so the app can cross-check
-// "do the individual flock reads add up to what the page itself says
-// they add up to" as a page-level sanity check.
-export interface TableSubtotal {
-  eggs_total: number | null;
-}
-
 export interface ExtractionResult {
   date: string | null; // YYYY-MM-DD, read from the top of the page
   date_confidence: number;
   flocks: ExtractedFlockRow[];
-  table_subtotals: TableSubtotal[];
+  // One entry per table section that has a legible subtotal row — see
+  // pageChecksum.ts for how these are compared against the flocks above.
+  // Every field nullable: the model must return null for anything not
+  // literally written there rather than compute or estimate it, per the
+  // subtotal-row instructions in the prompt below.
+  section_subtotals: SectionSubtotal[];
   page_notes: string | null; // model's free-text notes, e.g. illegible sections
   // Self-reported count of distinct physical table blocks the model found
   // flock data in anywhere in the photo. Real register photos are often a
@@ -95,13 +94,23 @@ export interface ExtractionResult {
 const MAX_FLOCKS_IN_SCHEMA = 20;
 
 // Sized for a legitimate extraction with real headroom, not for whatever
-// allowed the runaway case above: each flock entry (six scalar fields +
+// allowed the runaway case above: each flock entry (seven scalar fields +
 // two reading arrays + a six-field confidence object) runs roughly
-// 120-180 tokens as JSON with real field names; MAX_FLOCKS_IN_SCHEMA (20)
-// of those is at most ~3600 tokens, plus a few hundred for date/notes/
-// table_subtotals — 5000 leaves comfortable margin for a genuine large
-// page while still being a real ceiling, not an effectively-unbounded one.
-const MAX_EXTRACTION_TOKENS = 5000;
+// 150-200 tokens as JSON with real field names; MAX_FLOCKS_IN_SCHEMA (20)
+// of those is at most ~4000 tokens, plus a few hundred for date/notes/
+// section_subtotals (two sections x five nullable fields) — 5500 leaves
+// comfortable margin for a genuine large page while still being a real
+// ceiling, not an effectively-unbounded one.
+const MAX_EXTRACTION_TOKENS = 5500;
+
+const SECTION_SUBTOTAL_PROPERTIES = {
+  section: { type: "string" as const, enum: ["main", "continuation"] },
+  eggs: { type: ["number", "null"], description: "This section's subtotal row 'Total' (egg count) figure, as written. Null if not legible or not present." },
+  bal_bird: { type: ["number", "null"], description: "This section's subtotal row 'Bal Bird' figure, as written. Null if not legible or not present." },
+  mortality: { type: ["number", "null"], description: "This section's subtotal row 'Mort' figure, as written. Null if not legible or not present." },
+  feed_bags: { type: ["number", "null"], description: "This section's subtotal row 'Feed' figure, as written. Null if not legible or not present." },
+  hd_percent: { type: ["number", "null"], description: "This section's subtotal row '%' figure, as written. Null if not legible or not present." },
+};
 
 const EXTRACT_TOOL = {
   name: "record_daily_production_extraction",
@@ -118,26 +127,21 @@ const EXTRACT_TOOL = {
       page_notes: {
         type: ["string", "null"],
         description:
-          "Anything worth the owner knowing that doesn't fit a field: illegible sections, unusual marks, other registers visible on the same page (e.g. an Egg Stock Ledger or Feed Bag Stock block) that were NOT extracted.",
+          "Anything worth the owner knowing that doesn't fit a field: illegible sections, unusual marks, other registers visible on the same page (a stock ledger, Feed Bag Stock boxes, a Chicks row) that were NOT extracted.",
       },
       sections_found: {
         type: "number",
         description:
           "How many separate physical table blocks contained flock data anywhere in this photo (count both pages if a two-page spread is visible). Usually 1, but frequently 2 when flocks continue in a shorter table on the facing page.",
       },
-      table_subtotals: {
+      section_subtotals: {
         type: "array",
         description:
-          "One entry per table section (matching sections_found) for that section's own subtotal row at the bottom, if it has one — see the subtotal-row note below. Do not include a table that has no visible subtotal row.",
+          "One entry per table section that has a legible subtotal row directly beneath its last flock — see the subtotal-row rules in the instructions. Omit a section entirely if it has no subtotal row you can find; never guess one into existence.",
         items: {
           type: "object",
-          properties: {
-            eggs_total: {
-              type: ["number", "null"],
-              description: "The subtotal row's own 'Total' column figure — the sum across that table's flocks, as written.",
-            },
-          },
-          required: ["eggs_total"],
+          properties: SECTION_SUBTOTAL_PROPERTIES,
+          required: ["section", "eggs", "bal_bird", "mortality", "feed_bags", "hd_percent"],
         },
       },
       flocks: {
@@ -150,6 +154,11 @@ const EXTRACT_TOOL = {
             display_label_as_written: {
               type: "string",
               description: "The flock's label, normalized to 'BAB-<number>' with an ordinary digit — see the LABELS section of the instructions. Never a Roman numeral, never any other prefix.",
+            },
+            section: {
+              type: "string",
+              enum: ["main", "continuation"],
+              description: "'main' for the first/larger table (BAB-1 onward), 'continuation' for a second, shorter table on the facing page if one exists. If the whole page has only one table, every flock is 'main'.",
             },
             mortality: {
               type: ["number", "null"],
@@ -187,7 +196,7 @@ const EXTRACT_TOOL = {
             },
           },
           required: [
-            "display_label_as_written", "mortality", "feed_bags",
+            "display_label_as_written", "section", "mortality", "feed_bags",
             "eggs_total", "eggs_total_readings",
             "bird_population", "bird_population_readings",
             "hd_percent", "confidence",
@@ -195,34 +204,48 @@ const EXTRACT_TOOL = {
         },
       },
     },
-    required: ["date", "date_confidence", "page_notes", "sections_found", "table_subtotals", "flocks"],
+    required: ["date", "date_confidence", "page_notes", "sections_found", "section_subtotals", "flocks"],
   },
 };
 
 const BASE_PROMPT = `You are reading a photographed page from a Daily Production register at an Indian layer poultry farm, under column headers "Mort, Feed | I | II | Total | Bal Bird | %".
 
+GOLDEN RULE, applies to every field below: if you cannot clearly read a value, write null and give it low confidence. NEVER guess a plausible-looking number, NEVER compute a value yourself (e.g. by adding other numbers together), and NEVER invent a figure that isn't literally written on the page. A downstream system does its own arithmetic checks — your job is only to report exactly what is written, or null if you can't tell.
+
+PAGE LAYOUT — read this section carefully before extracting anything. This is normally a two-page spread photographed as one image:
+- The RIGHT page holds the MAIN table: flocks BAB-1 through BAB-7 (or however many are on this farm), each as a two-line block — a first line, then a second line carrying that day's Mort/Feed and the "%" figure (see the two-line note below).
+- The LEFT page, near the bottom, holds a shorter CONTINUATION table with the remaining flocks (e.g. BAB-8 through BAB-10), in the same column layout.
+- Directly below the LAST flock of each table is that table's own SUBTOTAL ROW — a single line summing that table's own flocks (Mort, Feed, eggs Total, Bal Bird, %). This is the ONLY row you should ever read as a subtotal — see the subtotal-row rules below.
+- BELOW EACH SUBTOTAL ROW is a STOCK LEDGER — running +/- entries like "(+) 185550", "Buy (−) 216300", opening/closing balances, and small numbers next to them that are TRAY counts (eggs ÷ 30, e.g. "241620" next to "8054" means 241620 ÷ 30 = 8054 trays). NONE of this is flock data and NONE of it is a subtotal — do not read any of it into section_subtotals or anywhere else, no matter how close it sits to the subtotal row.
+- Also commonly on this page, also NOT flock data: a Feed Bag Stock box (top-left area, figures marked OB=, (+), (−), F=, S=), a "1 Chicks / 2 Chicks" row with small numbers, and faint mirror-image text bleeding through from the reverse side of the page. Ignore all of it.
+
+SUBTOTAL ROW RULES — read ONLY the row directly beneath the last flock of a section. Never read anything below that row, even if it looks numeric or table-like (see the stock ledger note above — this is the single most common way to misread a subtotal). Report exactly what's written in section_subtotals; if a figure in that row is blank or you aren't sure you're looking at the actual subtotal row, use null for that field rather than guessing or substituting a number from further down the page. If a section has no subtotal row at all, omit that section from section_subtotals entirely.
+
 LABELS — read this carefully, it is the single most error-prone part of this task. Every flock on this farm is labeled "BAB" followed by a number from 1 to 10 — nothing else. There is no other prefix and no other naming scheme. The handwriting is often untidy, and the letters "BAB" in particular are frequently scrawled in a way that can look like stray digits or other letters — do NOT try to carefully transcribe the letters; they are always "BAB". A specific known misread: a scrawled "B" is sometimes read as "1" or a two-digit number like "13" or "18", producing something like "18AB-1" or "13AB-1" when the real label is "BAB-1" — if you find yourself reading a label as digits immediately followed by "AB", that is almost certainly this misread; correct it to "BAB" and keep reading the number after "AB" exactly as written. Spend your effort on reading the NUMBER correctly, since that is the only part that actually distinguishes one flock from another. Always output the label as "BAB-<number>" using an ordinary Arabic digit (1, 2, 3, ...) — if the number is written as a Roman numeral (I, II, III, IV, V, VI, VII, VIII, IX, X), convert it: I=1, II=2, III=3, IV=4, V=5, VI=6, VII=7, VIII=8, IX=9, X=10.
 
-Flocks appear in a fixed, known order: BAB-1 through BAB-7 in the main table, then BAB-8 through BAB-10 in the shorter continuation table (see the two-table note below). Use this expected ascending sequence as a cross-check on the number you read — if a number you read breaks the sequence (e.g. you read the same number twice, or jump straight from BAB-2 to BAB-7 with nothing between), look at that label again before finalizing it. But if, after a careful second look, the label genuinely still reads differently from what the sequence would predict, extract exactly what is written and lower that flock's display_label confidence rather than silently forcing it to match the expected sequence — the sequence is a hint for catching your own misreads, not a license to overwrite a real digit.
+Flocks appear in a fixed, known order: BAB-1 through BAB-7 in the main table, then BAB-8 through BAB-10 in the shorter continuation table (see the two-table note above). Use this expected ascending sequence as a cross-check on the number you read — if a number you read breaks the sequence (e.g. you read the same number twice, or jump straight from BAB-2 to BAB-7 with nothing between), look at that label again before finalizing it. But if, after a careful second look, the label genuinely still reads differently from what the sequence would predict, extract exactly what is written and lower that flock's display_label confidence rather than silently forcing it to match the expected sequence — the sequence is a hint for catching your own misreads, not a license to overwrite a real digit.
 
-CRITICAL — do not stop after the first table you find. This is very often a photo of a two-page spread, and the flock blocks are frequently split across TWO SEPARATE physical tables: a main table with most flocks on one page, and a second, often shorter, continuation table with the REMAINING flocks on the facing page. That second table is easy to miss because it's often positioned below unrelated handwritten arithmetic (subtraction sums, running totals) that can look like it isn't part of the register at all. Before answering, scan the ENTIRE photo — both pages if two are visible — for every occurrence of a flock label followed by Mort/Feed/Total/Bal Bird/% data, not just the most prominent block. Set sections_found to how many separate table blocks you actually found flock data in.
+CRITICAL — do not stop after the first table you find. Before answering, scan the ENTIRE photo — both pages if two are visible — for every occurrence of a flock label followed by Mort/Feed/Total/Bal Bird/% data, not just the most prominent block. Set sections_found to how many separate table blocks you actually found flock data in.
 
 CRITICAL — every flock appears EXACTLY ONCE. This farm has at most a handful of flocks per page (rarely more than 10-13 total across both tables). If you notice yourself about to write a label you have already written earlier in this same answer, STOP immediately — you have covered every flock on the page, and continuing means you have started repeating instead of finishing. Call the tool with what you have rather than continuing.
 
+DIGIT SHAPES — this specific writer's handwriting is easy to misread in a few consistent ways. Slow down on any digit that could be one of these:
+- 3 vs 8: this writer's 3 tends to have an open left side (two separate curves not quite meeting); 8 is a fully closed figure-eight. A "3" that looks unusually round or closed may actually be an "8", and vice versa.
+- 1 vs 7: a bare vertical stroke (maybe with a small flag at the top) is "1"; a stroke with a flat top bar and a diagonal descender is "7".
+- 5 vs 6, 4 vs 9: less common but seen — check these too if a number looks arithmetically odd.
+- A trailing zero is easy to drop entirely (e.g. writing "315" when "3150" is meant) — if an egg count looks unusually small compared to this flock's usual range, consider whether a zero was dropped.
+- Egg counts (the "Total" column, and its "I"/"II" siblings) on this register are typically written in whole trays of 30 eggs — i.e. usually a multiple of 30. This is a useful sanity check while reading, NOT a rule to force a number into: if what's actually written isn't a multiple of 30, write down exactly what's written and lower its confidence, don't round it to the nearest multiple of 30.
+
 Field mapping (extract exactly these, nothing else) — apply to EVERY flock block in EVERY section you find:
 - Date at the top of the page.
-- Each flock block's label, per the LABELS section above.
+- Each flock block's label and section, per the LABELS and PAGE LAYOUT sections above.
 - "Mort" column: the day's-end total for that flock. Some pages show a stacked pair of numbers (a running sub-total and a day total) — take the day's-end total, not the cumulative/stacked sub-number.
 - "Feed" column: bags issued.
 - Egg total: each flock block shows up to THREE separate handwritten egg-count figures — the "I" column, the "II" column, and the "Total" column. Read all three independently and report them, in that left-to-right order, as eggs_total_readings (do not assume one equals another, even though they often do — write down what's actually there). eggs_total itself is the "Total" column's figure specifically — that's the flock's official egg count.
 - Two-line flock blocks: some flock blocks span TWO written lines — a first line, then a second line that also carries that day's Mort/Feed and the "%" figure. When a flock has two lines, the Bal Bird figure is typically written on BOTH lines — read it from each line it appears on and report them, top to bottom, as bird_population_readings. If a flock has only one line, report a single value. bird_population itself is this flock's official current bird balance (the more authoritative of the reading(s), typically the bottom line's).
-- "%" column: HD% as written on the page (do not calculate it yourself — read the written figure).
-
-Some tables end with a subtotal row (a sum across that table's own flocks) — that subtotal row is NOT a flock and must not be extracted as one in the flocks array; it just confirms you've reached the bottom of that particular table, not necessarily the bottom of the whole page. DO separately read that subtotal row's own "Total" (egg count) figure into table_subtotals, one entry per table section that has one — this lets the app cross-check whether the individual flock reads add up to what the page's own arithmetic says.
+- "%" column: HD% as written on the page (do not calculate it yourself — read the written figure). Leave it null if nothing is written there — a missing written % is normal and not a problem, the app calculates its own official HD% from eggs and Bal Bird.
 
 If this photo also shows other registers (an Egg Stock Ledger with running +/- entries, or Feed Bag Stock boxes with OB=/F=/S= figures), do NOT extract those — note their presence in page_notes only.
-
-If a field is blank or illegible, use null and give it low confidence rather than guessing a plausible value. Confidence is your own assessment of read certainty, independent of whether the numbers make arithmetic sense — a downstream system checks the arithmetic separately.
 
 Call record_daily_production_extraction with your findings.`;
 

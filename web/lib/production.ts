@@ -22,6 +22,10 @@ export interface ProductionSlot {
     // Set when hd_percent_written and the calculated hd_percent differ by
     // 0.2-1.0 percentage points — a normal-rounding gap, not a flag.
     hd_percent_note: string | null;
+    // Set when the day-to-day bal-bird chain check (lib/extraction/
+    // balBirdChain.ts) auto-corrected bird_population on upload — quiet,
+    // not a flag (the row is saved clean), same treatment as hd_percent_note.
+    auto_correction_note: string | null;
     flagged: boolean;
     flag_reason: string | null;
   };
@@ -35,7 +39,7 @@ export async function getProductionSheet(date: string): Promise<ProductionSlot[]
             dp.id AS row_id,
             dp.shed_code, dp.mortality, dp.feed_bags, dp.eggs_total,
             dp.bird_population, dp.hd_percent_written, dp.hd_percent_note,
-            dp.flagged, dp.flag_reason
+            dp.auto_correction_note, dp.flagged, dp.flag_reason
        FROM flock_label_history h
        JOIN flocks f USING (flock_internal_id)
        LEFT JOIN daily_production dp
@@ -61,6 +65,7 @@ export async function getProductionSheet(date: string): Promise<ProductionSlot[]
             bird_population: r.bird_population,
             hd_percent_written: r.hd_percent_written,
             hd_percent_note: r.hd_percent_note,
+            auto_correction_note: r.auto_correction_note,
             flagged: r.flagged,
             flag_reason: r.flag_reason,
           },

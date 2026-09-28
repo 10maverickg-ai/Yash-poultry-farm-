@@ -161,15 +161,19 @@ export function impliedFields(reasons: string[]): RecheckableField[] {
       set.add("eggs_total");
     } else if (r.startsWith("bird_population readings disagree")) {
       set.add("bird_population");
+    } else if (r.startsWith("bird_population may not match the previous day's chain")) {
+      // The day-to-day chain check (balBirdChain.ts) couldn't corroborate
+      // either candidate against written HD — worth a second look at this
+      // flock's bird_population specifically (not eggs_total or hd_percent,
+      // since the chain check already isolates the discrepancy there).
+      set.add("bird_population");
     }
-    // Deliberately NOT mapped here: "page checksum mismatch" — it's a
-    // page-wide discrepancy (individual flock reads vs. the page's own
-    // subtotal), not a signal that points at any ONE flock's field. Mapping
-    // it to eggs_total would auto-recheck every flagged row on the page for
-    // a single page-level discrepancy, which is expensive and no more
-    // likely to land on the actual culprit than owner review is. It still
-    // flags every row (so the page is visible on /flagged) — just doesn't
-    // trigger the batched recheck on its own.
+    // Deliberately NOT mapped here: a page-level checksum issue (see
+    // pageChecksum.ts) never appears in a per-flock `reasons` array at all
+    // — it's recorded once, on the page as a whole (daily_production_page_
+    // issues), specifically so it can't trigger a recheck of every flagged
+    // row on the page for a single page-wide discrepancy that doesn't point
+    // at any one flock's field.
   }
   return [...set];
 }

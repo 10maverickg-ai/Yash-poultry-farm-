@@ -300,12 +300,24 @@ button:hover,
   font-size: 0.75rem;
 }
 
+/* Owner report, 2026-09-28: on iPad Safari, only a thin top strip of the
+   photo rendered with a large blank area below — not reproducible in
+   Chromium here (renders full-size correctly at every width tested), the
+   same WebKit-only pattern as the date-filter bug earlier in this project.
+   max-height as a soft cap is the likely culprit (a known class of WebKit
+   replaced-element sizing quirk with max-width+max-height together and no
+   explicit width/height attribute pre-load) — dropped in favor of the
+   standard, most defensive responsive-image pattern: explicit height:auto
+   (not just implied) plus object-fit:contain as a belt-and-suspenders
+   guard against any distortion/clipping on any browser. */
 .flagged-photo-thumb {
+  display: block;
+  width: 100%;
   max-width: 100%;
-  max-height: 260px;
+  height: auto;
+  object-fit: contain;
   border-radius: 8px;
   border: 1px solid var(--line);
-  display: block;
 }
 
 .flock-checklist {
