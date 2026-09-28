@@ -69,7 +69,7 @@ export function FlaggedProductionSection({
   return (
     <>
       {selected.size > 0 && (
-        <div className="card actions-bar" style={{ position: "sticky", top: 0, zIndex: 1 }}>
+        <div className="card selection-bar">
           <span>{selected.size} selected</span>
           <button
             type="button"
@@ -98,14 +98,14 @@ export function FlaggedProductionSection({
             const k = key("unresolved", item.id);
             return (
               <div key={k} className="card stack">
-                <div className="actions-bar" style={{ marginBottom: 0, justifyContent: "space-between" }}>
-                  <label style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+                <div className="flagged-card-header">
+                  <label>
                     <input
                       type="checkbox"
                       checked={selected.has(k)}
                       onChange={() => toggle(k)}
                     />
-                    <h3 style={{ margin: 0 }}>
+                    <h3>
                       &ldquo;{item.display_label_as_written}&rdquo;{" "}
                       <span className="muted">· {item.date}</span>
                     </h3>
@@ -194,10 +194,10 @@ export function FlaggedProductionSection({
           const k = key("production", item.id);
           return (
             <div key={k} className="card stack">
-              <div className="actions-bar" style={{ marginBottom: 0, justifyContent: "space-between" }}>
-                <label style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+              <div className="flagged-card-header">
+                <label>
                   <input type="checkbox" checked={selected.has(k)} onChange={() => toggle(k)} />
-                  <h2 style={{ margin: 0 }}>
+                  <h2>
                     {item.title} <span className="muted">· {item.date}</span>
                   </h2>
                 </label>

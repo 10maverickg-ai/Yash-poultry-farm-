@@ -373,3 +373,84 @@ button:hover,
 .home-menu p {
   margin: 0;
 }
+
+/* --- /flagged: card header (checkbox + title + date on one line, Delete
+   pinned to the right and sized to content, not stretched full height) --- */
+
+.flagged-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  flex-wrap: nowrap;
+  margin-bottom: 0;
+}
+
+.flagged-card-header label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.flagged-card-header input[type="checkbox"] {
+  flex: 0 0 auto;
+  width: auto;
+}
+
+.flagged-card-header h2,
+.flagged-card-header h3 {
+  margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.flagged-card-header .btn-danger {
+  flex: 0 0 auto;
+  align-self: center;
+  padding: 0.4rem 0.85rem;
+  font-size: 0.9rem;
+}
+
+/* Sticky multi-select bar above the flagged list. */
+.selection-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+/* Date filter: fixed-width fields in their own row (so a Safari date
+   input's native chrome never gets squeezed into overlap), the Filter/Clear
+   actions in a visually separate group, and both groups free to wrap
+   independently on narrow screens. */
+.date-filter-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.8rem;
+}
+
+.date-filter-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.date-filter-field {
+  flex: 0 0 auto;
+  width: 150px;
+}
+
+.date-filter-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+}

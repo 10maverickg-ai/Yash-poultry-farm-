@@ -37,23 +37,27 @@ export default async function FlaggedPage({
         instead — that&apos;s a separate action from marking it reviewed.
       </p>
 
-      <form method="get" className="card actions-bar" style={{ alignItems: "end" }}>
-        <label className="field">
-          <span>From</span>
-          <input type="date" name="from" defaultValue={dateFilter.from ?? ""} />
-        </label>
-        <label className="field">
-          <span>To</span>
-          <input type="date" name="to" defaultValue={dateFilter.to ?? ""} />
-        </label>
-        <button type="submit" className="btn-secondary">
-          Filter
-        </button>
-        {(dateFilter.from || dateFilter.to) && (
-          <Link href="/flagged" className="btn-secondary">
-            Clear filter
-          </Link>
-        )}
+      <form method="get" className="card date-filter-form">
+        <div className="date-filter-fields">
+          <label className="field date-filter-field">
+            <span>From</span>
+            <input type="date" name="from" defaultValue={dateFilter.from ?? ""} />
+          </label>
+          <label className="field date-filter-field">
+            <span>To</span>
+            <input type="date" name="to" defaultValue={dateFilter.to ?? ""} />
+          </label>
+        </div>
+        <div className="date-filter-actions">
+          <button type="submit" className="btn-secondary">
+            Filter
+          </button>
+          {(dateFilter.from || dateFilter.to) && (
+            <Link href="/flagged" className="btn-secondary">
+              Clear filter
+            </Link>
+          )}
+        </div>
       </form>
 
       <FlaggedProductionSection
