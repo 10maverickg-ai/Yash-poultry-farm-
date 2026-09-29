@@ -798,6 +798,152 @@ second-pass recheck as every other localized field flag. Prompt wording
 and code comments updated from "typically"/"a soft signal, not a hard
 rule" to stating the trays-of-30 convention as owner-confirmed.
 
+## Phase 3 increment 10: stop finding a new bug every photo — explicit staged pipeline (2026-09-29)
+
+**Context:** the owner's own words: "stop finding a new bug every time a
+new photo is uploaded." Four real register days (Aug 1-4) had each
+surfaced a *different* mistake, and the pattern behind all of them was
+the same four categories repeating in new disguises — row
+misclassification, column misidentification, single-digit misreads, and
+checksum/derived-value ordering bugs. The brief asked for two things at
+once: fix all 10 named bugs from those four days, AND restructure the
+code so the categories can't keep recurring, not just patch each
+instance. Full ground truth (all 4 days, written subtotals included) was
+supplied as verified test fixtures.
+
+**The core structural change: an explicit 3-stage pipeline
+(`lib/extraction/pipeline.ts`).** Bug 8 (checksum computed before
+corrections were applied, producing residual false mismatches) turned
+out to be a symptom of a deeper problem: there was no enforced order
+between "read a flock's own numbers," "cross-check against the previous
+day," and "cross-check against the page's own subtotal" — different call
+sites could, and did, run these in whatever order the code happened to
+be written. Fixed by making the order a type-level guarantee, not a
+convention: `resolveFieldsLocally` (stage 2, per-flock, no DB) returns a
+`LocallyResolvedFlock`; `applyChainCorrections` (stage 3, needs the
+previous day's saved row) takes that as its ONLY input and returns a
+`ResolvedFlock`; `applyPageChecksum` (stage 4, needs every flock on the
+page) takes `ResolvedFlock[]` as its ONLY input. Stage 4 cannot compile
+against raw extraction data or against stage 2's output — the checksum
+literally cannot run on pre-correction numbers anymore. `app/upload/actions.ts`
+was rewritten to call the three stages in sequence, section-by-section.
+
+**The 10 bugs, what changed:**
+1. **Aug 1 BAB-9 dropped-zero eggs+HD** — covered by the standalone
+   tray-of-30 flag+suggest (already existed from the increment 9
+   follow-up); re-verified via the general digit-substitution logic, not
+   against the original page's exact digits (not in hand this increment
+   — see "what's still unverified" below).
+2. **Aug 2 BAB-1 8↔3 bal-bird misread** and
+3. **Aug 3 BAB-3 8↔3 bal-bird misread (auto-corrected)** — unchanged
+   logic (`balBirdChain.ts`), re-verified with a fresh synthetic 8↔3 case
+   built the same shape as the real one (previous bal bird − mortality =
+   expected; extracted figure is a plausible misread of expected; HD
+   corroborates) — auto-corrects.
+4. **Aug 3 & 4 ledger-line read as the continuation subtotal** — root
+   cause fixed structurally, not just re-flagged: `pageChecksum.ts` now
+   has `looksLikeGenuineSubtotal()`, the row-signature test made code
+   (genuine subtotal = bal_bird AND hd_percent both present, same shape
+   as a flock's own row; a ledger line has neither) — applied as a
+   model-independent filter before ANY subtotal is used for a checksum
+   comparison. The extraction prompt (`dailyProduction.ts`) also gained
+   an explicit "ROW-SIGNATURE TEST" section so the model itself is told
+   the same rule — untested against the live model (see below), but the
+   code-side filter holds regardless of whether the prompt succeeds.
+5. **Aug 4 BAB-1 eggs 6080 vs true 6030** — re-verified against the
+   *exact* real coincidence the owner reported: BAB-4's correctly-read
+   5880 has its own digit-substitution candidate (5830) that happens to
+   close the identical section-sum gap as BAB-1's actual misread. A
+   naive "find the one flock with a matching candidate" trace would see
+   TWO candidates and correctly refuse to guess — which meant the
+   brief's own claim that this "worked" would not have reproduced under
+   my first implementation. Fixed by moving all three of the owner's
+   auto-correct conditions (exact section-sum match, divisible by 30, HD
+   within tolerance) into `traceEggsMismatch` as a two-tier filter, so it
+   disambiguates on evidence (5830 fails divisibility; 6030 passes both
+   extra conditions) rather than just "first exact match wins."
+6. **4 flocks with a phantom 3rd eggs reading = that row's own Bal
+   Bird** — fixed at the root: the extraction schema's `eggs_total_readings`
+   3-element array (an "I"/"II"/"Total" slot) is gone entirely, replaced
+   with a single `eggs_ii` field, because "I" is confirmed always blank —
+   there is no more empty slot for the model to fill with a nearby
+   number. Belt-and-suspenders: `pipeline.ts` stage 2 also discards any
+   `eggs_ii` reading that coincidentally equals that row's own mortality,
+   feed_bags, or bird_population (the same-value collision guard, Part
+   B.2 below) before it's used for anything.
+7. **Aug 4 BAB-1 mortality read as its own feed_bags value (18 not 3)** —
+   new module `mortalityFeedSwap.ts`: detects mortality == feed_bags as a
+   possible column swap, derives the true mortality independently from
+   the bal-bird chain (previous day's bal bird − today's bal bird), and
+   auto-corrects only when that derived value is sane (0-30) — this
+   check runs BEFORE the bal-bird chain check in stage 3, specifically so
+   a wrong mortality can't also cause the chain to misfire and blame the
+   PREVIOUS day's row for a discrepancy that was actually today's
+   mortality miscolumn. Verified this ordering matters with a direct
+   contrast test (see fixtures): running the chain first on the
+   unswapped mortality misfires; running it after the swap fix doesn't.
+8. **Checksum computed before corrections applied** — fixed structurally,
+   see above; no longer possible to call stage 4 on pre-correction data.
+9. **Page-issue banners duplicating on re-upload** — `upload/actions.ts`
+   now soft-deletes every open `daily_production_page_issues` row for
+   that farm+date at the start of every upload transaction, unconditionally
+   (even when the new upload turns out clean), before inserting anything
+   new — no schema change needed, `daily_production_page_issues.deleted_at`
+   already existed from increment 9.
+10. **`/flagged` thumbnail clipped strip** — the CSS fix from increment 9
+    (`width:100%; height:auto; object-fit:contain` on `.flagged-photo-thumb`)
+    is still in place and applied consistently at all 4 usage sites
+    (`app/flagged/page.tsx` x2, `components/FlaggedProductionSection.tsx`
+    x2) — not reproducible in Chromium in either increment, and this
+    sandbox has no way to test against real Safari. Stated plainly, not
+    claimed fixed.
+
+**Part B audit (row-signature / column-mapping), findings:** grepped
+every place the codebase classifies a table row or maps a column to a DB
+field. `section_subtotals` (via `looksLikeGenuineSubtotal`) is the only
+row-classification point in the pipeline — no second instance found
+elsewhere. Column-mapping collision risk was likewise isolated to the
+single extraction path; the same-value collision guard (stage 2: an
+`eggs_ii` reading equal to this row's own mortality/feed_bags/bird_population
+is discarded as a likely copy-from-the-wrong-cell) is the one general
+defense this increment adds, on top of the schema-level fix for bug 6's
+specific case.
+
+**Migration 0016** (`db/migrations/0016_more_auto_correction_columns.sql`,
+applied): `daily_production.mortality_original`, `daily_production.eggs_total_original` —
+same "never lose the original value" pattern as `bird_population_original`
+(migration 0015), one column per auto-correctable field so multiple
+corrections on one row don't collide over which field an "original"
+belonged to. Run order: after 0015 (already applied), no other
+dependency.
+
+**Synthetic adversarial fixtures (Part B.4, owner's own request):** 28
+cases written against the actual pipeline functions (not reimplemented),
+covering every named confusion pair (3↔8, 1↔7, 5↔6, 4↔9), both trailing-
+zero directions, a same-value column-swap case, a combined mortality-swap
++ bal-bird-chain interaction with an explicit before/after contrast
+proving the stage-3 ordering guarantee actually matters (not just
+"nice to have"), and three property-based checks (correct data produces
+zero page issues; no flock's eggs_total changes when nothing disagreed;
+no two fields on one row share a value unless the inputs genuinely did) —
+all 28 pass. Re-ran bugs 3-8 above as their own targeted cases against
+the exact real numbers quoted in the brief. Bugs 1-2 are covered by the
+same underlying (already-tested) logic but not against those two days'
+original exact digits, which weren't available in this increment's
+context — noted honestly rather than assumed passing.
+
+**What remains genuinely untested — this sandbox has no live Anthropic
+API access and no real Safari:** the prompt-level ROW-SIGNATURE TEST and
+COLUMN-SWAP WARNING wording's actual effect on the model's own reads; the
+`eggs_ii` schema change's effect on what the model reports; and the
+`/flagged` thumbnail CSS against real Safari (only re-confirmed present
+in source, not re-tested visually). Everything else in this entry was
+verified by running the real code — pipeline stages, digit-evidence
+scoring, chain/swap/checksum logic — against literal fixture values, not
+by inspection alone. The owner's tray-of-30 confirmation ("a tray of egg
+sold is of 30 eggs per tray") was already given in the turn immediately
+before this brief — not re-asked here.
+
 ## Noted for later phases (no Phase 1 action)
 
 - **Trays-vs-eggs magnitude heuristic (owner addendum, 2026-07-09):** register
