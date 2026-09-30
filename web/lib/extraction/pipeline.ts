@@ -145,8 +145,33 @@ export function resolveFieldsLocally(raw: RawFlockInput): LocallyResolvedFlock {
     );
   }
 
-  // Bal-bird two-line disagreement.
-  const balBirdPresent = raw.birdPopulationReadings.filter((n): n is number => n !== null);
+  // Bal-bird two-line disagreement — same collision guard as eggs_ii above,
+  // mirrored (owner report, 2026-09-30, production: BAB-8/9/10 on a fresh
+  // Aug 1 upload each got a false "bird_population readings disagree"
+  // flag where BOTH numbers were individually correct — they just belonged
+  // to two DIFFERENT fields (eggs_total and bird_population), not two
+  // readings of the same field. The eggs_ii guard above only ever
+  // protected ONE direction of this exact failure mode (a value from
+  // another column bleeding into a multi-reading array slot); this is the
+  // mirror direction, never guarded until now. A genuine second Bal Bird
+  // line never coincides with a DIFFERENT field on the same row — only
+  // (legitimately) with the other Bal Bird line or the authoritative
+  // bird_population value itself — so discard any reading that matches
+  // mortality/feed_bags/eggs_total/eggs_ii before ever comparing readings
+  // against each other.
+  const balBirdSuspectValues = new Set(
+    [raw.mortality, raw.feedBags, raw.eggsTotal, raw.eggsIi].filter((n): n is number => n !== null)
+  );
+  const balBirdPresent = raw.birdPopulationReadings.filter((n): n is number => {
+    if (n === null) return false;
+    if (n !== raw.birdPopulation && balBirdSuspectValues.has(n)) {
+      extraFlagReasons.push(
+        `bird_population_readings entry (${n}) equals this row's own mortality, feed_bags, or eggs figure — treated as a likely copy from the wrong column and not used.`
+      );
+      return false;
+    }
+    return true;
+  });
   if (balBirdPresent.length >= 2 && !balBirdPresent.every((n) => n === balBirdPresent[0])) {
     const scorer = (n: number) => {
       if (raw.eggsTotal !== null && n > 0 && raw.hdPercentWritten !== null) {
@@ -155,7 +180,7 @@ export function resolveFieldsLocally(raw: RawFlockInput): LocallyResolvedFlock {
       }
       return 0;
     };
-    const best = pickBestReading(raw.birdPopulationReadings, scorer);
+    const best = pickBestReading(balBirdPresent, scorer);
     extraFlagReasons.push(
       best && best.uniquelyBest && !best.allAgree
         ? `bird_population readings disagree: ${balBirdPresent.join(", ")} — ${best.value} looks right (matches written HD)`

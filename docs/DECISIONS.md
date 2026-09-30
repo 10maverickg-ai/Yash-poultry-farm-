@@ -944,6 +944,59 @@ by inspection alone. The owner's tray-of-30 confirmation ("a tray of egg
 sold is of 30 eggs per tray") was already given in the turn immediately
 before this brief — not re-asked here.
 
+## Phase 3 increment 10 follow-up: the bug-6 collision guard was one-directional (2026-09-30)
+
+**Context:** first real production upload after increment 10 (a fresh Aug
+1 photo, after both PRs merged to `main`) immediately produced a false
+`bird_population readings disagree: A, B` flag on 3 flocks (BAB-8/9/10)
+where A and B were each individually CORRECT — just two different fields
+(`eggs_total` and `bird_population`), not two readings of one field. A
+4th flock (BAB-4) showed the same message with two numbers that matched
+neither field on its own row — not conclusively diagnosed (see below).
+
+**Root cause, confirmed by reading the deployed code (commit `c21b1be`
+on `main`, merge of `db10608` — no drift from what increment 10 shipped):**
+the collision guard added in increment 10 for bug 6 (`resolveFieldsLocally`,
+`lib/extraction/pipeline.ts`) only ever ran in one direction — it
+strips a spurious `eggs_ii` reading that coincidentally equals
+`mortality`/`feed_bags`/`bird_population`. It was never mirrored onto
+`bird_population_readings`, which was still taken completely at face
+value: whatever the live model's tool-call JSON put in that array
+(`toolUse.input as ExtractionResult` has no runtime validation) flows
+unchanged through `dedupeByNormalizedLabel` — which only drops exact-
+repeat rows, never merges fields across different flocks — straight into
+the two-line disagreement check. So when the model's own
+`bird_population_readings` array for a row contained `[eggs_total's own
+value, the real bird_population value]` instead of two genuine Bal Bird
+line-reads, the code compared them as if they were competing readings of
+one field, and (correctly) picked the real one as "looks right" while
+still wrongly flagging the row — bug 6's exact failure mode (a value
+from a different column bleeding into a multi-reading array slot),
+recurring in the un-guarded mirror direction. Reproduced with a
+regression test using BAB-8/9/10's literal real numbers against the
+actual deployed function before any change — confirmed it fails
+(produces the exact reported flag text) on the current code, then
+passes after the fix, without silencing a genuine two-line disagreement
+(control case: two real, non-colliding readings still flag).
+
+**Fix:** `bird_population_readings` entries are now filtered through the
+same collision principle before being compared to each other — a value
+matching `mortality`/`feed_bags`/`eggs_total`/`eggs_ii` on the same row
+is discarded (with its own quiet flag note, mirroring the existing
+`eggs_ii` guard's note) rather than treated as a legitimate second
+Bal Bird line. Only `lib/extraction/pipeline.ts` changed — no HD%,
+checksum, or chain logic touched.
+
+**Not resolved, stated plainly:** BAB-4's two reported numbers (7280,
+9708) matched neither eggs_total nor bird_population on that row per the
+owner's report — this fix only catches a same-row collision against
+`mortality`/`feed_bags`/`eggs_total`/`eggs_ii`, and without that row's
+extracted mortality/feed_bags in hand it isn't possible to say from here
+whether BAB-4 is the same root cause or a distinct one (e.g. genuine
+model hallucination unrelated to any real number on the page). Needs
+either that row's full raw extraction or, ideally, the actual model
+response logged at upload time — neither available in this sandbox.
+
 ## Noted for later phases (no Phase 1 action)
 
 - **Trays-vs-eggs magnitude heuristic (owner addendum, 2026-07-09):** register
