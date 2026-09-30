@@ -1275,6 +1275,129 @@ upload is still unverified. The owner's own plan is to re-check BAB-1
 against the physical register once this ships, which is the appropriate
 next verification step, not something this sandbox can do.
 
+## Phase 3 increment 11: extraction_corrections — a curated library of confirmed corrections (2026-10-02)
+
+**Context:** the model itself never changes call-to-call, but what it's
+SHOWN (the few-shot examples in the extraction prompt) can — currently
+two static images. Every confirmed correction this project has produced
+(and will keep producing) is a labeled example of this specific scribe's
+handwriting, currently used once and discarded. Owner request: log them,
+periodically curate (owner + Claude, in conversation), promote the best
+into the live few-shot set. Explicitly a periodic, human-curated batch
+process (every 20-30 corrections, or monthly) — never automatic, never
+per-upload.
+
+**Table `extraction_corrections`** (migration 0018) — created and applied
+to BOTH local Postgres and production Supabase directly (via the
+Supabase MCP tools now available in this session), since the owner
+explicitly asked to see the result and would verify via their own
+Supabase access. Column names/types match what the owner specified
+exactly, with two additions: a `CHECK` constraint on `confidence`
+(`eye_confirmed`/`corroborated`) and on `status`
+(`candidate`/`active`/`retired`) — value-safety, not a shape change. No
+RLS, matching every other table in this schema (confirmed via
+`pg_class.relrowsecurity` on `daily_production`/`farms` — all `false`;
+the RLS-disabled finding stays exactly as deferred as before, untouched).
+
+**5 seed rows inserted into production** (ids 1-5, all `status:
+candidate`), confirmed via `SELECT` immediately after. One judgment call
+on the data itself, flagged rather than silently made: BAB-1's row
+listed two different extracted values seen across separate runs of the
+same photo (84.70 and 64.70, both against a true 68.7). Kept as ONE row
+(matching "insert these 5 rows" literally) with `extracted_value =
+'84.70'` and the second variant captured in `note` rather than silently
+dropped or turned into an unrequested 6th row — happy to split it into
+two rows instead if the owner would rather have both as separate
+evidence.
+
+**The promotion mechanism — built, NOT run against any real seed row,
+per the explicit instruction.** `scripts/promote-correction.ts`, manual
+only, never wired into the upload flow or any automatic process.
+
+*What "check how the existing two were cropped" actually found:* there
+is no automated cropping anywhere in this codebase to match — no image
+library (checked `package.json`), no row/bounding-box coordinates stored
+for any upload, and the original two examples were cropped by hand,
+outside any script, before ever being embedded. Auto-detecting "where on
+this photo is BAB-4's row" would need OCR or stored bounding boxes,
+neither of which exist — building that was out of scope and not what was
+asked. So the script automates everything mechanically doable: given a
+pixel rectangle (`--photo-url <url> --rect x,y,w,h`, fetched and cropped
+for real via `sharp`) or an already-cropped file (`--crop <path>`), it
+encodes, updates the few-shot set, enforces the cap, and updates
+`extraction_corrections`' status — the human curator still decides WHERE
+to crop (the actual curation judgment), same as they always have.
+
+*Where the few-shot data now lives:* moved out of hand-written TypeScript
+in `fewShotExamples.ts` into `fewShotExamples.data.json` — necessary, not
+scope creep: a script safely adding/replacing/retiring entries needs a
+machine-editable format; doing text-surgery with regex on a file holding
+50-80KB base64 blobs inline in hand-written TS risked silently corrupting
+an image blob. Verified byte-for-byte: both original images' base64 data
+and both captions are identical before and after the refactor (a
+scratch script compared old vs. new directly, not assumed).
+`FEW_SHOT_DIGIT_EXAMPLES`'s exported shape is unchanged — nothing about
+the live extraction prompt's content changed in this increment.
+
+**The cap: measured, not guessed.** Decoded both existing images' real
+JPEG dimensions (1290x270 and 1350x246px) and applied Anthropic's
+published image-token formula (width×height/750): ~450-465 tokens per
+image, ~500-550 tokens per example once its caption is included. Set
+`MAX_FEW_SHOT_EXAMPLES = 8` (the top of the owner's own suggested 6-8
+range) — at that cap, few-shot material adds roughly 4000-4400 tokens to
+every single extraction call, which repeats on every upload (unlike a
+one-time cost), hence enforcing a real cap rather than letting the set
+grow unbounded. "Weakest/least-representative" eviction is a curation
+judgment call, not something the script infers — `--replace <name>`
+requires the curator to say which one, and the script marks that
+example's source correction row `retired` when it was itself a promoted
+one.
+
+**Mechanism proven end-to-end — using scratch data, not the real seed
+rows, then fully reverted.** All testing ran against local Postgres only
+(confirmed `DATABASE_URL` was unset in the test shell throughout —
+production Supabase was never touched by any test run, verified after
+the fact with a direct `SELECT` showing all 5 real rows still
+`candidate`/`promoted_at: null`). Tested, against real image bytes (the
+existing `docs/sample-registers/sample-3-single-page-7-7-26.jpg`, served
+over a real local HTTP connection so the script's actual `fetch()` +
+`sharp` crop code path ran for real, not a mock):
+- `--dry-run` against a real seed row (id 1): fetched, cropped, encoded
+  for real, printed the exact would-be diff, confirmed via `git diff`
+  and a direct DB query that NEITHER the data file nor the row changed.
+- A real (non-dry-run) promotion against a throwaway scratch row:
+  caught a genuine bug this way — `correctionId` was written as the
+  string `'6'` instead of the number `6`, since `pg` returns `bigint`
+  columns as strings by default; fixed with an explicit `Number()` cast,
+  re-verified.
+- `--replace`: correctly retired the old example's source row and
+  activated the new one.
+- The cap refusal (9th example without `--replace`) and the
+  already-promoted refusal (re-promoting an `active` row) both fire
+  correctly.
+All scratch rows deleted and the data file restored to its clean
+2-example state before committing anything — confirmed via `git status`
+showing only the intended new/changed files.
+
+**New dependency: `sharp` (devDependency only).** Checked before adding:
+`npm audit` flags a "high" severity sharp-related finding, but it's
+`next/node_modules/sharp` — Next.js's own OWN nested, pre-existing copy
+(confirmed via `package-lock.json` diff — no version of `next`,
+`postcss`, or any other pre-existing package changed), unrelated to this
+addition. The `sharp@0.35.5` this increment installs at the top level is
+already past the vulnerable range (`<=0.35.4-rc.0`). Never imported by
+anything the Next.js app itself bundles — only by the standalone
+promotion script — confirmed via a clean `next build`.
+
+**What remains genuinely undone, stated plainly:** `source_photo_url` /
+`crop_image_url` are `NULL` on all 5 seed rows — the real Supabase
+Storage URLs for those historical uploads weren't available in this
+session, so promoting any of them for real will need either those URLs
+or an already-cropped file supplied directly. No seed row has been
+promoted; that's explicitly the owner's call. Ongoing inserts of new
+`candidate` rows are the owner's/Claude-in-chat's own responsibility
+going forward, per the request — nothing here needs to change for that.
+
 ## Noted for later phases (no Phase 1 action)
 
 - **Trays-vs-eggs magnitude heuristic (owner addendum, 2026-07-09):** register
