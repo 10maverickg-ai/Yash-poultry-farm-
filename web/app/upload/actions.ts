@@ -166,12 +166,23 @@ export async function uploadAndExtractDailyProduction(
       console.warn(`[upload] extraction rejected: ${err.message}`);
       return { ...EMPTY, photoUrl, error: err.message };
     }
-    const { friendly } = logAndFriendly(
+    // Owner report, 2026-09-30, production: this branch previously dropped
+    // `detail` entirely, so an actual unexpected bug (e.g. the "X is not
+    // iterable" crash traced to dailyProduction.ts/flockMatch.ts) looked
+    // identical on screen to an ordinary "the model couldn't read this
+    // photo" outcome — no way for the owner to tell the difference, or to
+    // report anything more specific than "please try again". Everything
+    // that reaches this branch (not ExtractionRejected, which already has
+    // its own honest message above) is either a genuine API/network error
+    // or an unanticipated bug — never silently indistinguishable from a
+    // normal OCR failure again: technicalDetail is now always included,
+    // same as the "database write failed" branch below already does.
+    const { friendly, detail } = logAndFriendly(
       "extraction call failed",
       err,
-      "Couldn't read the register from that photo — please try again, or enter this page manually on the Daily Production screen."
+      "Something went wrong reading this photo — please try again. If it keeps happening, report the technical detail below; this may not be about photo quality."
     );
-    return { ...EMPTY, photoUrl, error: friendly };
+    return { ...EMPTY, photoUrl, error: friendly, technicalDetail: detail };
   }
 
   // The date on the page is authoritative if legible; the date the

@@ -997,6 +997,105 @@ model hallucination unrelated to any real number on the page). Needs
 either that row's full raw extraction or, ideally, the actual model
 response logged at upload time — neither available in this sandbox.
 
+## Phase 3 increment 10, second follow-up: production crash + a self-correction wrongly shown as a flag (2026-09-30)
+
+**Issue 1 — production crash, `TypeError: a is not iterable`.** Reported
+against Vercel runtime logs on the deployment carrying the collision-guard
+fix above, logged as `[upload] extraction call failed`. That log line is
+produced by exactly one catch block (`app/upload/actions.ts`, around the
+`extractDailyProductionSafely` call) — tracing its call graph rules out
+the collision guard itself: `resolveFieldsLocally` never runs until
+*after* extraction has already succeeded, so nothing in that stage-2
+function is reachable from this crash. The real site: `extraction.flocks`
+comes from `toolUse.input as ExtractionResult` (`lib/extraction/dailyProduction.ts`)
+— an unchecked cast, no runtime validation — passed straight into
+`dedupeByNormalizedLabel(extraction.flocks, ...)` (`lib/extraction/flockMatch.ts`),
+which does a bare `for (const row of rows)` with no check that `rows` is
+actually an array. A malformed or partial model response (missing or
+non-array `flocks`) throws exactly `TypeError: X is not iterable` there —
+reproduced directly: `dedupeByNormalizedLabel(undefined, ...)` throws
+`TypeError: rows is not iterable` against the unmodified function, same
+shape as the minified production trace (`a is not iterable`). Fixed:
+`dedupeByNormalizedLabel` now returns `[]` for non-array input instead of
+throwing; `extractDailyProductionSafely`'s `attempt()` additionally
+treats a non-array `extraction.flocks` as a retry-eligible failure (same
+bucket as "too many rows"), not a silent empty success, so a malformed
+response still gets the existing retry-then-reject treatment instead of
+surfacing as a confusing "0 flocks found". `pipeline.ts`'s
+`birdPopulationReadings` handling was also hardened the same way as a
+precaution (same class of unchecked model-controlled input) — this was
+**not** the confirmed cause of this specific crash, stated plainly rather
+than implied fixed. Regression test (deleted after use, per this
+codebase's established scratch-script pattern): `dedupeByNormalizedLabel`
+called with `undefined`/`null`/`{}`/a string/a number all previously threw,
+now all return `[]`; a genuine two-row array still dedupes correctly.
+
+Also fixed, per the report: the catch block around the extraction call
+previously discarded the real error's `detail` entirely, so an actual bug
+looked on screen identical to an ordinary "the model couldn't read this
+photo" outcome. It now always includes `technicalDetail` (matching the
+"database write failed" branch's existing pattern) and the friendly
+message no longer implies it's about photo quality. **Not something a
+code change can fully address, stated plainly:** the HTTP 200 status
+itself is inherent to how Next.js Server Actions work — an action that
+catches its own error and returns a normal `UploadOutcome` object (rather
+than letting the exception escape uncaught) completes as an ordinary
+transport-level success by design, the same way the *legitimate* failure
+paths (a truly unreadable photo) need to for the UI to render gracefully.
+Distinguishing "a bug" from "the model couldn't read this" now happens in
+the payload (`technicalDetail`), not the HTTP status, since changing the
+status would require *also* breaking the graceful-degradation behavior
+every other failure in this same catch block depends on.
+
+**Issue 2 — a working collision-guard catch was shown as a flag instead of
+a quiet note.** Verified against `daily_production` for BAB-10,
+2026-08-01: `flagged: true` on a row whose saved `eggs_total`/`bird_population`
+were both correct — the collision guard had discarded a spurious extra
+reading and the row was otherwise clean. Root cause: `resolveFieldsLocally`
+pushed the collision guard's own "discarded and not used" message into
+`extraFlagReasons` — the same array real disagreements (eggs II vs Total,
+bal-bird two-line, tray-of-30) use — so a successful self-correction was
+indistinguishable from something that actually needed a human. Fixed by
+giving stage 2's collision notes their own array (`collisionNotes`),
+merged into the EXISTING `autoCorrectionNotes` in stage 3 (no new column —
+`auto_correction_note` already exists for exactly this "informational,
+row saved clean" case, per its own migration-0015 comment) instead of
+`extraFlagReasons`. `upload/actions.ts` needed no changes at all: it
+already joins all of `autoCorrectionNotes` into `auto_correction_note`
+and passes only `extraFlagReasons` as flag-worthy reasons, so moving the
+message between the two arrays at the pipeline level was sufficient.
+Verified against BAB-10's real numbers (4320/6328, HD 68.20 vs
+calculated 68.27): `collisionNotes` now catches the discard,
+`extraFlagReasons` is empty, `autoCorrectionNotes` carries the note
+through stage 3 — the row would no longer be flagged (confirmed against
+`lib/records.ts`'s `/flagged` queries, which filter on `flagged` being
+true) but the note still shows on the entry screen via
+`ProductionEntryForm.tsx`'s existing `auto_correction_note` rendering.
+Control case confirms a genuine disagreement still lands in
+`extraFlagReasons` and is not swallowed by this change.
+
+**Issue 3 — status check on a previously-reported HD-written-digit fix
+(BAB-4, `hd_percent_written: 88.10` vs register's true 83.1):** no record
+of this request exists anywhere it could — not in this session's history,
+not in `git log`, not in this file, not anywhere in the codebase (grepped
+for `hd_percent_written_original` and the literal figures), and this
+account has exactly one Claude Code session on record, this one. Stated
+plainly rather than assumed: **this was never implemented, and as far as
+I can find, never actually received.** No `hd_percent_written_original`
+column or equivalent exists; `hd_percent_written` is still written as a
+single value with no original-value audit trail. Needs a fresh request
+(or resending whatever channel the original one went through) to
+implement.
+
+**Commit and `main` status:** issues 1 and 2 are one commit touching
+`web/app/upload/actions.ts`, `web/lib/extraction/dailyProduction.ts`,
+`web/lib/extraction/flockMatch.ts`, and `web/lib/extraction/pipeline.ts`.
+Given what happened last round (a commit pushed to this branch after its
+PR was already merged, stranded until caught and re-opened as a fresh
+PR), this one goes through a fresh PR against current `main` from the
+start, merged before being reported as done — not pushed to a branch and
+assumed.
+
 ## Noted for later phases (no Phase 1 action)
 
 - **Trays-vs-eggs magnitude heuristic (owner addendum, 2026-07-09):** register

@@ -360,6 +360,20 @@ export async function extractDailyProductionSafely(
       throw err; // a genuine API/network error — not ours to retry-and-swallow
     }
 
+    // Owner report, 2026-09-30, production: a malformed/partial model
+    // response (missing or non-array `flocks`) crashed with "TypeError: X
+    // is not iterable" instead of failing gracefully — toolUse.input is an
+    // unchecked cast, nothing validates the model's JSON shape before this
+    // point. Treated as a retry-eligible failure, the same category as
+    // "too many rows": a page really did get read, just not into a usable
+    // shape, so silently returning zero flocks (which dedupeByNormalizedLabel's
+    // own defensive fallback would otherwise allow through as an empty
+    // "success") would surface as a confusing "0 flocks found" rather than
+    // triggering the existing retry-then-reject path.
+    if (!Array.isArray(extraction.flocks)) {
+      return { ok: false, detail: "extraction response did not include a usable flocks array" };
+    }
+
     const flocks = dedupeByNormalizedLabel(extraction.flocks, (f) => f.display_label_as_written);
     if (flocks.length > maxSane) {
       return {
