@@ -47,7 +47,60 @@ export interface FewShotExample {
 // something this script infers automatically — see its --replace flag.
 export const MAX_FEW_SHOT_EXAMPLES = 8;
 
+const STRICT_BASE64_RE = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
+
+/**
+ * Safety net (owner report, 2026-10-02, production: every single upload
+ * failed with a 400 from the Anthropic API — "invalid base64 data" on one
+ * of these exact images). Root cause: the script that first migrated these
+ * two images out of hand-written TS into fewShotExamples.data.json used a
+ * regex (`.replace(/\+/g, "")`, meant to strip the `+` OPERATORS joining
+ * the original multi-line string literal) that couldn't tell those apart
+ * from literal `+` CHARACTERS inside the base64 payload itself (`+` is one
+ * of the 64 valid base64 alphabet characters) — silently deleting every
+ * one of them from both images. Node's own `Buffer.from(str, "base64")`
+ * tolerated the resulting misaligned, wrongly-padded string and produced a
+ * plausible-looking but truncated JPEG (valid start marker, missing end
+ * marker) — nothing in this codebase's own tooling caught it, since the
+ * "byte-identical" verification that originally shipped this compared the
+ * broken extraction against itself, not against the images' true values.
+ * Anthropic's own API validates far more strictly and correctly rejected
+ * it outright, on every call.
+ *
+ * Runs at MODULE LOAD — the moment anything imports this file — as a
+ * runtime backstop: it throws on the function's first real invocation
+ * rather than sending corrupted data to the Anthropic API silently.
+ * Checked directly, not assumed: Next.js's Turbopack build does NOT
+ * eagerly evaluate this module's top level during `next build` (traced
+ * and confirmed — a deliberately-corrupted version of this file still
+ * built successfully, exit 0), so this check alone would NOT have caught
+ * the incident before deploy. The actual pre-deploy gate is
+ * package.json's "prebuild" script (scripts/verify-fewshot-images.mjs,
+ * run automatically by npm before "build" — which is what Vercel's build
+ * step invokes) — that's what turns a corruption like this into a failed
+ * BUILD. This module-load check is the second, always-on layer under it.
+ */
+export function validateFewShotExample(ex: FewShotExample): void {
+  const b64 = ex.imageBase64;
+  if (b64.length === 0 || b64.length % 4 !== 0 || !STRICT_BASE64_RE.test(b64)) {
+    throw new Error(
+      `few-shot example "${ex.name}" has invalid base64 data (length ${b64.length}) — this would be rejected by the Anthropic API on every extraction call. Regenerate it rather than hand-edit fewShotExamples.data.json.`
+    );
+  }
+  if (ex.mediaType === "image/jpeg") {
+    const buf = Buffer.from(b64, "base64");
+    const soiOk = buf[0] === 0xff && buf[1] === 0xd8;
+    const eoiOk = buf[buf.length - 2] === 0xff && buf[buf.length - 1] === 0xd9;
+    if (!soiOk || !eoiOk) {
+      throw new Error(
+        `few-shot example "${ex.name}" does not decode to a complete JPEG (SOI ok: ${soiOk}, EOI ok: ${eoiOk}) — likely truncated or corrupted base64 data.`
+      );
+    }
+  }
+}
+
 export const FEW_SHOT_EXAMPLES: FewShotExample[] = fewShotData.examples as FewShotExample[];
+FEW_SHOT_EXAMPLES.forEach(validateFewShotExample);
 
 export const FEW_SHOT_DIGIT_EXAMPLES = FEW_SHOT_EXAMPLES.flatMap((ex) => [
   {

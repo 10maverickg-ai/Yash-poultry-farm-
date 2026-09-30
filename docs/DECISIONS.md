@@ -1398,6 +1398,104 @@ promoted; that's explicitly the owner's call. Ongoing inserts of new
 `candidate` rows are the owner's/Claude-in-chat's own responsibility
 going forward, per the request — nothing here needs to change for that.
 
+## Phase 3 increment 11, follow-up: production regression — corrupted few-shot base64, real root cause (2026-10-02)
+
+**Context:** every upload started failing with a real Anthropic API 400,
+`messages.0.content.3.image.source.base64: invalid base64 data`.
+`content.3` traced (via `dailyProduction.ts`'s actual content-array
+construction — uploaded photo @0, prompt text @1, then
+`FEW_SHOT_DIGIT_EXAMPLES` flattened as `[text,image,text,image,...]`
+starting at 2) to the FIRST few-shot example's IMAGE block —
+`DIGITS_3_VS_8`, one of the two images moved into
+`fewShotExamples.data.json` in the previous increment.
+
+**What I checked and ruled out, with evidence, before finding the real
+cause — the owner's suspected mechanisms weren't it, and it's worth
+recording why:**
+- Not Vercel-build-specific bundler corruption: decoded the base64 from
+  the file straight off `main` (via `git show`, independent of my local
+  working copy) — invalid on its own terms (see below), so the bundler
+  was never involved.
+- Not a build-vs-source divergence: ran a real local `next build`
+  (Turbopack) and diffed the ACTUAL bundled chunk's base64 string against
+  the source file, character index by character index — byte-identical.
+  So Turbopack's JSON bundling itself is not at fault, at least not in a
+  way reproducible outside Vercel — this doesn't fully rule out something
+  Vercel-specific, since direct access to the actual Vercel deployment
+  bundle/logs to check that specifically was unavailable this session
+  (Vercel API returned 403 — "re-authenticate to scope 'yashfarm'" — a
+  real tool-access limitation, stated plainly rather than worked around
+  silently).
+
+**The actual root cause, fully proven:** the script that originally
+migrated these two images out of hand-written TypeScript into JSON used
+`.replace(/\s|"|\+/g, "")` to strip the quote marks and `+` OPERATORS
+that joined the original multi-line string literal — but `+` is also one
+of the 64 valid characters in the base64 alphabet, and that same regex
+stripped every literal `+` that happened to appear INSIDE the actual
+image data too, with no way to tell the two apart. Proven by re-deriving
+the TRUE value directly (actually executing the original file's real
+string concatenation via `new Function(...)`, not regex-parsing the
+source text a second time) and diffing it against the shipped JSON
+value: first divergence at character 501, a `+` present in the true
+value and silently missing from the shipped one — the same pattern
+repeated throughout both images. This is exactly why the previous
+increment's "byte-identical" verification passed: it compared my OWN
+regex extraction against itself (old TS parsed with the regex vs. new
+JSON built from the same regex), never against the images' true values,
+so an extraction bug present in both comparison sides was invisible to
+it. Confirmed the practical effect: the corrupted strings were 2
+characters short of properly-padded base64 (length % 4 == 2 both times,
+not the required 0), which Node's own lenient `Buffer.from(str,
+"base64")` tolerated — silently dropping the leftover characters and
+producing a plausible-looking JPEG with a valid start marker but a
+missing/wrong end marker (`ff fd` instead of the correct `ff d9`) —
+while Anthropic's own stricter validator correctly rejected the whole
+string outright, on every single call.
+
+**Fix:** regenerated `fewShotExamples.data.json` from the TRUE
+concatenated values (not re-parsed from source text a third time).
+Verified three independent ways before trusting it: (1) base64 length is
+now a clean multiple of 4 and matches the strict base64 regex shape for
+both images: (2) both decode to a JPEG with a correct end-of-image
+marker, not just a start marker; (3) both round-trip through `sharp`
+(a real image decoder, not magic-byte inspection) to their known correct
+dimensions, 1350x246 and 1290x270 — the exact numbers measured back when
+the token cap was first derived. Directly simulated the actual reported
+failure: built the real 6-block content array `dailyProduction.ts`
+constructs and ran `sharp` against `content[3]` specifically — decodes
+cleanly now.
+
+**The safety net — built as two layers, and the "build-time" claim
+verified rather than assumed:**
+1. `lib/extraction/fewShotExamples.ts` now validates every example's
+   base64 shape (strict regex + length%4==0) and, for JPEGs, its
+   start/end markers, at MODULE LOAD — throwing immediately if either
+   fails. Checked directly, not assumed, whether this alone would have
+   caught the incident before deploy: it would NOT — a deliberately
+   corrupted version of this file still passed a real local `next build`
+   with exit 0, since Turbopack's build tracing does not eagerly
+   evaluate a traced module's top-level code. Said so honestly in the
+   code comment rather than leaving the original, wrong "fails the
+   BUILD" claim in place.
+2. The actual pre-deploy gate: `scripts/verify-fewshot-images.mjs`,
+   wired as `package.json`'s `"prebuild"` script — npm runs `prebuild`
+   automatically before `"build"` (`next build`) on every `npm run
+   build`, which is exactly the command Vercel's own build step invokes,
+   framework-agnostic, no CI config needed (this repo has none — checked,
+   no `.github/workflows` exists). Uses `sharp` for a real image decode
+   of every example, strictly stronger than a magic-byte check. Verified
+   end-to-end, not assumed: corrupted the data file, ran `npm run build`
+   directly, confirmed it exits 1 from the `prebuild` step BEFORE `next
+   build` ever starts printing its own output; restored the correct data,
+   confirmed `npm run build` completes normally.
+
+**Scope discipline:** touched only `fewShotExamples.ts`,
+`fewShotExamples.data.json`, `package.json` (one new `prebuild` line),
+and the new verification script — confirmed via `git status`, nothing
+else in the corrections-library work (migration 0018, the seed rows,
+`promote-correction.ts`) was touched.
+
 ## Noted for later phases (no Phase 1 action)
 
 - **Trays-vs-eggs magnitude heuristic (owner addendum, 2026-07-09):** register
