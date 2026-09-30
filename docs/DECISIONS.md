@@ -1181,6 +1181,100 @@ owner, so while the algorithm resolves it to 69.7 given the numbers
 reported, that specific output is NOT claimed as a verified-correct
 fixture, only as the general algorithm's output on unverified input.
 
+## Phase 3 increment 10, fourth follow-up: written-HD correction picked a plausible-but-wrong value (2026-10-02)
+
+**Context:** BAB-1's true written HD, confirmed by the owner reading the
+register directly, is 68.7. The previous increment's check extracted it
+as 64.7 and "corrected" it to 69.7 — itself wrong. Two distinct root
+causes, traced against the real code rather than assumed from the
+symptom.
+
+**Bug 1 — 4<->8 was missing from the confusion-pair list.** 64.7 -> 68.7
+is a tens-digit 4-for-8 swap; `DIGIT_CONFUSION_PAIRS` (`digitEvidence.ts`)
+only had 3<->8, 1<->7, 5<->6, 4<->9 — 68.7 could never have been
+generated as a candidate at all. Added 4<->8 to the shared list (it
+IS shared: both `digitSubstitutionCandidates`, used by eggs/mortality/
+bal-bird, and `decimalDigitSubstitutionCandidates`, used only by
+hd_percent_written, read the same constant) — confirmed, not assumed,
+and justified the same way the other four pairs were: real, owner-
+verified evidence of this specific scribe's handwriting, which applies
+regardless of which field it shows up in.
+
+**Bug 2 — traced precisely, not accepted at face value:** the owner's
+diagnosis was "picks whichever candidate it generates first, not the
+closest." Checked directly against the actual shipped code
+(`checkWrittenHdDigitAccuracy`) before changing anything: it required
+`inBand.length === 1` — exact uniqueness within the band — not
+first-match. Reproducing BAB-1 against the code as it stood BEFORE Bug 1
+was fixed confirmed why: with 4<->8 missing, 69.7 was the ONLY candidate
+in the ±1.0pt band, so the existing uniqueness check picked it correctly
+given an incomplete candidate set — the wrong output, but not the
+mechanism reported. Once Bug 1 is fixed, though, the concern becomes
+real: 68.7 (gap 0.04) and 69.7 (gap 0.96) both land in the band, and the
+original design would have flipped to `ambiguous` rather than picking
+the closer one — safe, but not useful, and it would make the correction
+rarely fire in practice now that a 4/8 confusion is recognized. Fixed by
+ranking in-band candidates by distance to the calculated HD and
+auto-correcting the closest one only when it beats the second-closest by
+a real margin (`WRITTEN_HD_MIN_MARGIN = 0.3`) — a genuine near-tie (two
+candidates within the margin of each other) still refuses to guess,
+verified with a constructed exact-tie case (64.7 against a calculated
+69.2, where 68.7 and 69.7 are equidistant) that correctly returns
+`ambiguous`.
+
+**Audit of the other correction functions for the same flaw, as
+requested — findings, not a blanket rewrite:**
+- `suggestEggsCandidate` (tray-of-30 eggs suggestion): requires a
+  UNIQUE max scorer across a tiered, mostly-binary score (divisible by
+  30: yes/no; HD-corroborated within 0.15pt: yes/no) — already refuses
+  to guess on a tie, and a tie is intrinsically rare here because
+  divisibility-by-30 is an EXACT condition (~3% of integers), not a
+  fuzzy tolerance band. Left unchanged.
+- `traceEggsMismatch` (page-checksum eggs auto-correction): tier 1
+  requires the candidate to be the UNIQUE one that's simultaneously an
+  exact section-sum match, divisible by 30, AND HD-corroborated — three
+  exact/narrow conditions stacked, not one wide fuzzy band. Already
+  falls back to a named-lead-only (not auto-corrected) on any ambiguity.
+  Left unchanged.
+- `checkBalBirdChain` / `checkMortalityFeedSwap`: neither generates a
+  pool of digit-substitution candidates to rank in the first place —
+  each checks one specific, derived hypothesis (the chain-expected value,
+  or the implied mortality) against a narrow HD tolerance. No candidate
+  pool, no analogous flaw.
+- `pickBestReading` (eggs II-vs-Total, bal-bird two-line disagreement in
+  stage 2): chooses between the ACTUAL reported readings (typically 2
+  real values), not synthesized digit-substitution candidates, and
+  already requires a unique max-scoring value.
+The written-HD check is structurally different from all of these: its
+final acceptance test is a WIDE, purely-distance-based tolerance window
+(±1.0pt) against a candidate pool that can have 5+ members, which makes
+two candidates landing in the same window a realistic occurrence — not
+a rare coincidence the way an exact divisibility+sum+HD three-way
+match is elsewhere. That's why closest-candidate ranking belongs here
+specifically rather than as a change applied uniformly everywhere.
+
+**Fixture:** BAB-1 added to the SAME permanent, checked-in file as BAB-4
+(`web/scripts/regression-bab4-hd-digit.ts`, not renamed, not moved) —
+confirms `checkWrittenHdDigitAccuracy(64.70, 68.74)` resolves to exactly
+68.7 (not 69.7), the full pipeline end-to-end produces
+`hd_percent_written: 68.7` / `hd_percent_written_original: 64.7`, BAB-4's
+existing fixture is unaffected by the ranking change (83.1, unchanged —
+confirmed, not assumed, since it was the only candidate needing a
+uniqueness check with or without ranking), and the constructed near-tie
+case correctly refuses to auto-correct. All 12 checks in that file pass.
+Separately re-ran the increment-10 real fixtures that share
+`digitSubstitutionCandidates` with the now-larger confusion-pair list
+(bug 5's Aug 4 eggs ambiguity, bug 7's mortality/feed swap) as one-off
+scratch checks (deleted after use, per the usual pattern) — both still
+resolve identically with 4<->8 present. `tsc --noEmit`, `eslint`, and
+`next build` all clean.
+
+**What remains genuinely untested — no live API access:** whether this
+now fires correctly against the model's actual extraction on a fresh
+upload is still unverified. The owner's own plan is to re-check BAB-1
+against the physical register once this ships, which is the appropriate
+next verification step, not something this sandbox can do.
+
 ## Noted for later phases (no Phase 1 action)
 
 - **Trays-vs-eggs magnitude heuristic (owner addendum, 2026-07-09):** register

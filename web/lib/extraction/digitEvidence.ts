@@ -6,14 +6,22 @@
 // suggestion (see balBirdChain.ts for the one place a correction is ever
 // auto-applied, and only under a corroborated, narrow rule).
 
-// This scribe's confusion pairs, per owner-verified evidence across three
-// real register pages (2026-08-01/02/03) — see docs/DECISIONS.md. Checked
-// both directions (either digit could be the misread one).
+// This scribe's confusion pairs, per owner-verified evidence across
+// real register pages (2026-08-01 through 10-01) — see docs/DECISIONS.md.
+// Checked both directions (either digit could be the misread one). 4<->8
+// added 2026-10-01: BAB-1's hd_percent_written, confirmed by the owner
+// reading the register directly, is 68.7 — extracted as 64.7, a tens-
+// digit 4-for-8 misread. This list is shared by BOTH the integer
+// candidate generator below (eggs/mortality/bal-bird) and the decimal one
+// in this same file (hd_percent_written) — a real confusion in this
+// scribe's handwriting applies regardless of which field it shows up in,
+// so it belongs in the one shared list, not duplicated per field.
 const DIGIT_CONFUSION_PAIRS: [string, string][] = [
   ["3", "8"],
   ["1", "7"],
   ["5", "6"],
   ["4", "9"],
+  ["4", "8"],
 ];
 
 // The standard corroboration tolerance used throughout this pass: a

@@ -12,6 +12,17 @@
 // misread. No live API access here, so this exercises the pure
 // digit-accuracy/pipeline functions directly against these real numbers,
 // not the model's own extraction behavior.
+//
+// BAB-1, added 2026-10-02, same date/page, also confirmed directly
+// against the register: hd_percent_written extracted as 64.7, the
+// register actually reads 68.7 (a tens-digit 4-for-8 misread — the
+// original list of confusion pairs didn't include 4<->8 at all, so this
+// candidate could never have been generated; separately, the FIRST
+// version of this check would have picked 69.7 instead — a real but less
+// close candidate — since it only required uniqueness within the
+// acceptance band rather than ranking by distance to the calculated
+// value. Both are fixed together; this fixture exists specifically to
+// catch either regressing back.
 
 import { calcHd } from "../lib/extraction/digitEvidence";
 import { checkWrittenHdDigitAccuracy } from "../lib/extraction/writtenHdCheck";
@@ -74,6 +85,46 @@ check(
 // in fn_validate_daily_production stays untouched and in charge of it).
 const cleanResult = checkWrittenHdDigitAccuracy(78.7, 78.65);
 check("control: an ordinary small gap defers entirely (untouched by this check)", cleanResult.kind === "defer", cleanResult);
+
+// BAB-1, 2026-08-01, real production data (current row: eggs 5910,
+// bird_population 8598). Confirmed by the owner reading the register
+// directly: true written HD is 68.7, not 69.7 (the wrong value the first
+// version of this check would have picked).
+const bab1CalculatedHd = calcHd(5910, 8598);
+check("calculated hd_percent for BAB-1 is ~68.74%", bab1CalculatedHd !== null && Math.abs(bab1CalculatedHd - 68.74) < 0.01, bab1CalculatedHd);
+
+const bab1DirectResult = checkWrittenHdDigitAccuracy(64.7, bab1CalculatedHd);
+check(
+  "checkWrittenHdDigitAccuracy(64.70, 68.74) auto-corrects to 68.7, NOT 69.7",
+  bab1DirectResult.kind === "auto_correct" && bab1DirectResult.correctedWrittenHd === 68.7,
+  bab1DirectResult
+);
+
+const bab1Raw: RawFlockInput = {
+  displayLabelAsWritten: "BAB-1",
+  section: "main",
+  mortality: 2,
+  feedBags: 14,
+  eggsTotal: 5910,
+  eggsIi: 5910,
+  birdPopulation: 8598,
+  birdPopulationReadings: [8598, 8598],
+  hdPercentWritten: 64.7,
+  confidence: {},
+};
+const bab1Local = resolveFieldsLocally(bab1Raw);
+const { resolved: bab1Resolved } = applyChainCorrections(bab1Local, null);
+const [bab1Final] = applyWrittenHdCheck([bab1Resolved]);
+
+check("BAB-1 end-to-end: hd_percent_written corrected to 68.7", bab1Final.hdPercentWritten === 68.7, bab1Final);
+check("BAB-1 end-to-end: original 64.7 preserved", bab1Final.hdPercentWrittenOriginal === 64.7, bab1Final);
+
+// Near-tie control: two candidates close enough to each other must refuse
+// to auto-correct rather than guess (this is what a purely
+// uniqueness-in-band check, without ranking, would have gotten wrong once
+// 4<->8 made near-collisions plausible).
+const nearTieResult = checkWrittenHdDigitAccuracy(64.7, 69.2);
+check("near-tie: two closely-spaced candidates (68.7 vs 69.7 against 69.2) refuse to auto-correct", nearTieResult.kind === "ambiguous", nearTieResult);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);
