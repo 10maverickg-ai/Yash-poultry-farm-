@@ -83,6 +83,38 @@ export function digitSubstitutionCandidates(n: number): number[] {
 }
 
 /**
+ * Same idea as digitSubstitutionCandidates, for a value written with a
+ * decimal point (owner report, 2026-09-30/10-01: hd_percent_written
+ * "88.10" where the register actually reads "83.1" — an 8-for-3 misread
+ * one digit into the value, confirmed against the register directly).
+ * Operates on the fixed-2-decimal string form (matching this column's own
+ * numeric(5,2) storage) so the decimal point's position is never
+ * disturbed by a substitution; also offers the same ÷10/×10 decimal-shift
+ * candidates as the integer version, for a stray/missing decimal digit.
+ * Used only for hd_percent_written, which is reference-only (never fed
+ * into hd_percent, the GENERATED, analytics-facing column) — see
+ * writtenHdCheck.ts for how a candidate here is actually corroborated.
+ */
+export function decimalDigitSubstitutionCandidates(n: number): number[] {
+  const candidates = new Set<number>();
+  const s = n.toFixed(2);
+
+  for (const [a, b] of DIGIT_CONFUSION_PAIRS) {
+    for (let i = 0; i < s.length; i++) {
+      if (s[i] === ".") continue;
+      if (s[i] === a) candidates.add(Number(s.slice(0, i) + b + s.slice(i + 1)));
+      else if (s[i] === b) candidates.add(Number(s.slice(0, i) + a + s.slice(i + 1)));
+    }
+  }
+  candidates.add(Number((n * 10).toFixed(2)));
+  candidates.add(Number((n / 10).toFixed(2)));
+
+  candidates.delete(n);
+  candidates.delete(0);
+  return [...candidates].filter((c) => c > 0);
+}
+
+/**
  * Digit-substitution search for a single eggs figure, used when eggs%30!=0,
  * an HD gap is large, or repeated readings disagree with no clear winner
  * among the readings themselves (see pickBestReading). Scores every

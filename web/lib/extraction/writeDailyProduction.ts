@@ -31,6 +31,10 @@ export interface DailyProductionRowInput {
   // and cannot be written to directly; Postgres rejects any INSERT/UPDATE
   // that tries.
   hdPercentWritten: number | null;
+  // Set alongside hdPercentWrittenOriginal when pipeline.ts's written-HD
+  // digit-accuracy check (writtenHdCheck.ts) auto-corrected this value —
+  // reference-only field, never affects hd_percent (the GENERATED column).
+  hdPercentWrittenOriginal?: number | null;
   // Null for a row written outside the extraction flow (e.g. the manual
   // "resolve this unmatched label" form re-uses this same helper, but with
   // whatever confidence was originally stored on unresolved_extractions —
@@ -78,8 +82,9 @@ export async function insertDailyProductionRow(
          (date, farm_code, flock_internal_id, display_label_as_written,
           shed_code, mortality, feed_bags, eggs_total, bird_population,
           hd_percent_written, ocr_confidence, source_photo_url, sections_found, page_notes,
-          mortality_original, eggs_total_original, bird_population_original, auto_correction_note)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+          mortality_original, eggs_total_original, bird_population_original,
+          hd_percent_written_original, auto_correction_note)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
      ON CONFLICT (flock_internal_id, date) WHERE deleted_at IS NULL DO UPDATE SET
          display_label_as_written = EXCLUDED.display_label_as_written,
          shed_code       = EXCLUDED.shed_code,
@@ -95,6 +100,7 @@ export async function insertDailyProductionRow(
          mortality_original = EXCLUDED.mortality_original,
          eggs_total_original = EXCLUDED.eggs_total_original,
          bird_population_original = EXCLUDED.bird_population_original,
+         hd_percent_written_original = EXCLUDED.hd_percent_written_original,
          auto_correction_note = EXCLUDED.auto_correction_note,
          reviewed_by_owner = false
      RETURNING id`,
@@ -116,6 +122,7 @@ export async function insertDailyProductionRow(
       data.mortalityOriginal ?? null,
       data.eggsTotalOriginal ?? null,
       data.birdPopulationOriginal ?? null,
+      data.hdPercentWrittenOriginal ?? null,
       data.autoCorrectionNote ?? null,
     ]
   );

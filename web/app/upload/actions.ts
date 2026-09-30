@@ -18,6 +18,7 @@ import {
   resolveFieldsLocally,
   applyChainCorrections,
   applyPageChecksum,
+  applyWrittenHdCheck,
   type RawFlockInput,
   type PreviousDayData,
   type PreviousDayFlag,
@@ -311,7 +312,13 @@ export async function uploadAndExtractDailyProduction(
         chainResults.map((c) => c.resolved),
         extraction.section_subtotals ?? []
       );
-      const finalFlocks = checksumResult.resolved;
+      // Stage 5 (applyWrittenHdCheck) — must run AFTER stage 4, never
+      // before: eggs_total may have just been auto-corrected there, and
+      // the true calculated HD this check compares against depends on the
+      // FINAL eggs_total/bird_population, not stage 3's. Owner request,
+      // 2026-10-01 — scoped to hd_percent_written only, does not touch
+      // applyPageChecksum's own logic above.
+      const finalFlocks = applyWrittenHdCheck(checksumResult.resolved);
       pageIssueText = checksumResult.pageIssueText;
       if (pageIssueText) {
         console.warn(`[upload] page checksum issue: ${pageIssueText}`);
@@ -356,6 +363,16 @@ export async function uploadAndExtractDailyProduction(
             from: flock.eggsTotalOriginal,
             to: flock.eggsTotal as number,
             note: findCorrectionNote(flock.autoCorrectionNotes, flock.eggsTotalOriginal, flock.eggsTotal as number),
+          });
+        }
+        if (flock.hdPercentWrittenOriginal !== null) {
+          autoCorrections.push({
+            label: flock.displayLabelAsWritten,
+            date,
+            field: "hd_percent_written",
+            from: flock.hdPercentWrittenOriginal,
+            to: flock.hdPercentWritten as number,
+            note: findCorrectionNote(flock.autoCorrectionNotes, flock.hdPercentWrittenOriginal, flock.hdPercentWritten as number),
           });
         }
 
@@ -428,6 +445,7 @@ export async function uploadAndExtractDailyProduction(
             birdPopulation: flock.birdPopulation,
             birdPopulationOriginal: flock.birdPopulationOriginal,
             hdPercentWritten: flock.hdPercentWritten,
+            hdPercentWrittenOriginal: flock.hdPercentWrittenOriginal,
             confidence: flock.confidence,
             sourcePhotoUrl: photoUrl,
             sectionsFound: extraction.sections_found,
