@@ -152,11 +152,22 @@ export function matchFlockLabel(rawLabel: string, active: ActiveLabel[]): LabelM
  * rather than harmlessly repeating good data, and the caller's row-count
  * sanity check (against the farm's known active flock count) is what
  * catches that case.
+ *
+ * Defensive against `rows` itself being missing or malformed (owner
+ * report, 2026-09-30, production: `TypeError: a is not iterable` crashed
+ * an upload here — `extraction.flocks` comes straight from an unchecked
+ * cast of the model's tool-call JSON, `toolUse.input as ExtractionResult`
+ * in dailyProduction.ts, with no runtime validation; a rare malformed or
+ * partial response can hand this function `undefined`/`null`/a
+ * non-array, and `for...of` over that throws immediately). Treated the
+ * same as "zero rows" rather than crashing — the caller's own row-count
+ * sanity check already treats too few/odd rows as a reason to retry.
  */
 export function dedupeByNormalizedLabel<T>(
   rows: T[],
   labelOf: (row: T) => string
 ): T[] {
+  if (!Array.isArray(rows)) return [];
   const seen = new Set<string>();
   const result: T[] = [];
   for (const row of rows) {

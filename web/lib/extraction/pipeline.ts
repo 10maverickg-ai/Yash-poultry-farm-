@@ -109,10 +109,21 @@ interface LocallyResolvedFlock {
   hdPercentWritten: number | null;
   confidence: Record<string, number>;
   extraFlagReasons: string[];
+  // Owner report, 2026-09-30, production: a collision guard successfully
+  // discarding a bad extra reading and leaving a clean, correct row behind
+  // was still landing in extraFlagReasons — flagged: true for a row with
+  // nothing actually wrong with it. flagged must mean "a human should
+  // look", the same bar every other flag in this file is held to; a
+  // successful self-correction is informational, exactly like
+  // hd_percent_note or the swap/chain auto-correction notes below, which
+  // is why this lives in its own array (merged into autoCorrectionNotes in
+  // stage 3) instead of extraFlagReasons.
+  collisionNotes: string[];
 }
 
 export function resolveFieldsLocally(raw: RawFlockInput): LocallyResolvedFlock {
   const extraFlagReasons: string[] = [];
+  const collisionNotes: string[] = [];
 
   // Collision guard (Part B.2 audit): a reading that coincidentally equals
   // this SAME row's own mortality/feed_bags/bird_population is much more
@@ -128,7 +139,7 @@ export function resolveFieldsLocally(raw: RawFlockInput): LocallyResolvedFlock {
   );
   let eggsIi = raw.eggsIi;
   if (eggsIi !== null && suspectValues.has(eggsIi)) {
-    extraFlagReasons.push(
+    collisionNotes.push(
       `eggs_ii reading (${eggsIi}) equals this row's own mortality, feed_bags, or bird_population — treated as a likely copy from the wrong column and not used.`
     );
     eggsIi = null;
@@ -162,10 +173,16 @@ export function resolveFieldsLocally(raw: RawFlockInput): LocallyResolvedFlock {
   const balBirdSuspectValues = new Set(
     [raw.mortality, raw.feedBags, raw.eggsTotal, raw.eggsIi].filter((n): n is number => n !== null)
   );
-  const balBirdPresent = raw.birdPopulationReadings.filter((n): n is number => {
+  // Defensive, not the confirmed cause of the 2026-09-30 production crash
+  // (that one traced to dedupeByNormalizedLabel on extraction.flocks,
+  // upstream of this function ever running) — but raw.birdPopulationReadings
+  // is the same class of unchecked model-controlled input, so a missing or
+  // non-array value here must not throw either.
+  const rawBirdPopulationReadings = Array.isArray(raw.birdPopulationReadings) ? raw.birdPopulationReadings : [];
+  const balBirdPresent = rawBirdPopulationReadings.filter((n): n is number => {
     if (n === null) return false;
     if (n !== raw.birdPopulation && balBirdSuspectValues.has(n)) {
-      extraFlagReasons.push(
+      collisionNotes.push(
         `bird_population_readings entry (${n}) equals this row's own mortality, feed_bags, or eggs figure — treated as a likely copy from the wrong column and not used.`
       );
       return false;
@@ -210,6 +227,7 @@ export function resolveFieldsLocally(raw: RawFlockInput): LocallyResolvedFlock {
     hdPercentWritten: raw.hdPercentWritten,
     confidence: raw.confidence,
     extraFlagReasons,
+    collisionNotes,
   };
 }
 
@@ -219,7 +237,11 @@ export function applyChainCorrections(
   local: LocallyResolvedFlock,
   previousDay: PreviousDayData | null
 ): { resolved: ResolvedFlock; previousDayFlag: PreviousDayFlag | null } {
-  const autoCorrectionNotes: string[] = [];
+  // Seeded with stage 2's collision-guard notes (see LocallyResolvedFlock's
+  // collisionNotes doc comment) — a successful discard-and-keep-clean is
+  // informational, same bucket as the swap/chain corrections pushed below,
+  // never extraFlagReasons.
+  const autoCorrectionNotes: string[] = [...local.collisionNotes];
   const extraFlagReasons = [...local.extraFlagReasons];
   let mortality = local.mortality;
   let mortalityOriginal: number | null = null;
