@@ -33,6 +33,18 @@
 //     divisible by 30, and HD-corroborated — the only place eggs is ever
 //     auto-corrected, and still never without three-way corroboration.
 //
+//   STAGE 5 — applyWrittenHdCheck (owner request, 2026-10-01, added on top
+//     of the original 4-stage design above without changing any of
+//     them): a lighter-touch digit-accuracy pass on hd_percent_written
+//     specifically, since it's reference-only (never feeds hd_percent,
+//     the GENERATED column every analytics query actually reads). Reads
+//     stage 4's fully-resolved eggs_total/bird_population (the ONLY point
+//     the true calculated HD can be known, since eggs_total may still
+//     have changed in stage 4 itself) and proposes a correction only when
+//     exactly one digit-substitution/decimal-shift candidate would bring
+//     a large written/calculated gap back into the SAME quiet-note band
+//     fn_validate_daily_production already treats as ordinary rounding.
+//
 // Each stage is a pure function — no database, no network — so every one
 // of them (and the pipeline as a whole) can be exercised with synthetic
 // fixtures with no live dependency. See the test fixtures shipped
@@ -47,6 +59,7 @@ import {
 } from "./digitEvidence";
 import { checkMortalityFeedSwap } from "./mortalityFeedSwap";
 import { checkBalBirdChain } from "./balBirdChain";
+import { checkWrittenHdDigitAccuracy } from "./writtenHdCheck";
 import {
   checkPageChecksums,
   buildPageIssueText,
@@ -91,6 +104,7 @@ export interface ResolvedFlock {
   birdPopulation: number | null;
   birdPopulationOriginal: number | null;
   hdPercentWritten: number | null;
+  hdPercentWrittenOriginal: number | null;
   confidence: Record<string, number>;
   autoCorrectionNotes: string[];
   extraFlagReasons: string[];
@@ -301,6 +315,7 @@ export function applyChainCorrections(
       birdPopulation,
       birdPopulationOriginal,
       hdPercentWritten: local.hdPercentWritten,
+      hdPercentWrittenOriginal: null, // stage 5 (applyWrittenHdCheck) may still set this
       confidence: local.confidence,
       autoCorrectionNotes,
       extraFlagReasons,
@@ -364,4 +379,28 @@ export function applyPageChecksum(
   }
 
   return { resolved: [...byLabel.values()], pageIssueText: buildPageIssueText(remainingFindings) };
+}
+
+// ===================== STAGE 5 =====================
+
+/**
+ * Runs strictly after stage 4 (never before — eggs_total may itself have
+ * just been auto-corrected there, and the true calculated HD depends on
+ * the FINAL eggs_total/bird_population, not stage 3's). Per-flock, no
+ * other row's data needed. Pure and non-mutating, same discipline as
+ * every other stage — shallow-copies rather than editing `flocks` in
+ * place.
+ */
+export function applyWrittenHdCheck(flocks: ResolvedFlock[]): ResolvedFlock[] {
+  return flocks.map((f) => {
+    const calculatedHd = f.eggsTotal !== null && f.birdPopulation !== null ? calcHd(f.eggsTotal, f.birdPopulation) : null;
+    const result = checkWrittenHdDigitAccuracy(f.hdPercentWritten, calculatedHd);
+    if (result.kind !== "auto_correct") return f;
+    return {
+      ...f,
+      hdPercentWritten: result.correctedWrittenHd,
+      hdPercentWrittenOriginal: f.hdPercentWritten,
+      autoCorrectionNotes: [...f.autoCorrectionNotes, result.note],
+    };
+  });
 }

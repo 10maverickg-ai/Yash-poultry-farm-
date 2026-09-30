@@ -1096,6 +1096,91 @@ PR), this one goes through a fresh PR against current `main` from the
 start, merged before being reported as done — not pushed to a branch and
 assumed.
 
+## Phase 3 increment 10, third follow-up: hd_percent_written digit-accuracy pass (2026-10-01)
+
+**Context:** a resend of a request the owner had sent once before but which
+never actually reached any session on this account (confirmed absent from
+git history, this file, and the only Claude Code session on record —
+reported honestly as never received, not "done"). Fresh confirming
+evidence this time: after both the crash fix and the BAB-10 false-flag fix
+landed, only 2 of 10 flocks on the 2026-08-01 photo were still flagged,
+both `hd_percent_written` gaps. BAB-4 (eggs_total 6150, bird_population
+7410, hd_percent 83.00, hd_percent_written extracted as 88.10) is a
+confirmed fixture — the owner independently re-read the register directly
+and the true written figure is 83.1, an 8-for-3 misread one digit into
+the value (mortality "3" sits on the same row). BAB-1 is the same class
+of issue but explicitly NOT independently re-verified — treated as a
+secondary data point only, never hardcoded as a "confirmed" fixture.
+
+**Design, scoped exactly as requested — nothing else touched:**
+`hd_percent_written` is reference-only (the GENERATED `hd_percent` column
+is what every analytics query actually reads), so this uses a lighter-
+touch, higher-bar rule than the other three auto-corrections: only
+engages when the written/calculated gap is large (`WRITTEN_HD_LARGE_GAP_THRESHOLD
+= 3.0`, well above the existing 1.0pt flag threshold, so an ordinary
+moderate mismatch is left entirely to `fn_validate_daily_production`'s
+existing rule, unchanged), and only auto-corrects when exactly one
+digit-substitution (reusing the same confusion pairs as everywhere else
+in this codebase) or ÷10/×10 decimal-shift candidate of the written value
+brings the gap back into the SAME 0.2-1.0pt band that rule already treats
+as ordinary rounding (`WRITTEN_HD_QUIET_BAND_MAX = 1.0`) — never a looser
+standard than what's already in place. New pure functions:
+`decimalDigitSubstitutionCandidates` (`digitEvidence.ts`, a sibling of the
+existing integer version, operating on the fixed-2-decimal string form so
+a substitution never disturbs the decimal point) and
+`checkWrittenHdDigitAccuracy` (new file, `writtenHdCheck.ts`, mirrors
+`mortalityFeedSwap.ts`'s style).
+
+Wired in as a new **stage 5** (`applyWrittenHdCheck`, appended to
+`pipeline.ts` — the header comment's stage list was extended to describe
+it, nothing about stages 2-4's own code changed) that runs strictly
+*after* stage 4, never before: eggs_total may have just been auto-
+corrected by the page checksum, and the true calculated HD this check
+compares against has to be computed from the FINAL eggs_total/
+bird_population, not an earlier stage's. `ResolvedFlock` gained one new
+field (`hdPercentWrittenOriginal`), flowing through stage 4's existing
+`{...f}` shallow-copy with no change needed there. Reuses the EXISTING
+`auto_correction_note`/`autoCorrectionNotes` pattern per the owner's own
+instruction — the correction is a quiet, non-flagging note, not a flag,
+same as every other auto-correction in this file.
+
+**Migration 0017** (`db/migrations/0017_hd_percent_written_original.sql`,
+applied locally): `daily_production.hd_percent_written_original numeric(5,2)`,
+same one-column-per-correctable-field pattern as 0015/0016. Run order:
+after 0016.
+
+**`upload/actions.ts`:** one new call (`applyWrittenHdCheck(checksumResult.resolved)`
+in place of using `checksumResult.resolved` directly), `hdPercentWrittenOriginal`
+threaded into `insertDailyProductionRow`'s input and into the `autoCorrections`
+summary array, using the same `findCorrectionNote` marker-substring lookup
+already used for the other three fields. No change to the collision guard,
+the crash fix, or `applyPageChecksum`/`pageChecksum.ts` at all — confirmed
+via `git diff --stat`, which shows only `digitEvidence.ts`, the new
+`writtenHdCheck.ts`, `pipeline.ts` (additive only), `writeDailyProduction.ts`,
+and `upload/actions.ts`.
+
+**Verification:** a **permanent** regression fixture (owner's explicit
+request, a deliberate departure from this codebase's usual scratch-and-
+delete verification pattern) at `web/scripts/regression-bab4-hd-digit.ts`,
+checked into git rather than deleted — run with `npx tsx scripts/regression-bab4-hd-digit.ts`
+from `web/`. Confirms, against BAB-4's real numbers: the calculated HD is
+~83.00%; `checkWrittenHdDigitAccuracy(88.10, 83.00)` resolves to exactly
+83.1; the full pipeline end-to-end (`resolveFieldsLocally` →
+`applyChainCorrections` → `applyWrittenHdCheck`) produces
+`hdPercentWritten: 83.1`, `hdPercentWrittenOriginal: 88.1`, zero entries
+in `extraFlagReasons`, and every other field on the row untouched; and a
+control case confirms an ordinary small gap is left alone entirely. All 7
+checks pass. `tsc --noEmit`, `eslint`, and `next build` all clean.
+
+**What remains genuinely untested — no live API access:** whether this
+correction fires correctly against the model's actual extraction on a
+fresh upload of the same photo (the stated target: all 10 flocks clean or
+quiet-note-only, no flags) is unverified until that real upload happens.
+BAB-1's true written figure was never independently confirmed by the
+owner, so while the algorithm resolves it to 69.7 given the numbers
+reported, that specific output is NOT claimed as a verified-correct
+fixture, only as the general algorithm's output on unverified input.
+
 ## Noted for later phases (no Phase 1 action)
 
 - **Trays-vs-eggs magnitude heuristic (owner addendum, 2026-07-09):** register
