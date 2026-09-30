@@ -1,13 +1,31 @@
 import type { PoolClient } from "pg";
-import { pickBestReading, isMultipleOf30, calcHd, hdWithinTolerance, suggestEggsCandidate } from "./digitEvidence";
 
+// Thin persistence layer — every piece of extraction business logic (digit
+// evidence, disagreement resolution, chain corrections, page checksums)
+// lives in pipeline.ts and is already fully resolved by the time it
+// reaches this function (owner request, 2026-09-29: "an explicit ordering
+// guarantee in the code" — see pipeline.ts's own header comment for the
+// full stage sequence). This function's only jobs are: write the row,
+// run the SQL structural validation, apply low-confidence flagging, and
+// merge in whatever reasons/notes the caller already decided on.
 export interface DailyProductionRowInput {
   displayLabelAsWritten: string;
   shedCode: string | null;
   mortality: number | null;
+  // Set alongside mortalityOriginal when pipeline.ts's mortality/feed_bags
+  // column-swap check auto-corrected this value — see mortalityFeedSwap.ts.
+  mortalityOriginal?: number | null;
   feedBags: number | null;
   eggsTotal: number | null;
+  // Set alongside eggsTotalOriginal when pipeline.ts's page-checksum stage
+  // auto-corrected this value (the only place eggs_total is ever
+  // auto-corrected — exact section-sum match, divisible by 30, AND
+  // HD-corroborated, all three, per the owner's rule).
+  eggsTotalOriginal?: number | null;
   birdPopulation: number | null;
+  // Set alongside birdPopulationOriginal when the day-to-day bal-bird
+  // chain (balBirdChain.ts) auto-corrected this value.
+  birdPopulationOriginal?: number | null;
   // The register's own written "%" figure — NOT the official hd_percent,
   // which is a GENERATED ALWAYS column (eggs_total / bird_population * 100)
   // and cannot be written to directly; Postgres rejects any INSERT/UPDATE
@@ -21,102 +39,24 @@ export interface DailyProductionRowInput {
   sourcePhotoUrl: string | null;
   sectionsFound: number | null;
   pageNotes: string | null;
-  // Digit-accuracy pass (owner report, 2026-09-28): independent readings of
-  // a value that's written more than once on the page (eggs_total: the
-  // "I"/"II"/"Total" columns; bird_population: both lines of a two-line
-  // flock block). Optional — the manual "resolve unmatched label" path that
-  // shares this function doesn't have these, and undefined simply skips the
-  // check. When the readings disagree, flags the row with every reading
-  // spelled out in flag_reason, and — if exactly one reading is uniquely
-  // supported by the available evidence (eggs: divisible by 30 and/or its
-  // implied HD corroborates the written HD; bird_population: implied HD
-  // corroborates) — names which one looks right. Never silently picks
-  // between them: eggsTotal/birdPopulation above still decide what's saved.
-  eggsTotalReadings?: (number | null)[];
-  birdPopulationReadings?: (number | null)[];
-  // Set (with birdPopulationOriginal) when the day-to-day bal-bird chain
-  // check (app/upload/actions.ts, lib/extraction/balBirdChain.ts) has
-  // already auto-corrected birdPopulation above — the ONLY value this pass
-  // ever auto-applies, and only when corroborated by written HD%. The
-  // original extracted figure is preserved, never discarded, and the row
-  // is saved CLEAN (not flagged) with this as a quiet note, the same way
-  // hd_percent_note already works.
-  birdPopulationOriginal?: number | null;
+  // Human-readable explanation of whatever auto-correction(s) applied
+  // (mortality, bird_population, and/or eggs_total can each contribute a
+  // sentence here) — shown as a quiet, non-flagging note on the record,
+  // the same way hd_percent_note already works. Multiple corrections on
+  // one row are joined by the caller before reaching here.
   autoCorrectionNote?: string | null;
-  // When true, suppresses fn_validate_daily_production's own "bird_population
-  // increased" reason — set by the caller when the day-to-day chain check
-  // has already determined TODAY's reading is the corroborated-correct one
+  // Set by the caller when the day-to-day chain check has already
+  // determined TODAY's bird_population is the corroborated-correct one
   // and the PREVIOUS day's row is the likely misread (flagged separately,
-  // on that other row) — the old, undifferentiated "increased" message on
-  // TODAY's row would blame the wrong row (owner report, 2026-09-28).
+  // on that other row) — suppresses fn_validate_daily_production's own
+  // "bird_population increased" reason, which would otherwise blame
+  // today's row for a discrepancy that's actually yesterday's.
   suppressBirdPopulationIncreaseFlag?: boolean;
-  // Externally-computed reasons to merge into this row's flag_reason — e.g.
-  // the bal-bird chain check's own "flag_today" note, when neither
-  // candidate could be corroborated against written HD.
+  // Every reason pipeline.ts's stages already decided this row should be
+  // flagged for (disagreeing readings, tray-of-30, chain mismatches, ...)
+  // — fn_validate_daily_production has no way to reproduce any of these,
+  // since they're not SQL-side rules.
   extraReasons?: string[];
-}
-
-/** True if two or more non-null readings of what's supposed to be the same
- * figure disagree — a single reading, or all-null, can't disagree. */
-function readingsDisagree(readings: (number | null)[] | undefined): boolean {
-  if (!readings) return false;
-  const present = readings.filter((n): n is number => n !== null);
-  if (present.length < 2) return false;
-  return !present.every((n) => n === present[0]);
-}
-
-/** Builds the "readings disagree" flag text for eggs_total, naming a
- * preferred reading when the tray-of-30 signal and/or HD corroboration
- * uniquely picks one out of the readings actually written on the page
- * (never a digit-substitution guess — those are a different, separate
- * suggestion path, see digitEvidence.suggestEggsCandidate). */
-function eggsDisagreementReason(
-  readings: (number | null)[],
-  birdPopulation: number | null,
-  writtenHd: number | null
-): string {
-  const present = readings.filter((n): n is number => n !== null);
-  const scorer = (n: number) => {
-    let score = 0;
-    if (isMultipleOf30(n)) score += 2;
-    if (birdPopulation !== null && birdPopulation > 0 && writtenHd !== null) {
-      const hd = calcHd(n, birdPopulation);
-      if (hd !== null && hdWithinTolerance(hd, writtenHd)) score += 1;
-    }
-    return score;
-  };
-  const best = pickBestReading(readings, scorer);
-  const readingsText = present.join(", ");
-  if (best && best.uniquelyBest && !best.allAgree) {
-    return `eggs_total readings disagree: ${readingsText} — ${best.value} looks right (divisible by 30${birdPopulation !== null && writtenHd !== null ? " and/or matches written HD" : ""})`;
-  }
-  return `eggs_total readings disagree: ${readingsText}`;
-}
-
-/** Same idea for bird_population, using only HD-proximity as evidence
- * (the day-to-day chain check is a separate, stronger mechanism that runs
- * before this function is even called — see balBirdChain.ts — this is
- * just a same-page corroboration signal for when the two lines of a
- * two-line block disagree with each other). */
-function birdPopulationDisagreementReason(
-  readings: (number | null)[],
-  eggsTotal: number | null,
-  writtenHd: number | null
-): string {
-  const present = readings.filter((n): n is number => n !== null);
-  const scorer = (n: number) => {
-    if (eggsTotal !== null && n > 0 && writtenHd !== null) {
-      const hd = calcHd(eggsTotal, n);
-      if (hd !== null && hdWithinTolerance(hd, writtenHd)) return 1;
-    }
-    return 0;
-  };
-  const best = pickBestReading(readings, scorer);
-  const readingsText = present.join(", ");
-  if (best && best.uniquelyBest && !best.allAgree) {
-    return `bird_population readings disagree: ${readingsText} — ${best.value} looks right (matches written HD)`;
-  }
-  return `bird_population readings disagree: ${readingsText}`;
 }
 
 /**
@@ -138,8 +78,8 @@ export async function insertDailyProductionRow(
          (date, farm_code, flock_internal_id, display_label_as_written,
           shed_code, mortality, feed_bags, eggs_total, bird_population,
           hd_percent_written, ocr_confidence, source_photo_url, sections_found, page_notes,
-          bird_population_original, auto_correction_note)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+          mortality_original, eggs_total_original, bird_population_original, auto_correction_note)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
      ON CONFLICT (flock_internal_id, date) WHERE deleted_at IS NULL DO UPDATE SET
          display_label_as_written = EXCLUDED.display_label_as_written,
          shed_code       = EXCLUDED.shed_code,
@@ -152,6 +92,8 @@ export async function insertDailyProductionRow(
          source_photo_url = EXCLUDED.source_photo_url,
          sections_found  = EXCLUDED.sections_found,
          page_notes      = EXCLUDED.page_notes,
+         mortality_original = EXCLUDED.mortality_original,
+         eggs_total_original = EXCLUDED.eggs_total_original,
          bird_population_original = EXCLUDED.bird_population_original,
          auto_correction_note = EXCLUDED.auto_correction_note,
          reviewed_by_owner = false
@@ -171,6 +113,8 @@ export async function insertDailyProductionRow(
       data.sourcePhotoUrl,
       data.sectionsFound,
       data.pageNotes,
+      data.mortalityOriginal ?? null,
+      data.eggsTotalOriginal ?? null,
       data.birdPopulationOriginal ?? null,
       data.autoCorrectionNote ?? null,
     ]
@@ -201,44 +145,14 @@ export async function insertDailyProductionRow(
     }
   }
 
-  // Digit-accuracy pass: a value written more than once on the page that
-  // doesn't agree with itself is worth a human look even if OCR confidence
-  // came back high on each individual read — high confidence on two
-  // different numbers just means the model was sure each time, not that it
-  // was right. Every reading goes straight into flag_reason, plus a
-  // preferred reading when the evidence uniquely supports one. Tracked
-  // separately in `stableReasons` (returned to the caller) rather than
-  // making the caller recompute the same text independently to re-merge it
-  // after a second-pass reval — two copies of this logic drifting apart
-  // would be its own bug, the same lesson writeDailyProduction.ts's own
-  // docstring already draws about the INSERT shape.
-  const stableReasons: string[] = [];
-  if (readingsDisagree(data.eggsTotalReadings)) {
-    stableReasons.push(eggsDisagreementReason(data.eggsTotalReadings!, data.birdPopulation, data.hdPercentWritten));
-  }
-  if (readingsDisagree(data.birdPopulationReadings)) {
-    stableReasons.push(birdPopulationDisagreementReason(data.birdPopulationReadings!, data.eggsTotal, data.hdPercentWritten));
-  }
-  // Owner-confirmed, 2026-09-28: eggs on this register are always counted
-  // in whole trays of 30 — a saved eggs_total that isn't a multiple of 30
-  // is worth a flag on its own, even when every reading of it agreed with
-  // itself (readingsDisagree above only catches the case where the page's
-  // own repeated copies disagree with EACH OTHER; a value that's
-  // consistently misread the same wrong way every time needs this separate
-  // check). Never auto-corrected — only ever a flag with a suggestion, per
-  // the same "eggs are suggestion-only" rule as the digit-substitution
-  // search itself.
-  if (data.eggsTotal !== null && !isMultipleOf30(data.eggsTotal)) {
-    const suggestion = suggestEggsCandidate(data.eggsTotal, data.birdPopulation, data.hdPercentWritten);
-    stableReasons.push(
-      suggestion !== null
-        ? `eggs_total ${data.eggsTotal} is not a multiple of 30 (this farm counts eggs in trays of 30) — suggested: ${suggestion}`
-        : `eggs_total ${data.eggsTotal} is not a multiple of 30 (this farm counts eggs in trays of 30)`
-    );
-  }
-  if (data.extraReasons) {
-    stableReasons.push(...data.extraReasons);
-  }
+  // Everything pipeline.ts's stages already decided (disagreement,
+  // tray-of-30, chain mismatches, ...) — tracked separately in
+  // `stableReasons` (returned to the caller) rather than making the
+  // caller recompute the same text independently to re-merge it after a
+  // second-pass reval — two copies of this logic drifting apart would be
+  // its own bug, the same lesson this file's own docstring already draws
+  // about the INSERT shape.
+  const stableReasons = data.extraReasons ? [...data.extraReasons] : [];
   reasons.push(...stableReasons);
 
   await client.query(

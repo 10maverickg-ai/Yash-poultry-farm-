@@ -14,8 +14,15 @@ import { reextractFlaggedFlocks, impliedFields, type FlockRecheckRequest } from 
 import type { RecheckableField } from "@/lib/extraction/dailyProduction";
 import { getActiveLabels, matchFlockLabel } from "@/lib/extraction/flockMatch";
 import { insertDailyProductionRow } from "@/lib/extraction/writeDailyProduction";
-import { checkBalBirdChain } from "@/lib/extraction/balBirdChain";
-import { checkPageChecksums, buildPageIssueText, type SectionFlock } from "@/lib/extraction/pageChecksum";
+import {
+  resolveFieldsLocally,
+  applyChainCorrections,
+  applyPageChecksum,
+  type RawFlockInput,
+  type PreviousDayData,
+  type PreviousDayFlag,
+  type ResolvedFlock,
+} from "@/lib/extraction/pipeline";
 import { compareLabels } from "@/lib/naturalSort";
 
 export interface UploadOutcome {
@@ -87,6 +94,17 @@ function logAndFriendly(
   const detail = err instanceof Error ? err.message : String(err);
   console.error(`[upload] ${context}:`, err);
   return { friendly, detail };
+}
+
+// Every pipeline correction note (mortality-swap, bal-bird chain, eggs
+// checksum) is written as "<original> corrected to <current>: <reasoning>"
+// — see mortalityFeedSwap.ts / balBirdChain.ts / pipeline.ts's stage 4 —
+// so the specific note for one field's correction can always be picked out
+// of a flock's combined autoCorrectionNotes list by that exact substring,
+// without pipeline.ts having to tag each note by field itself.
+function findCorrectionNote(notes: string[], from: number, to: number): string {
+  const marker = `${from} corrected to ${to}`;
+  return notes.find((n) => n.includes(marker)) ?? notes.join(" ");
 }
 
 export async function uploadAndExtractDailyProduction(
@@ -166,28 +184,6 @@ export async function uploadAndExtractDailyProduction(
 
   const activeLabels = date === dateHint ? precheckLabels : await getActiveLabels(pool, ACTIVE_FARM, date);
 
-  // Page checksum, rebuilt (owner report, 2026-09-28: the previous version
-  // summed every flock against every subtotal indiscriminately, so one
-  // section's misread subtotal flagged the OTHER section's correct flocks
-  // too — see pageChecksum.ts and docs/DECISIONS.md for exactly where that
-  // came from). Computed against every flock the model found (matched or
-  // not — the page's own arithmetic doesn't care whether a label matched a
-  // known flock), section-by-section. A finding becomes ONE page-level
-  // issue (never copied onto every flock row) — see the transaction below.
-  const sectionFlocks: SectionFlock[] = flocks.map((f) => ({
-    label: f.display_label_as_written,
-    section: f.section,
-    mortality: f.mortality,
-    feed_bags: f.feed_bags,
-    eggs_total: f.eggs_total,
-    bird_population: f.bird_population,
-  }));
-  const checksumFindings = checkPageChecksums(sectionFlocks, extraction.section_subtotals ?? []);
-  const pageIssueText = buildPageIssueText(checksumFindings);
-  if (pageIssueText) {
-    console.warn(`[upload] page checksum issue: ${pageIssueText}`);
-  }
-
   const written: UploadOutcome["written"] = [];
   const unresolved: string[] = [];
   const autoCorrections: UploadOutcome["autoCorrections"] = [];
@@ -215,10 +211,99 @@ export async function uploadAndExtractDailyProduction(
     stableReasons: string[];
   }
   const pendingRechecks: PendingRecheck[] = [];
+  // Set inside the transaction below (stage 4 needs every flock's stage-3
+  // output first) — hoisted out here so the final return can still read it.
+  let pageIssueText: string | null = null;
 
   try {
     await withTransaction(async (client) => {
+      // Bug 9 (owner report, 2026-09-29): re-uploading a date must not leave
+      // that date's previous page-issue banner(s) sitting alongside the new
+      // extraction's own — soft-deleted unconditionally, before this
+      // upload's own findings are known, so a re-upload that turns out
+      // clean doesn't leave a stale banner behind either.
+      await client.query(
+        `UPDATE daily_production_page_issues
+            SET deleted_at = now()
+          WHERE farm_code = $1 AND date = $2 AND deleted_at IS NULL`,
+        [ACTIVE_FARM, date]
+      );
+
+      // ===== Stages 2 + 3, per flock (pipeline.ts) =====
+      // Stage 2 (resolveFieldsLocally) needs only this flock's own raw
+      // reading, so it runs for every flock the model found — matched or
+      // not, same as the page checksum below: the page's own arithmetic
+      // doesn't care whether a label matched a known flock. Stage 3
+      // (applyChainCorrections) needs the previous day's SAVED row, which
+      // only exists for a matched flock; an unmatched flock gets a null
+      // previousDay and stage 3 is a no-op for it (nothing to look up).
+      interface ChainResult {
+        resolved: ResolvedFlock;
+        previousDayFlag: PreviousDayFlag | null;
+        flockInternalId: string | null;
+      }
+      const chainResults: ChainResult[] = [];
+
+      for (const flock of flocks) {
+        const match = matchFlockLabel(flock.display_label_as_written, activeLabels);
+
+        const rawInput: RawFlockInput = {
+          displayLabelAsWritten: flock.display_label_as_written,
+          section: flock.section,
+          mortality: flock.mortality,
+          feedBags: flock.feed_bags,
+          eggsTotal: flock.eggs_total,
+          eggsIi: flock.eggs_ii,
+          birdPopulation: flock.bird_population,
+          birdPopulationReadings: flock.bird_population_readings,
+          hdPercentWritten: flock.hd_percent,
+          confidence: flock.confidence,
+        };
+        const local = resolveFieldsLocally(rawInput);
+
+        // Day-to-day bal-bird chain / mortality-swap check (see
+        // pipeline.ts's applyChainCorrections) only applies against the
+        // IMMEDIATELY PRECEDING calendar day; a gap (e.g. a skipped
+        // upload) means there's nothing to check against.
+        let previousDay: PreviousDayData | null = null;
+        if (match.flockInternalId) {
+          const { rows: prevRows } = await client.query(
+            `SELECT bird_population, eggs_total, hd_percent_written
+               FROM daily_production
+              WHERE flock_internal_id = $1 AND date = $2::date - 1 AND deleted_at IS NULL
+              LIMIT 1`,
+            [match.flockInternalId, date]
+          );
+          const prev = prevRows[0] as
+            | { bird_population: number | null; eggs_total: number | null; hd_percent_written: string | null }
+            | undefined;
+          if (prev) {
+            previousDay = {
+              birdPopulation: prev.bird_population,
+              eggsTotal: prev.eggs_total,
+              hdPercentWritten: prev.hd_percent_written !== null ? Number(prev.hd_percent_written) : null,
+            };
+          }
+        }
+
+        const { resolved, previousDayFlag } = applyChainCorrections(local, previousDay);
+        chainResults.push({ resolved, previousDayFlag, flockInternalId: match.flockInternalId });
+      }
+
+      // ===== Stage 4 (pipeline.ts) — needs every flock's stage-3 output at
+      // once, so it runs AFTER the per-flock loop above, never interleaved
+      // with it (the bug this pipeline exists to structurally prevent: a
+      // checksum computed before every flock's own corrections are in still
+      // counts a flock's OLD number in its section sum, producing a
+      // residual false mismatch equal to the correction itself). =====
+      const checksumResult = applyPageChecksum(
+        chainResults.map((c) => c.resolved),
+        extraction.section_subtotals ?? []
+      );
+      const finalFlocks = checksumResult.resolved;
+      pageIssueText = checksumResult.pageIssueText;
       if (pageIssueText) {
+        console.warn(`[upload] page checksum issue: ${pageIssueText}`);
         await client.query(
           `INSERT INTO daily_production_page_issues (farm_code, date, source_photo_url, issue_text)
            VALUES ($1, $2, $3, $4)`,
@@ -226,17 +311,52 @@ export async function uploadAndExtractDailyProduction(
         );
       }
 
-      for (const flock of flocks) {
-        const match = matchFlockLabel(flock.display_label_as_written, activeLabels);
+      const chainByLabel = new Map(chainResults.map((c) => [c.resolved.displayLabelAsWritten, c]));
 
-        if (!match.flockInternalId) {
+      for (const flock of finalFlocks) {
+        const ctx = chainByLabel.get(flock.displayLabelAsWritten);
+        const flockInternalId = ctx?.flockInternalId ?? null;
+
+        if (flock.mortalityOriginal !== null) {
+          autoCorrections.push({
+            label: flock.displayLabelAsWritten,
+            date,
+            field: "mortality",
+            from: flock.mortalityOriginal,
+            to: flock.mortality as number,
+            note: findCorrectionNote(flock.autoCorrectionNotes, flock.mortalityOriginal, flock.mortality as number),
+          });
+        }
+        if (flock.birdPopulationOriginal !== null) {
+          autoCorrections.push({
+            label: flock.displayLabelAsWritten,
+            date,
+            field: "bird_population",
+            from: flock.birdPopulationOriginal,
+            to: flock.birdPopulation as number,
+            note: findCorrectionNote(flock.autoCorrectionNotes, flock.birdPopulationOriginal, flock.birdPopulation as number),
+          });
+        }
+        if (flock.eggsTotalOriginal !== null) {
+          autoCorrections.push({
+            label: flock.displayLabelAsWritten,
+            date,
+            field: "eggs_total",
+            from: flock.eggsTotalOriginal,
+            to: flock.eggsTotal as number,
+            note: findCorrectionNote(flock.autoCorrectionNotes, flock.eggsTotalOriginal, flock.eggsTotal as number),
+          });
+        }
+
+        if (!flockInternalId) {
           // No flock matches this label, even after forgiving-formatting
           // normalization — genuinely don't know which flock this is. The
-          // raw numbers are never discarded: they're saved here so the
-          // owner can manually match them on /flagged without re-reading
-          // the photo. daily_production.flock_internal_id is NOT NULL
-          // (Phase 1, owner-approved), so this table is the only place a
-          // row like this CAN live until it's resolved.
+          // numbers are never discarded: they're saved here (already run
+          // through stage 2/4's own cleanup) so the owner can manually
+          // match them on /flagged without re-reading the photo.
+          // daily_production.flock_internal_id is NOT NULL (Phase 1,
+          // owner-approved), so this table is the only place a row like
+          // this CAN live until it's resolved.
           await client.query(
             `INSERT INTO unresolved_extractions
                  (farm_code, register_type, date, display_label_as_written,
@@ -246,72 +366,26 @@ export async function uploadAndExtractDailyProduction(
             [
               ACTIVE_FARM,
               date,
-              flock.display_label_as_written,
+              flock.displayLabelAsWritten,
               flock.mortality,
-              flock.feed_bags,
-              flock.eggs_total,
-              flock.bird_population,
-              flock.hd_percent,
+              flock.feedBags,
+              flock.eggsTotal,
+              flock.birdPopulation,
+              flock.hdPercentWritten,
               JSON.stringify(flock.confidence),
               photoUrl,
               extraction.sections_found,
               extraction.page_notes,
             ]
           );
-          unresolved.push(flock.display_label_as_written);
+          unresolved.push(flock.displayLabelAsWritten);
           continue;
         }
 
-        // Day-to-day bal-bird chain check (owner-verified, 2026-09-28: held
-        // exactly for all 10 flocks across two consecutive real pages) —
-        // only applies against the IMMEDIATELY PRECEDING calendar day; a
-        // gap (e.g. a skipped upload) means there's nothing to check against.
-        const { rows: prevRows } = await client.query(
-          `SELECT bird_population, eggs_total, hd_percent_written
-             FROM daily_production
-            WHERE flock_internal_id = $1 AND date = $2::date - 1 AND deleted_at IS NULL
-            LIMIT 1`,
-          [match.flockInternalId, date]
-        );
-        const prev = prevRows[0] as
-          | { bird_population: number | null; eggs_total: number | null; hd_percent_written: string | null }
-          | undefined;
-
-        const chain = checkBalBirdChain({
-          eggsTotal: flock.eggs_total,
-          todayMortality: flock.mortality,
-          todayExtractedBalBird: flock.bird_population,
-          todayWrittenHd: flock.hd_percent,
-          previousBalBird: prev?.bird_population ?? null,
-          previousEggs: prev?.eggs_total ?? null,
-          previousWrittenHd: prev?.hd_percent_written !== undefined && prev?.hd_percent_written !== null
-            ? Number(prev.hd_percent_written)
-            : null,
-        });
-
-        let birdPopulationForSave = flock.bird_population;
-        let birdPopulationOriginal: number | null = null;
-        let autoCorrectionNote: string | null = null;
-        let suppressBirdPopulationIncreaseFlag = false;
-        const chainExtraReasons: string[] = [];
-
-        if (chain.kind === "auto_correct") {
-          birdPopulationOriginal = flock.bird_population;
-          birdPopulationForSave = chain.correctedBalBird;
-          autoCorrectionNote = chain.note;
-          autoCorrections.push({
-            label: flock.display_label_as_written,
-            date,
-            field: "bird_population",
-            from: flock.bird_population as number,
-            to: chain.correctedBalBird,
-            note: chain.note,
-          });
-        } else if (chain.kind === "flag_previous") {
+        if (ctx?.previousDayFlag) {
           // Today's own reading stays as extracted — it's the previous
           // day's SAVED row that looks wrong. Never rewritten automatically;
           // flagged with a suggestion for the owner to confirm.
-          suppressBirdPopulationIncreaseFlag = true;
           await client.query(
             `UPDATE daily_production
                 SET flagged = true,
@@ -320,38 +394,36 @@ export async function uploadAndExtractDailyProduction(
                         ELSE flag_reason || '; ' || $2
                     END
               WHERE flock_internal_id = $1 AND date = $3::date - 1 AND deleted_at IS NULL`,
-            [match.flockInternalId, chain.note, date]
+            [flockInternalId, ctx.previousDayFlag.note, date]
           );
-        } else if (chain.kind === "flag_today") {
-          chainExtraReasons.push(chain.note);
         }
 
         const { rowId, reasons, hdPercentNote, stableReasons } = await insertDailyProductionRow(
           client,
           ACTIVE_FARM,
           date,
-          match.flockInternalId,
+          flockInternalId,
           {
-            displayLabelAsWritten: flock.display_label_as_written,
+            displayLabelAsWritten: flock.displayLabelAsWritten,
             // shed_code is no longer extracted (owner decision, 2026-09-18)
             // — the column stays for manual entry, extraction just doesn't
             // populate it.
             shedCode: null,
             mortality: flock.mortality,
-            feedBags: flock.feed_bags,
-            eggsTotal: flock.eggs_total,
-            birdPopulation: birdPopulationForSave,
-            hdPercentWritten: flock.hd_percent,
+            mortalityOriginal: flock.mortalityOriginal,
+            feedBags: flock.feedBags,
+            eggsTotal: flock.eggsTotal,
+            eggsTotalOriginal: flock.eggsTotalOriginal,
+            birdPopulation: flock.birdPopulation,
+            birdPopulationOriginal: flock.birdPopulationOriginal,
+            hdPercentWritten: flock.hdPercentWritten,
             confidence: flock.confidence,
             sourcePhotoUrl: photoUrl,
             sectionsFound: extraction.sections_found,
             pageNotes: extraction.page_notes,
-            eggsTotalReadings: flock.eggs_total_readings,
-            birdPopulationReadings: flock.bird_population_readings,
-            birdPopulationOriginal,
-            autoCorrectionNote,
-            suppressBirdPopulationIncreaseFlag,
-            extraReasons: chainExtraReasons,
+            autoCorrectionNote: flock.autoCorrectionNotes.length > 0 ? flock.autoCorrectionNotes.join(" ") : null,
+            suppressBirdPopulationIncreaseFlag: flock.suppressBirdPopulationIncreaseFlag,
+            extraReasons: flock.extraFlagReasons,
           }
         );
 
@@ -360,7 +432,7 @@ export async function uploadAndExtractDailyProduction(
           if (fields.length > 0) {
             pendingRechecks.push({
               rowId,
-              flockLabel: flock.display_label_as_written,
+              flockLabel: flock.displayLabelAsWritten,
               fields,
               confidence: { ...flock.confidence },
               reasons,
@@ -375,7 +447,7 @@ export async function uploadAndExtractDailyProduction(
         }
 
         written.push({
-          label: flock.display_label_as_written,
+          label: flock.displayLabelAsWritten,
           flagged: reasons.length > 0,
           flagReason: reasons.length > 0 ? reasons.join("; ") : null,
           autoRechecked: false,

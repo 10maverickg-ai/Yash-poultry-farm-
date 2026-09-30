@@ -38,18 +38,23 @@ export interface ExtractedFlockRow {
   eggs_total: number | null;
   bird_population: number | null;
   hd_percent: number | null;
-  // Digit-accuracy pass (owner report, 2026-09-28): each flock's egg count
-  // is actually written up to three times on the page — the "I", "II", and
-  // "Total" columns — and, when a flock's block spans two written lines,
-  // "Bal Bird" is written on both. These arrays are the model's independent
-  // reads of each appearance, in the order they're written (I, II, Total;
-  // top line, bottom line) — used ONLY to cross-check for disagreement
-  // between readings that are supposed to be the same number. They do NOT
-  // replace eggs_total/bird_population above, which stay the values the app
-  // actually saves (same as before) — this is purely a confidence signal,
-  // consistent with this system's standing rule of flagging for review
-  // rather than silently picking between disagreeing reads.
-  eggs_total_readings: (number | null)[];
+  // Digit-accuracy pass (owner report, 2026-09-28; corrected 2026-09-29):
+  // eggs is written in exactly TWO distinct source cells per flock block —
+  // the "II" column and the "Total" column (the "I" column is always a
+  // dash, never a number — confirmed by the owner). eggs_ii is the "II"
+  // column's own independent reading, cross-checked against eggs_total
+  // (the "Total" column) for disagreement. This field used to be a
+  // 3-element array asking for an "I" reading too; since I is never
+  // actually a number, that invited the model to fill the unused slot
+  // with a NEARBY number instead (observed on Aug 4: it filled the slot
+  // with that same flock's own Bal Bird value on 4 separate flocks) —
+  // asking for exactly what exists on the page removes the empty slot
+  // that was causing that.
+  eggs_ii: number | null;
+  // "Bal Bird" is written on both lines of a flock's two-line block —
+  // these are the model's independent reads of each line, top to bottom,
+  // used ONLY to cross-check for disagreement. Does NOT replace
+  // bird_population above, which stays the value the app actually saves.
   bird_population_readings: (number | null)[];
   confidence: {
     display_label: number;
@@ -105,11 +110,11 @@ const MAX_EXTRACTION_TOKENS = 5500;
 
 const SECTION_SUBTOTAL_PROPERTIES = {
   section: { type: "string" as const, enum: ["main", "continuation"] },
-  eggs: { type: ["number", "null"], description: "This section's subtotal row 'Total' (egg count) figure, as written. Null if not legible or not present." },
-  bal_bird: { type: ["number", "null"], description: "This section's subtotal row 'Bal Bird' figure, as written. Null if not legible or not present." },
+  eggs: { type: ["number", "null"], description: "This section's subtotal row 'Total' (egg count) figure, as written. Null if not legible, or if you're not confident this is really the subtotal row (see the row-signature test in the instructions) rather than a stock-ledger line." },
+  bal_bird: { type: ["number", "null"], description: "This section's subtotal row 'Bal Bird' figure, as written. A genuine subtotal row always has one — if you can't find a Bal Bird figure at this row, you are very likely looking at a stock-ledger line instead, and the whole entry should be treated as not found." },
   mortality: { type: ["number", "null"], description: "This section's subtotal row 'Mort' figure, as written. Null if not legible or not present." },
   feed_bags: { type: ["number", "null"], description: "This section's subtotal row 'Feed' figure, as written. Null if not legible or not present." },
-  hd_percent: { type: ["number", "null"], description: "This section's subtotal row '%' figure, as written. Null if not legible or not present." },
+  hd_percent: { type: ["number", "null"], description: "This section's subtotal row '%' figure, as written. A genuine subtotal row always has one, same as Bal Bird — a stock-ledger line never does." },
 };
 
 const EXTRACT_TOOL = {
@@ -166,11 +171,7 @@ const EXTRACT_TOOL = {
             },
             feed_bags: { type: ["number", "null"], description: "The 'Feed' column." },
             eggs_total: { type: ["number", "null"], description: "The 'Total' column — this flock's official egg count." },
-            eggs_total_readings: {
-              type: "array",
-              items: { type: ["number", "null"] },
-              description: "Every separate handwritten egg-count figure for this flock, in left-to-right column order: the 'I' column, the 'II' column, then the 'Total' column. Usually 3 entries. Read each one independently, straight off the page — do not copy one into another just because you expect them to match.",
-            },
+            eggs_ii: { type: ["number", "null"], description: "The 'II' column's own figure, read independently of the 'Total' column — do not copy the Total value here just because they usually match. The 'I' column is always a dash on this register — never write a number for it anywhere." },
             bird_population: { type: ["number", "null"], description: "The 'Bal Bird' column — this flock's official bird balance." },
             bird_population_readings: {
               type: "array",
@@ -197,7 +198,7 @@ const EXTRACT_TOOL = {
           },
           required: [
             "display_label_as_written", "section", "mortality", "feed_bags",
-            "eggs_total", "eggs_total_readings",
+            "eggs_total", "eggs_ii",
             "bird_population", "bird_population_readings",
             "hd_percent", "confidence",
           ],
@@ -221,6 +222,10 @@ PAGE LAYOUT — read this section carefully before extracting anything. This is 
 
 SUBTOTAL ROW RULES — read ONLY the row directly beneath the last flock of a section. Never read anything below that row, even if it looks numeric or table-like (see the stock ledger note above — this is the single most common way to misread a subtotal). Report exactly what's written in section_subtotals; if a figure in that row is blank or you aren't sure you're looking at the actual subtotal row, use null for that field rather than guessing or substituting a number from further down the page. If a section has no subtotal row at all, omit that section from section_subtotals entirely.
 
+ROW-SIGNATURE TEST — how to tell a genuine subtotal row from a stock-ledger line at a glance, since they can sit close together and both contain numbers: a genuine subtotal row always has an eggs figure, a Bal Bird figure, AND a "%" figure together on one line (the same shape as a flock's own row, just for the whole section). A stock-ledger line (running totals, "(+) N", "Buy (−) N", a tray count) has just ONE bare number and nothing else — no Bal Bird, no "%". If the row you're looking at doesn't have a Bal Bird figure and a "%" figure alongside its number, it is NOT the subtotal row, even if it's the first numeric-looking line below the last flock — keep looking, or report the section as having no subtotal row (all nulls) rather than reading a ledger line into section_subtotals.
+
+COLUMN-SWAP WARNING — Mort and Feed sit right next to each other in narrow columns, and it's easy to read one cell's figure into the other field by mistake, especially in cramped handwriting. Before finalizing a flock's row, double-check that its Mort and Feed values genuinely came from their own separate cells — a Mort value that looks suspiciously identical to that same row's Feed value (or vice versa) is worth a second look at exactly which column you're reading, not just at the digits themselves.
+
 LABELS — read this carefully, it is the single most error-prone part of this task. Every flock on this farm is labeled "BAB" followed by a number from 1 to 10 — nothing else. There is no other prefix and no other naming scheme. The handwriting is often untidy, and the letters "BAB" in particular are frequently scrawled in a way that can look like stray digits or other letters — do NOT try to carefully transcribe the letters; they are always "BAB". A specific known misread: a scrawled "B" is sometimes read as "1" or a two-digit number like "13" or "18", producing something like "18AB-1" or "13AB-1" when the real label is "BAB-1" — if you find yourself reading a label as digits immediately followed by "AB", that is almost certainly this misread; correct it to "BAB" and keep reading the number after "AB" exactly as written. Spend your effort on reading the NUMBER correctly, since that is the only part that actually distinguishes one flock from another. Always output the label as "BAB-<number>" using an ordinary Arabic digit (1, 2, 3, ...) — if the number is written as a Roman numeral (I, II, III, IV, V, VI, VII, VIII, IX, X), convert it: I=1, II=2, III=3, IV=4, V=5, VI=6, VII=7, VIII=8, IX=9, X=10.
 
 Flocks appear in a fixed, known order: BAB-1 through BAB-7 in the main table, then BAB-8 through BAB-10 in the shorter continuation table (see the two-table note above). Use this expected ascending sequence as a cross-check on the number you read — if a number you read breaks the sequence (e.g. you read the same number twice, or jump straight from BAB-2 to BAB-7 with nothing between), look at that label again before finalizing it. But if, after a careful second look, the label genuinely still reads differently from what the sequence would predict, extract exactly what is written and lower that flock's display_label confidence rather than silently forcing it to match the expected sequence — the sequence is a hint for catching your own misreads, not a license to overwrite a real digit.
@@ -241,7 +246,7 @@ Field mapping (extract exactly these, nothing else) — apply to EVERY flock blo
 - Each flock block's label and section, per the LABELS and PAGE LAYOUT sections above.
 - "Mort" column: the day's-end total for that flock. Some pages show a stacked pair of numbers (a running sub-total and a day total) — take the day's-end total, not the cumulative/stacked sub-number.
 - "Feed" column: bags issued.
-- Egg total: each flock block shows up to THREE separate handwritten egg-count figures — the "I" column, the "II" column, and the "Total" column. Read all three independently and report them, in that left-to-right order, as eggs_total_readings (do not assume one equals another, even though they often do — write down what's actually there). eggs_total itself is the "Total" column's figure specifically — that's the flock's official egg count.
+- Egg total: eggs is written in exactly two places on each flock block — the "II" column and the "Total" column. The "I" column is always a dash on this register; never write a number for it, and never use it as a place to put any other figure you're unsure where else to record. Read "II" and "Total" independently of each other (report them as eggs_ii and eggs_total) — do not assume one equals another just because they usually match, and never substitute this flock's Bal Bird or Mort/Feed figures into either of them even if you're short on somewhere to put a number. eggs_total is the flock's official egg count.
 - Two-line flock blocks: some flock blocks span TWO written lines — a first line, then a second line that also carries that day's Mort/Feed and the "%" figure. When a flock has two lines, the Bal Bird figure is typically written on BOTH lines — read it from each line it appears on and report them, top to bottom, as bird_population_readings. If a flock has only one line, report a single value. bird_population itself is this flock's official current bird balance (the more authoritative of the reading(s), typically the bottom line's).
 - "%" column: HD% as written on the page (do not calculate it yourself — read the written figure). Leave it null if nothing is written there — a missing written % is normal and not a problem, the app calculates its own official HD% from eggs and Bal Bird.
 

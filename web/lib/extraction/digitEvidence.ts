@@ -23,6 +23,15 @@ const DIGIT_CONFUSION_PAIRS: [string, string][] = [
 // one constant so the two stay in sync.
 export const HD_CORROBORATION_TOLERANCE = 0.15;
 
+// Used only for the page-checksum-corroborated eggs auto-correction path
+// (pipeline.ts's applyPageChecksum stage) — a looser tolerance than
+// HD_CORROBORATION_TOLERANCE because that path already requires two OTHER
+// independent conditions to hold first (the candidate makes the section's
+// eggs sum match the written subtotal EXACTLY, and it's divisible by 30),
+// so a slightly wider HD tolerance here is corroboration on top of strong
+// evidence, not the sole signal — per the owner's explicit rule.
+export const EGGS_AUTO_CORRECT_HD_TOLERANCE = 0.3;
+
 /** Eggs are always counted in whole trays of 30 on this farm — owner-
  * confirmed 2026-09-28 ("a tray of egg sold is of 30 eggs per tray"),
  * and independently verified across all 30 flock-days in the Aug 1-3
