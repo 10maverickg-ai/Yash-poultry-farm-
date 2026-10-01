@@ -1496,6 +1496,191 @@ and the new verification script — confirmed via `git status`, nothing
 else in the corrections-library work (migration 0018, the seed rows,
 `promote-correction.ts`) was touched.
 
+## Phase 3 increment 12: unvalidated mortality corrupted a correct bal-bird reading; a saved correction didn't match its own note (2026-10-03)
+
+Two bugs reported together by the owner, both verified directly against
+the physical register and the production database before any fix was
+written — not inferred from the code.
+
+### Bug A: mortality fed into the bal-bird chain unvalidated, corrupting a correct reading
+
+**The report, confirmed against the register:** BAB-6, 2026-08-06 (row
+id 237). True mortality is 3; the model extracted 8 (a classic 3<->8
+digit confusion). True `bird_population` is 9680 — the model actually
+read this correctly. What's stored in production: `mortality: 8`,
+`bird_population: 9675` (wrong, corrupted), `bird_population_original:
+9680` (the TRUE value, lost), an `auto_correction_note` describing a
+"correction" that was actually a corruption, `flagged: false`. The
+page's own written main-section mortality subtotal is 28; the other 6
+flocks' mortalities (3+6+2+3+6+5) sum to exactly 25, so 25+3(true)=28
+matches the register exactly, while 25+8(extracted)=33 — a
+checksum-traceable gap of 5, unique to BAB-6 (confirmed: no other
+flock's mortality has a digit-substitution candidate that also closes a
+gap of 5).
+
+**Root cause, traced, not guessed:** the day-to-day bal-bird chain
+(`balBirdChain.ts`) computes `expected = previousBalBird − todayMortality`
+and auto-corrects `bird_population` to `expected` whenever that value's
+implied HD corroborates the written HD. With mortality wrong (8), the
+chain computed a wrong `expected` (9683−8=9675) — and that wrong value
+still happened to corroborate against the written HD (7140/9675=73.80%
+vs written 73.7%, well within tolerance), because the written HD itself
+was computed from the TRUE bird_population, not a value independent of
+the error. So the chain "succeeded" purely because mortality was wrong,
+and overwrote the already-correct 9680 with the wrong 9675. The page
+checksum banner correctly fired ("main section: flock mortality sums to
+33, page subtotal reads 28") but had no mechanism connecting a
+page-level banner to a specific row, so BAB-6 stayed `flagged: false` —
+a real finding with zero rows reflecting it.
+
+**Fix — mortality gets its own earlier pipeline stage, mirroring eggs'
+existing page-checksum pattern, but run BEFORE the chain ever sees
+mortality, not after:**
+- New module `lib/extraction/mortalityChecksum.ts`
+  (`traceMortalitySectionMismatch` / `checkMortalitySectionChecksums`):
+  same page-checksum-corroborated digit-accuracy approach already
+  proven for eggs, reusing the same `DIGIT_CONFUSION_PAIRS` (including
+  3<->8) and the same row-signature test (`looksLikeGenuineSubtotal`,
+  promoted from private to exported in `pageChecksum.ts`). When exactly
+  one (flock, digit-substitution-candidate) pair closes a section's
+  mortality gap exactly, auto-correct. When more than one flock could
+  explain it, rank by distance to each candidate flock's chain-implied
+  mortality (`previousDay.bird_population − today.bird_population`) —
+  same closest-candidate-with-margin pattern as the written-HD fix
+  (`MORTALITY_CHAIN_MIN_MARGIN`, mirroring `WRITTEN_HD_MIN_MARGIN`) —
+  auto-correct only with a real margin over the second-best, otherwise
+  name a lead and flag that specific row rather than stay silent.
+  Ranking requires EVERY candidate to have chain data (not just some),
+  since partial-subset ranking would unfairly favor whichever flock
+  happened to have previous-day data. Fully silent only when the gap
+  truly can't be isolated to one flock at all (no chain data to
+  disambiguate) — the owner's explicit instruction: an unisolable case
+  must get neither a silent correction nor a misdirected flag on the
+  wrong row.
+- `pipeline.ts` gained a new STAGE 3 (`applyMortalityChecksum`),
+  inserted between the existing per-flock stage 2
+  (`resolveFieldsLocally`) and the day-to-day chain (renumbered from
+  stage 3 to stage 4, `applyChainCorrections`). This is the actual fix
+  for the root cause: mortality is now validated against the page's own
+  written evidence BEFORE the chain is allowed to treat it as ground
+  truth, so the chain can no longer "succeed" only because mortality
+  itself was wrong. `applyChainCorrections` was updated to seed its
+  auto-correction notes from stage 3's output and to preserve stage 3's
+  TRUE original extraction (not overwrite it with an intermediate
+  value) when its own mortality/feed-bag swap check also fires.
+- Permanent regression fixture:
+  `scripts/regression-bab6-mortality-chain.ts` (run with `npx tsx
+  scripts/regression-bab6-mortality-chain.ts` from `web/`) — reconstructs
+  the real 7-flock page with the real mortality figures, proves (1) the
+  section-sum evidence uniquely implicates BAB-6, (2) the fixed pipeline
+  corrects mortality 8->3 and the chain then finds a clean match, leaving
+  `bird_population` at the true 9680, untouched, and (3) as a control,
+  running stage 4 alone on the unvalidated mortality (skipping stage 3)
+  reproduces the exact reported corruption — `bird_population` overwritten
+  to 9675 — proving this is the real mechanism, not a hypothesis, and
+  that the fix is specifically the stage ordering.
+
+**Not done, and deliberately left for the owner's decision:** the bad
+production row (id 237, BAB-6, 2026-08-06) was NOT corrected in the
+database by this change. This fix stops the bug from recurring on future
+uploads; it does not retroactively repair rows already corrupted before
+the fix existed. The owner's own words: "I'll want to know the scope
+before we decide whether existing rows need re-checking" (said about Bug
+B, but the same applies here).
+
+**What's unverified:** no live Anthropic API access this session, so the
+model's own extraction behavior on a fresh real upload of this page was
+not re-tested — everything above was verified against the pure pipeline
+functions directly, using the real numbers from the register and the
+production row, the same verification discipline used throughout this
+file's prior increments.
+
+### Bug B: a saved value didn't match its own auto-correction note
+
+**The report, confirmed against the database:** BAB-2, 2026-08-05 (row
+id 193): `bird_population: 15551`, `bird_population_original: 15579`,
+`auto_correction_note: "15579 corrected to 15572: ..."` — the note
+claims 15572 but the persisted value is 15551, a third, unexplained
+number.
+
+**Root cause, traced, not guessed:** the second-pass recheck mechanism
+(`reextract.ts`'s `reextractFlaggedFlocks`, wired in
+`app/upload/actions.ts`) independently re-extracts specific fields for
+flagged flocks via a separate Anthropic call, then writes the result via
+its own `UPDATE` — one that never touches `auto_correction_note`. The
+day-to-day chain had already auto-corrected `bird_population` to 15572
+with real corroborating evidence (matches the chain AND written HD) and
+written a note saying so; the row was ALSO flagged for an unrelated
+reason whose implied fields (`impliedFields` in `reextract.ts`) happen
+to include `bird_population` too (several flag reasons map to it: "HD%
+mismatch", "bird_population increased", "bird_population readings
+disagree", "bird_population may not match the previous day's chain",
+"low OCR confidence on bird_population"). The second pass re-extracted
+`bird_population` blind, got 15551, and — because nothing in the
+pipeline excluded an already-corroborated field from being handed to the
+second pass — silently overwrote the chain's 15572 with 15551, leaving
+the original note (which still says 15572) stale and wrong. Confirmed
+this is the real mechanism, not merely possible in theory, by writing a
+real reproduction against the actual `impliedFields`/field-set logic
+(verified, then deleted per this repo's scratch-and-delete discipline).
+
+**Fix:**
+- `excludeAlreadyAutoCorrectedFields` (new export, `pipeline.ts`): the
+  actual preventive fix. Before handing the second pass any implied
+  field list, strips out every field that already has a non-null
+  `*Original` value recorded — i.e., a field the pipeline already
+  corrected with real corroborating evidence never gets silently
+  re-decided by a second, independent, blind API call. Wired into
+  `app/upload/actions.ts` in place of the previous unfiltered
+  `impliedFields(reasons)` call.
+- `assertAutoCorrectionNotesConsistent` (new export, `pipeline.ts`): a
+  backstop safety net, called immediately before every DB write. For
+  each of the four auto-correctable fields (mortality, eggs_total,
+  bird_population, hd_percent_written), if an original value was
+  recorded, it requires `autoCorrectionNotes` to contain the literal
+  substring `"<original> corrected to <current>"` — the same
+  note-marker convention `findCorrectionNote` already relies on
+  elsewhere. Throws rather than silently writing a divergent row if a
+  future code path manages to separate the note from the value again.
+  This also serves as the owner's requested regression test (point 3):
+  it directly encodes "the note's claimed value must equal the
+  persisted value" as an executable assertion that runs on every save,
+  not just in a test file.
+- Re-verified `excludeAlreadyAutoCorrectedFields` against the actual
+  extracted function (not a hand-duplicated copy used during
+  development) with a fresh scratch test before deleting it — confirmed
+  identical behavior: an implicated field with a non-null `*Original` is
+  excluded, an untouched field stays recheckable.
+
+**Production scope (point 4 — queried directly, not assumed):** every
+row in `daily_production` with a non-null `auto_correction_note` was
+checked field-by-field for note/value divergence across all four
+auto-correctable fields — 9 rows total (6 live, 3 soft-deleted). Exactly
+ONE divergence found: id 193 (BAB-2, 2026-08-05), the exact row already
+reported. Every other row's note matches its persisted value exactly,
+including id 237 (BAB-6, Bug A above) — that row's note IS internally
+consistent with its persisted value; it's wrong for a different reason
+(the chain computed the wrong value in the first place), not a
+note/value mismatch. No other divergent rows exist in production as of
+this check.
+
+**Not done, and deliberately left for the owner's decision:** the bad
+production row (id 193, BAB-2, 2026-08-05) was NOT corrected in the
+database. Its own next day (Aug 6) built its chain on top of the actual
+stored 15551 and is internally consistent with it, so this isn't
+currently cascading further — but the Aug 5 row itself remains wrong in
+production pending the owner's decision on whether to re-check it.
+
+**Scope discipline:** touched `lib/extraction/mortalityChecksum.ts`
+(new), `lib/extraction/pageChecksum.ts` (exported
+`looksLikeGenuineSubtotal`, one docstring addition, no logic change),
+`lib/extraction/pipeline.ts` (new stage 3, renumbered stages 4-6, two
+new exported safety-net functions), `app/upload/actions.ts` (wired the
+new stage + the recheck-field exclusion), and the new permanent fixture
+`scripts/regression-bab6-mortality-chain.ts`. No schema/migration
+change — this increment only reorders and validates values already
+being written to existing columns.
+
 ## Noted for later phases (no Phase 1 action)
 
 - **Trays-vs-eggs magnitude heuristic (owner addendum, 2026-07-09):** register

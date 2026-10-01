@@ -40,6 +40,9 @@ export interface SectionFlock {
   hd_percent_written: number | null;
 }
 
+// Named for eggs (where it was first needed) but structurally generic —
+// reused as-is for mortality's section-checksum tracing in
+// mortalityChecksum.ts, which needs the exact same shape.
 export interface EggsSuspect {
   label: string;
   from: number;
@@ -91,7 +94,7 @@ const BAL_BIRD_TOLERANCE = 2;
  * live API access (untested here) — this filter holds regardless of
  * whether the prompt succeeds.
  */
-function looksLikeGenuineSubtotal(sub: SectionSubtotal): boolean {
+export function looksLikeGenuineSubtotal(sub: SectionSubtotal): boolean {
   return sub.bal_bird !== null && sub.hd_percent !== null;
 }
 
