@@ -16,13 +16,18 @@ import { getActiveLabels, matchFlockLabel } from "@/lib/extraction/flockMatch";
 import { insertDailyProductionRow } from "@/lib/extraction/writeDailyProduction";
 import {
   resolveFieldsLocally,
+  applyMortalityChecksum,
   applyChainCorrections,
   applyPageChecksum,
   applyWrittenHdCheck,
+  assertAutoCorrectionNotesConsistent,
+  excludeAlreadyAutoCorrectedFields,
   type RawFlockInput,
   type PreviousDayData,
   type PreviousDayFlag,
   type ResolvedFlock,
+  type LocallyResolvedFlock,
+  type MortalityChecksumInput,
 } from "@/lib/extraction/pipeline";
 import { compareLabels } from "@/lib/naturalSort";
 
@@ -241,20 +246,19 @@ export async function uploadAndExtractDailyProduction(
         [ACTIVE_FARM, date]
       );
 
-      // ===== Stages 2 + 3, per flock (pipeline.ts) =====
-      // Stage 2 (resolveFieldsLocally) needs only this flock's own raw
-      // reading, so it runs for every flock the model found — matched or
-      // not, same as the page checksum below: the page's own arithmetic
-      // doesn't care whether a label matched a known flock. Stage 3
-      // (applyChainCorrections) needs the previous day's SAVED row, which
-      // only exists for a matched flock; an unmatched flock gets a null
-      // previousDay and stage 3 is a no-op for it (nothing to look up).
-      interface ChainResult {
-        resolved: ResolvedFlock;
-        previousDayFlag: PreviousDayFlag | null;
+      // ===== Stage 2, per flock (pipeline.ts) — needs only this flock's
+      // own raw reading, so it runs for every flock the model found —
+      // matched or not, same as the page checksums below: the page's own
+      // arithmetic doesn't care whether a label matched a known flock.
+      // Previous-day data is fetched here too (not in a later loop) so it
+      // only needs ONE DB round-trip per flock — stage 4 (the chain) reuses
+      // it below without a second query. =====
+      interface LocalWithContext {
+        local: LocallyResolvedFlock;
+        previousDay: PreviousDayData | null;
         flockInternalId: string | null;
       }
-      const chainResults: ChainResult[] = [];
+      const localResults: LocalWithContext[] = [];
 
       for (const flock of flocks) {
         const match = matchFlockLabel(flock.display_label_as_written, activeLabels);
@@ -273,10 +277,10 @@ export async function uploadAndExtractDailyProduction(
         };
         const local = resolveFieldsLocally(rawInput);
 
-        // Day-to-day bal-bird chain / mortality-swap check (see
-        // pipeline.ts's applyChainCorrections) only applies against the
-        // IMMEDIATELY PRECEDING calendar day; a gap (e.g. a skipped
-        // upload) means there's nothing to check against.
+        // Fetched here, not just for the chain check below but ALSO for
+        // stage 3's mortality-checksum ranking tiebreak — only applies
+        // against the IMMEDIATELY PRECEDING calendar day; a gap (e.g. a
+        // skipped upload) means there's nothing to check against.
         let previousDay: PreviousDayData | null = null;
         if (match.flockInternalId) {
           const { rows: prevRows } = await client.query(
@@ -298,11 +302,57 @@ export async function uploadAndExtractDailyProduction(
           }
         }
 
-        const { resolved, previousDayFlag } = applyChainCorrections(local, previousDay);
-        chainResults.push({ resolved, previousDayFlag, flockInternalId: match.flockInternalId });
+        localResults.push({ local, previousDay, flockInternalId: match.flockInternalId });
       }
 
-      // ===== Stage 4 (pipeline.ts) — needs every flock's stage-3 output at
+      // ===== Stage 3 (pipeline.ts) — mortality's own page-checksum
+      // correction, needing EVERY OTHER flock's stage-2 output at once, so
+      // it runs AFTER the loop above but BEFORE stage 4 (the day-to-day
+      // chain, which must never consume an unvalidated mortality value —
+      // see pipeline.ts's header comment and mortalityChecksum.ts for the
+      // real production case this exists for). chainImpliedMortality is
+      // supplied purely as a disambiguation signal for stage 3's own
+      // ranking tiebreak, never as its primary evidence. =====
+      const chainInputByLabel = new Map<string, MortalityChecksumInput>(
+        localResults.map(({ local, previousDay }) => [
+          local.displayLabelAsWritten,
+          {
+            label: local.displayLabelAsWritten,
+            section: local.section,
+            chainImpliedMortality:
+              previousDay?.birdPopulation !== null && previousDay?.birdPopulation !== undefined && local.birdPopulation !== null
+                ? previousDay.birdPopulation - local.birdPopulation
+                : null,
+          },
+        ])
+      );
+      const mortalityCorrectedByLabel = new Map(
+        applyMortalityChecksum(
+          localResults.map((r) => r.local),
+          extraction.section_subtotals ?? [],
+          chainInputByLabel
+        ).map((f) => [f.displayLabelAsWritten, f])
+      );
+
+      // ===== Stage 4, per flock (pipeline.ts) — needs the PREVIOUS DAY's
+      // saved row for this same flock (already fetched above, reused here
+      // rather than queried a second time) and whatever mortality stage 3
+      // has already settled on. Stage 4 is a no-op for an unmatched flock
+      // (previousDay is null — nothing to look up). =====
+      interface ChainResult {
+        resolved: ResolvedFlock;
+        previousDayFlag: PreviousDayFlag | null;
+        flockInternalId: string | null;
+      }
+      const chainResults: ChainResult[] = [];
+
+      for (const { local, previousDay, flockInternalId } of localResults) {
+        const correctedLocal = mortalityCorrectedByLabel.get(local.displayLabelAsWritten) ?? local;
+        const { resolved, previousDayFlag } = applyChainCorrections(correctedLocal, previousDay);
+        chainResults.push({ resolved, previousDayFlag, flockInternalId });
+      }
+
+      // ===== Stage 5 (pipeline.ts) — needs every flock's stage-4 output at
       // once, so it runs AFTER the per-flock loop above, never interleaved
       // with it (the bug this pipeline exists to structurally prevent: a
       // checksum computed before every flock's own corrections are in still
@@ -312,12 +362,12 @@ export async function uploadAndExtractDailyProduction(
         chainResults.map((c) => c.resolved),
         extraction.section_subtotals ?? []
       );
-      // Stage 5 (applyWrittenHdCheck) — must run AFTER stage 4, never
+      // Stage 6 (applyWrittenHdCheck) — must run AFTER stage 5, never
       // before: eggs_total may have just been auto-corrected there, and
       // the true calculated HD this check compares against depends on the
-      // FINAL eggs_total/bird_population, not stage 3's. Owner request,
-      // 2026-10-01 — scoped to hd_percent_written only, does not touch
-      // applyPageChecksum's own logic above.
+      // FINAL eggs_total/bird_population, not an earlier stage's. Owner
+      // request, 2026-10-01 — scoped to hd_percent_written only, does not
+      // touch applyPageChecksum's own logic above.
       const finalFlocks = applyWrittenHdCheck(checksumResult.resolved);
       pageIssueText = checksumResult.pageIssueText;
       if (pageIssueText) {
@@ -380,7 +430,7 @@ export async function uploadAndExtractDailyProduction(
           // No flock matches this label, even after forgiving-formatting
           // normalization — genuinely don't know which flock this is. The
           // numbers are never discarded: they're saved here (already run
-          // through stage 2/4's own cleanup) so the owner can manually
+          // through stage 2/3/5's own cleanup) so the owner can manually
           // match them on /flagged without re-reading the photo.
           // daily_production.flock_internal_id is NOT NULL (Phase 1,
           // owner-approved), so this table is the only place a row like
@@ -426,6 +476,17 @@ export async function uploadAndExtractDailyProduction(
           );
         }
 
+        // Owner report, 2026-10-03, production: BAB-2, 2026-08-05 —
+        // auto_correction_note described one value, the saved
+        // bird_population was a different one, unexplained. Traced to the
+        // second-pass recheck independently overwriting a field the
+        // chain/swap/checksum logic had already corrected with real
+        // corroborating evidence, via an entirely separate UPDATE that
+        // never touched the note describing the first correction. Thrown
+        // here, right before persisting, as a hard backstop — never
+        // silently save a value its own note doesn't describe.
+        assertAutoCorrectionNotesConsistent(flock);
+
         const { rowId, reasons, hdPercentNote, stableReasons } = await insertDailyProductionRow(
           client,
           ACTIVE_FARM,
@@ -457,7 +518,14 @@ export async function uploadAndExtractDailyProduction(
         );
 
         if (reasons.length > 0) {
-          const fields = impliedFields(reasons);
+          // Owner report, 2026-10-03, production — the actual fix (see
+          // pipeline.ts's excludeAlreadyAutoCorrectedFields doc comment
+          // for the full incident): a field already auto-corrected with
+          // real corroborating evidence must never be handed to the
+          // second pass, which would re-extract it blind and, if
+          // accepted, silently overwrite it without ever touching the
+          // note that describes the first correction.
+          const fields = excludeAlreadyAutoCorrectedFields(impliedFields(reasons), flock);
           if (fields.length > 0) {
             pendingRechecks.push({
               rowId,
