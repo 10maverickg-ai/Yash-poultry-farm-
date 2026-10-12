@@ -148,8 +148,11 @@ export function impliedFields(reasons: string[]): RecheckableField[] {
     } else if (r.startsWith("low OCR confidence on ")) {
       const f = r.slice("low OCR confidence on ".length);
       if (isField(f)) set.add(f);
-    } else if (r.startsWith("HD% mismatch")) {
+    } else if (r.startsWith("HD% mismatch") || r.startsWith("Written HD ")) {
       // The mismatch could stem from any of the three figures involved.
+      // "Written HD ..." is writtenHdCheck.ts's own digit-accuracy flag
+      // (owner request, 2026-10-12) — same three-field uncertainty as the
+      // SQL-side "HD% mismatch" rule, just raised earlier in the pipeline.
       set.add("hd_percent");
       set.add("eggs_total");
       set.add("bird_population");

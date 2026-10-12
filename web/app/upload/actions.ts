@@ -18,13 +18,14 @@ import {
   resolveFieldsLocally,
   applyMortalityChecksum,
   applyChainCorrections,
+  applyBirdTransferDetection,
   applyPageChecksum,
   applyWrittenHdCheck,
   assertAutoCorrectionNotesConsistent,
   excludeAlreadyAutoCorrectedFields,
+  dedupeNotes,
   type RawFlockInput,
   type PreviousDayData,
-  type PreviousDayFlag,
   type ResolvedFlock,
   type LocallyResolvedFlock,
   type MortalityChecksumInput,
@@ -284,21 +285,15 @@ export async function uploadAndExtractDailyProduction(
         let previousDay: PreviousDayData | null = null;
         if (match.flockInternalId) {
           const { rows: prevRows } = await client.query(
-            `SELECT bird_population, eggs_total, hd_percent_written
+            `SELECT bird_population
                FROM daily_production
               WHERE flock_internal_id = $1 AND date = $2::date - 1 AND deleted_at IS NULL
               LIMIT 1`,
             [match.flockInternalId, date]
           );
-          const prev = prevRows[0] as
-            | { bird_population: number | null; eggs_total: number | null; hd_percent_written: string | null }
-            | undefined;
+          const prev = prevRows[0] as { bird_population: number | null } | undefined;
           if (prev) {
-            previousDay = {
-              birdPopulation: prev.bird_population,
-              eggsTotal: prev.eggs_total,
-              hdPercentWritten: prev.hd_percent_written !== null ? Number(prev.hd_percent_written) : null,
-            };
+            previousDay = { birdPopulation: prev.bird_population };
           }
         }
 
@@ -341,28 +336,31 @@ export async function uploadAndExtractDailyProduction(
       // (previousDay is null — nothing to look up). =====
       interface ChainResult {
         resolved: ResolvedFlock;
-        previousDayFlag: PreviousDayFlag | null;
         flockInternalId: string | null;
       }
       const chainResults: ChainResult[] = [];
 
       for (const { local, previousDay, flockInternalId } of localResults) {
         const correctedLocal = mortalityCorrectedByLabel.get(local.displayLabelAsWritten) ?? local;
-        const { resolved, previousDayFlag } = applyChainCorrections(correctedLocal, previousDay);
-        chainResults.push({ resolved, previousDayFlag, flockInternalId });
+        const { resolved } = applyChainCorrections(correctedLocal, previousDay);
+        chainResults.push({ resolved, flockInternalId });
       }
 
-      // ===== Stage 5 (pipeline.ts) — needs every flock's stage-4 output at
+      // ===== Stage 5 (pipeline.ts, owner request 2026-10-12) — needs every
+      // flock's stage-4 output at once, to pair up transfer candidates
+      // across the whole page before deciding what (if anything) to flag.
+      // Never touches bird_population or a previous day's row — see
+      // birdTransfer.ts. =====
+      const transferredFlocks = applyBirdTransferDetection(chainResults.map((c) => c.resolved));
+
+      // ===== Stage 6 (pipeline.ts) — needs every flock's stage-5 output at
       // once, so it runs AFTER the per-flock loop above, never interleaved
       // with it (the bug this pipeline exists to structurally prevent: a
       // checksum computed before every flock's own corrections are in still
       // counts a flock's OLD number in its section sum, producing a
       // residual false mismatch equal to the correction itself). =====
-      const checksumResult = applyPageChecksum(
-        chainResults.map((c) => c.resolved),
-        extraction.section_subtotals ?? []
-      );
-      // Stage 6 (applyWrittenHdCheck) — must run AFTER stage 5, never
+      const checksumResult = applyPageChecksum(transferredFlocks, extraction.section_subtotals ?? []);
+      // Stage 7 (applyWrittenHdCheck) — must run AFTER stage 6, never
       // before: eggs_total may have just been auto-corrected there, and
       // the true calculated HD this check compares against depends on the
       // FINAL eggs_total/bird_population, not an earlier stage's. Owner
@@ -460,22 +458,6 @@ export async function uploadAndExtractDailyProduction(
           continue;
         }
 
-        if (ctx?.previousDayFlag) {
-          // Today's own reading stays as extracted — it's the previous
-          // day's SAVED row that looks wrong. Never rewritten automatically;
-          // flagged with a suggestion for the owner to confirm.
-          await client.query(
-            `UPDATE daily_production
-                SET flagged = true,
-                    flag_reason = CASE
-                        WHEN flag_reason IS NULL OR flag_reason = '' THEN $2
-                        ELSE flag_reason || '; ' || $2
-                    END
-              WHERE flock_internal_id = $1 AND date = $3::date - 1 AND deleted_at IS NULL`,
-            [flockInternalId, ctx.previousDayFlag.note, date]
-          );
-        }
-
         // Owner report, 2026-10-03, production: BAB-2, 2026-08-05 —
         // auto_correction_note described one value, the saved
         // bird_population was a different one, unexplained. Traced to the
@@ -511,7 +493,7 @@ export async function uploadAndExtractDailyProduction(
             sourcePhotoUrl: photoUrl,
             sectionsFound: extraction.sections_found,
             pageNotes: extraction.page_notes,
-            autoCorrectionNote: flock.autoCorrectionNotes.length > 0 ? flock.autoCorrectionNotes.join(" ") : null,
+            autoCorrectionNote: flock.autoCorrectionNotes.length > 0 ? dedupeNotes(flock.autoCorrectionNotes).join(" ") : null,
             suppressBirdPopulationIncreaseFlag: flock.suppressBirdPopulationIncreaseFlag,
             extraReasons: flock.extraFlagReasons,
           }

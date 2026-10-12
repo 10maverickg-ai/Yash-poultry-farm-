@@ -23,6 +23,18 @@
 // acceptance band rather than ranking by distance to the calculated
 // value. Both are fixed together; this fixture exists specifically to
 // catch either regressing back.
+//
+// KNOWN, DELIBERATE BEHAVIOR CHANGE (owner request, 2026-10-12 — "if one
+// candidate fix matches within 0.1, auto-correct"): BAB-4's own candidate
+// (83.1) sits 0.104 points from the calculated HD (82.996) — just OUTSIDE
+// the new, tighter 0.1 acceptance band (the old band was 1.0). BAB-4 USED
+// TO auto-correct silently; it now comes back "ambiguous" and gets
+// flagged for a human to confirm instead. This is a direct, foreseeable
+// consequence of the owner's own explicit 0.1 instruction, not a bug —
+// kept visible here rather than quietly adjusted, in case the owner wants
+// a looser number after seeing it affects this specific real row.
+// BAB-1's own candidate (68.7, gap 0.04) stays comfortably inside 0.1 and
+// still auto-corrects exactly as before.
 
 import { calcHd } from "../lib/extraction/digitEvidence";
 import { checkWrittenHdDigitAccuracy } from "../lib/extraction/writtenHdCheck";
@@ -45,8 +57,8 @@ check("calculated hd_percent for BAB-4 is ~83.00%", calculatedHd !== null && Mat
 
 const directResult = checkWrittenHdDigitAccuracy(88.1, calculatedHd);
 check(
-  "checkWrittenHdDigitAccuracy(88.10, 83.00) auto-corrects to exactly 83.1",
-  directResult.kind === "auto_correct" && directResult.correctedWrittenHd === 83.1,
+  "checkWrittenHdDigitAccuracy(88.10, 82.996) is now ambiguous — 83.1's gap (0.104) just misses the tightened 0.1 band (see note above)",
+  directResult.kind === "ambiguous",
   directResult
 );
 
@@ -67,11 +79,11 @@ const local = resolveFieldsLocally(raw);
 const { resolved } = applyChainCorrections(local, null);
 const [final] = applyWrittenHdCheck([resolved]);
 
-check("end-to-end: hd_percent_written corrected to 83.1", final.hdPercentWritten === 83.1, final);
-check("end-to-end: original 88.1 preserved in hdPercentWrittenOriginal", final.hdPercentWrittenOriginal === 88.1, final);
+check("end-to-end: hd_percent_written is left as-extracted (88.1) — no longer silently auto-corrected", final.hdPercentWritten === 88.1, final);
+check("end-to-end: hdPercentWrittenOriginal stays null (nothing was auto-corrected)", final.hdPercentWrittenOriginal === null, final);
 check(
-  "end-to-end: correction is an informational note, not a flag (extraFlagReasons empty)",
-  final.extraFlagReasons.length === 0,
+  "end-to-end: the row is now flagged instead, naming written/calculated/gap",
+  final.extraFlagReasons.length === 1 && final.extraFlagReasons[0].startsWith("Written HD 88.10 differs from calculated"),
   final.extraFlagReasons
 );
 check(

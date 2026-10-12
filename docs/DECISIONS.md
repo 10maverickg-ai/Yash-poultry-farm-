@@ -1681,6 +1681,205 @@ new stage + the recheck-field exclusion), and the new permanent fixture
 change — this increment only reorders and validates values already
 being written to existing columns.
 
+## Phase 3 increment 13: round 2 accuracy fixes — fewer false flags, fewer silent errors (2026-10-12)
+
+Five items from the owner's "Round 2 accuracy fixes" report, all verified
+against real production numbers queried directly from Supabase on
+2026-10-12, not invented ones. Permanent fixture:
+`scripts/regression-round2-accuracy-fixes.ts` (36/36 passing); the two
+earlier permanent fixtures (`regression-bab4-hd-digit.ts`,
+`regression-bab6-mortality-chain.ts`) were re-run and one was updated to
+match an intentional behavior change (see item 3 below) — both pass.
+
+### 1. Bird transfers were flagged as "previous day looks misread"
+
+**The report, confirmed against the database:** BAB-5 and BAB-6,
+2026-08-06 -> 08-07 (ids 236/246, 237/247) — BAB-5 dropped from 10908 to
+10419, BAB-6 rose from 9680 to 10160, each matching its OWN written HD
+almost exactly (80.33% vs written 80.3%; 73.82% vs written 73.8%) — a real
+transfer of ~485 birds between the two flocks, not a misread. The old
+bal-bird chain check (`balBirdChain.ts`) had exactly one explanation for
+"today's reading doesn't continue the chain, but matches its own written
+HD": blame the PREVIOUS day's saved value (`flag_previous`, "Previous
+day's saved bird_population looks misread..."), writing a suggested
+replacement onto that other row. Simply wrong whenever the cause is a
+transfer between flocks on the same page.
+
+**Fix:** `balBirdChain.ts`'s `flag_previous` case no longer builds that
+sentence or touches any other row — it now just reports
+`unexplainedDelta` (today's reading minus what the chain alone predicts).
+A new pure module, `birdTransfer.ts` (`detectBirdTransfers`), pairs
+opposite-signed, roughly-equal (within 5%) deltas across every flock on
+the same page into one shared message: `"Likely bird transfer X -> Y
+(~N birds). Confirm and no correction needed."` An unpaired delta gets
+`"bird count changed by N, no matching transfer found, please check"`
+instead — honest, never blaming a specific row. Wired in as a new
+pipeline STAGE 5 (`applyBirdTransferDetection`, `pipeline.ts`), pushing a
+flag reason onto TODAY's row only; neither `bird_population` nor any
+other row is ever touched. The dead `PreviousDayFlag` mechanism (type,
+field, cross-day `UPDATE` in `upload/actions.ts`) was removed entirely,
+along with the now-unused `previousEggs`/`previousWrittenHd` fields it
+alone needed.
+
+### 2. The chain could cascade a stale value over a better-matching reading
+
+**The report, confirmed against the database:** BAB-2, 2026-08-05 was
+wrong in the database (15551, a since-fixed note/value divergence from
+PR #8) when 2026-08-06 was uploaded. The chain computed `15551 − 6 =
+15545` and overwrote the correctly-extracted 15566 with it, because 15545
+(73.72%) happened to pass the old rule's ONLY bar — "does the candidate
+corroborate written HD at all?" — even though the actually-extracted
+15566 (73.62%) matched written HD (73.6%) far better. Manually repaired
+by the owner on 2026-10-12; this fix addresses the root cause.
+
+**Fix:** `balBirdChain.ts`'s candidate-1 (`auto_correct`) branch now
+computes BOTH the chain-candidate's and the actually-extracted value's
+gap to written HD, and only auto-corrects when the candidate matches AT
+LEAST as well as the extracted figure. Verified directly against the real
+numbers: the chain's candidate (15545, gap 0.12) no longer beats the
+extracted reading (15566, gap 0.02) — `checkBalBirdChain` now returns
+`flag_previous` (today's own reading stands, and — per item 1 above —
+is itself a transfer/solo candidate, never a reason to touch yesterday's
+row) instead of silently overwriting it.
+
+The second half of this item — re-running the chain on the NEXT day's row
+whenever mortality/eggs_total/bird_population changes after the fact (a
+human edit on the entry screen, or any pipeline correction) — is **not
+yet implemented**. Said plainly: this would need a new, deliberately
+separate check (distinct from the real-time upload pipeline, since it
+fires on an EXISTING row's edit, not a new extraction) that reads the
+next calendar day's saved row, re-derives whether the chain still holds,
+and flags that next-day row if not, without ever auto-editing it. Scoped
+out of this PR to keep review size manageable; happy to do it as an
+immediate follow-up if wanted — flagging this honestly rather than
+claiming it's covered.
+
+### 3. Written-vs-calculated HD tolerance was too loose
+
+**The report, confirmed against the database:** three rows saved as fully
+clean with a 0.44-0.49pt written/calculated gap — BAB-10 2026-08-07
+(written 65.10, calculated 65.54), BAB-1 2026-08-06 (69.40 vs 68.96),
+BAB-8 2026-08-05 (70.50 vs 70.01) — while the farm's other rows sit within
+about 0.1. Root cause: `writtenHdCheck.ts`'s own 3.0pt engagement
+threshold and `fn_validate_daily_production`'s separate 0.2/1.0pt bands
+left a 0.3-3.0pt gap reaching NEITHER check.
+
+**Fix:** one named constant, `WRITTEN_HD_CLEAN_TOLERANCE = 0.3`
+(`writtenHdCheck.ts`), is now the single boundary between "ordinary
+rounding" and "run the digit-evidence search." The acceptance band for
+auto-correcting a candidate was tightened from 1.0 to
+`WRITTEN_HD_AUTO_CORRECT_MAX_GAP = 0.1` ("if one candidate fix matches
+within 0.1, auto-correct"). A gap that clears 0.3 but has no candidate
+within 0.1 is now a real flag (`pipeline.ts`'s `applyWrittenHdCheck`,
+which previously dropped the "ambiguous" case silently) with the exact
+required wording: `"Written HD X differs from calculated Y by Z. Check
+eggs, bird count and written HD."` Migration 0019 updates
+`fn_validate_daily_production`'s Rule 1 to stop applying its own,
+independent flag threshold above 0.3 — that decision now belongs entirely
+to the TS pipeline, which has already run by the time this function sees
+the row. Ran all three real rows through the actual code
+(`scripts/regression-round2-accuracy-fixes.ts`): all three now come back
+`ambiguous` with the exact required message, none auto-corrected (their
+closest digit-substitution candidates are 0.16-0.84 points away —
+nowhere near 0.1).
+
+**A known, deliberate side effect, surfaced rather than hidden:** the
+tightened 0.1 band also affects BAB-4's own already-confirmed real
+misread (2026-08-01: written 88.1, true value 83.1). The candidate 83.1's
+gap to the calculated HD (82.996%) is 0.104 — a hair outside the new 0.1
+bar — so this row now comes back `ambiguous` (flagged for a human to
+confirm) instead of silently auto-correcting, as it used to.
+`scripts/regression-bab4-hd-digit.ts` was updated to assert this new,
+intentional behavior rather than papering over it. This is a direct,
+foreseeable consequence of the owner's own explicit "within 0.1"
+instruction, not a bug introduced by this change — called out here in
+case 0.1 turns out tighter than wanted once it's seen affecting a
+previously-silent, already-confirmed-correct row.
+
+**Not retroactive:** the three originally-reported rows remain saved
+clean in production (re-verified directly: `fn_validate_daily_production`
+still returns no reasons/note for them post-migration, since it only runs
+on a fresh save, never automatically against existing rows). Re-saving
+any of them (even untouched) through the entry screen would now flag them
+correctly.
+
+### 4. A "keep original" save left auto_correction_note contradicting the saved value
+
+**The report, confirmed against the database:** BAB-2, 2026-08-07 (id
+243) — `auto_correction_note` says `"15557 corrected to 15536"`, but
+`bird_population` AND `bird_population_original` were both saved as
+15557.
+
+**The exact path, traced, not guessed:** `app/production/actions.ts`'s
+`saveProduction` — the manual entry-screen save every "fix this flagged
+row" flow goes through. Its `INSERT ... ON CONFLICT DO UPDATE` never
+referenced `mortality_original` / `eggs_total_original` /
+`bird_population_original` / `hd_percent_written_original` /
+`auto_correction_note` at all — only the plain field columns. So when the
+owner edited `bird_population` back to 15557 (the pre-correction value)
+and saved, the UPDATE changed `bird_population` but left
+`bird_population_original` (15557, from the earlier chain correction) and
+`auto_correction_note` (still describing "15557 corrected to 15536")
+completely untouched — producing exactly the contradiction reported.
+
+**Fix:** `saveProduction` now fetches the row's previously-saved values
+first, and for each of the four auto-correctable fields calls a new
+`reconcileManualEdit` (`pipeline.ts`): if the NEW value differs from
+whatever was saved before, the field's `*_original` is cleared to null
+and its sentence is stripped out of the note (`stripNoteSentence`,
+matching the same `"<original> corrected to <current>"` marker
+convention `assertAutoCorrectionNotesConsistent` already uses) — a manual
+save is the owner asserting ground truth directly, so stale provenance
+from an earlier auto-correction must never survive to contradict it.
+`assertAutoCorrectionNotesConsistent` (narrowed from taking a full
+`ResolvedFlock` to a smaller structural interface so this path can call
+the exact same check) now runs as a backstop here too, immediately before
+every manual save. Verified with the real numbers from id 243, including
+the reconstructed OLD-bug case (proving the backstop would have caught
+it had it been wired in here before) and a control for saving an
+unrelated THIRD value, not just a revert to the original.
+
+**Not touched, per the owner's explicit instruction:** id 243's existing
+bad data (note still says "corrected to 15536", values still 15557/15557)
+was left exactly as-is in production.
+
+### 5. Noise: duplicate notes, and guard-only rescues
+
+**Duplicate notes — confirmed, fixed.** BAB-10 and BAB-7, 2026-08-06
+(ids 241/238): the exact same collision-guard sentence appeared twice in
+one row's `auto_correction_note`. Root cause: a two-line Bal Bird block
+where BOTH lines were (mis)read as the same suspect value (the row's own
+`eggs_total`) pushes one collision note PER discarded reading in
+`resolveFieldsLocally`'s bal-bird-disagreement guard — two identical
+readings, two identical sentences. Fixed with a new `dedupeNotes`
+(`pipeline.ts`, exact-string dedup, order-preserving), applied at the
+source (`resolveFieldsLocally`'s `collisionNotes`) and again, defensively,
+at the final `auto_correction_note` join point in `upload/actions.ts`.
+
+**Guard-only rescue miscounted as "auto-corrected" — checked, found
+ALREADY correct.** Traced every place "auto-corrected" is decided:
+`UploadOutcome.autoCorrections` (the "Auto-corrected N values" banner)
+and the `flagged`/`"saved clean"` status shown per row are both gated
+strictly on a field's `*_original` being non-null — a guard-only rescue
+(discarding a bad EXTRA reading) never sets any `*_original`, so it was
+never counted. No code change was needed for this half; a regression
+fixture (`item5b` in `scripts/regression-round2-accuracy-fixes.ts`) now
+pins this down explicitly by running the actual gating condition against
+a reconstructed guard-only row, so a future change can't regress it
+silently.
+
+**Scope discipline:** touched `balBirdChain.ts` (items 1 & 2),
+`birdTransfer.ts` (new, item 1), `writtenHdCheck.ts` (item 3),
+`pipeline.ts` (new stage 5, renumbered stages 6-7, `reconcileManualEdit`,
+`dedupeNotes`, narrowed `assertAutoCorrectionNotesConsistent`),
+`reextract.ts` (`impliedFields`'s new "Written HD" branch),
+`app/upload/actions.ts` (wired stage 5, removed the dead
+`PreviousDayFlag` path, deduped the final note join),
+`app/production/actions.ts` (item 4's actual fix), migration 0019, and
+the new/updated regression fixtures. No change to the extraction prompt,
+per the owner's explicit instruction. Did not touch any existing bad
+production row (ids 193, 237, 243) — left for the owner's own decision.
+
 ## Noted for later phases (no Phase 1 action)
 
 - **Trays-vs-eggs magnitude heuristic (owner addendum, 2026-07-09):** register

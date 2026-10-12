@@ -12,6 +12,10 @@ import {
   optNum,
   optStr,
 } from "@/lib/forms";
+import {
+  assertAutoCorrectionNotesConsistent,
+  reconcileManualEdit,
+} from "@/lib/extraction/pipeline";
 
 // Saves the whole day's sheet in one transaction: one upsert per flock that
 // has any data entered (a fully blank flock card = not entered yet, skipped —
@@ -53,12 +57,81 @@ export async function saveProduction(
         )
           continue;
 
+        // Owner report, 2026-10-12, production: BAB-2, 2026-08-07 (id 243)
+        // — the owner edited bird_population back to 15557 on this screen;
+        // the save below only ever touched the plain field columns, so
+        // bird_population_original (15557) and auto_correction_note
+        // ("...15557 corrected to 15536...") from the earlier automatic
+        // correction were left completely untouched, producing a saved
+        // row whose own note describes a correction that was never
+        // applied. A manual save here is the owner asserting ground truth
+        // directly — fetch whatever was saved before so any field being
+        // CHANGED away from it can have its now-stale `*_original`/note
+        // pairing cleared rather than left to contradict the new value
+        // (see pipeline.ts's reconcileManualEdit).
+        const { rows: existingRows } = await client.query(
+          `SELECT mortality, mortality_original, eggs_total, eggs_total_original,
+                  bird_population, bird_population_original,
+                  hd_percent_written, hd_percent_written_original, auto_correction_note
+             FROM daily_production
+            WHERE flock_internal_id = $1 AND date = $2 AND deleted_at IS NULL`,
+          [flockId, date]
+        );
+        const existing = existingRows[0] as
+          | {
+              mortality: number | null;
+              mortality_original: number | null;
+              eggs_total: number | null;
+              eggs_total_original: number | null;
+              bird_population: number | null;
+              bird_population_original: number | null;
+              hd_percent_written: string | null;
+              hd_percent_written_original: string | null;
+              auto_correction_note: string | null;
+            }
+          | undefined;
+
+        let note: string | null = existing?.auto_correction_note ?? null;
+        let mortalityOriginal = existing?.mortality_original ?? null;
+        let eggsTotalOriginal = existing?.eggs_total_original ?? null;
+        let birdPopulationOriginal = existing?.bird_population_original ?? null;
+        let hdPercentWrittenOriginal =
+          existing?.hd_percent_written_original != null ? Number(existing.hd_percent_written_original) : null;
+        const existingHdPercentWritten =
+          existing?.hd_percent_written != null ? Number(existing.hd_percent_written) : null;
+
+        ({ original: mortalityOriginal, note } = reconcileManualEdit(
+          mortalityOriginal, existing?.mortality ?? null, mortality, note
+        ));
+        ({ original: eggsTotalOriginal, note } = reconcileManualEdit(
+          eggsTotalOriginal, existing?.eggs_total ?? null, eggsTotal, note
+        ));
+        ({ original: birdPopulationOriginal, note } = reconcileManualEdit(
+          birdPopulationOriginal, existing?.bird_population ?? null, birdPopulation, note
+        ));
+        ({ original: hdPercentWrittenOriginal, note } = reconcileManualEdit(
+          hdPercentWrittenOriginal, existingHdPercentWritten, hdPercent, note
+        ));
+
+        // Same backstop as the upload path (pipeline.ts's own doc comment
+        // on this function) — refuse to save rather than let a note and
+        // the value it's paired with diverge again.
+        assertAutoCorrectionNotesConsistent({
+          displayLabelAsWritten: optStr(formData, `label_${flockId}`) ?? flockId,
+          mortality, mortalityOriginal,
+          birdPopulation, birdPopulationOriginal,
+          eggsTotal, eggsTotalOriginal,
+          hdPercentWritten: hdPercent, hdPercentWrittenOriginal,
+          autoCorrectionNotes: note ? [note] : [],
+        });
+
         const { rows } = await client.query(
           `INSERT INTO daily_production
                (date, farm_code, flock_internal_id, display_label_as_written,
                 shed_code, mortality, feed_bags, eggs_total, bird_population,
-                hd_percent_written)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+                hd_percent_written, mortality_original, eggs_total_original,
+                bird_population_original, hd_percent_written_original, auto_correction_note)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
            ON CONFLICT (flock_internal_id, date) WHERE deleted_at IS NULL DO UPDATE SET
                display_label_as_written = EXCLUDED.display_label_as_written,
                shed_code       = EXCLUDED.shed_code,
@@ -67,6 +140,11 @@ export async function saveProduction(
                eggs_total      = EXCLUDED.eggs_total,
                bird_population = EXCLUDED.bird_population,
                hd_percent_written = EXCLUDED.hd_percent_written,
+               mortality_original = EXCLUDED.mortality_original,
+               eggs_total_original = EXCLUDED.eggs_total_original,
+               bird_population_original = EXCLUDED.bird_population_original,
+               hd_percent_written_original = EXCLUDED.hd_percent_written_original,
+               auto_correction_note = EXCLUDED.auto_correction_note,
                reviewed_by_owner = false
            RETURNING id`,
           [
@@ -80,6 +158,11 @@ export async function saveProduction(
             eggsTotal,
             birdPopulation,
             hdPercent,
+            mortalityOriginal,
+            eggsTotalOriginal,
+            birdPopulationOriginal,
+            hdPercentWrittenOriginal,
+            note,
           ]
         );
 

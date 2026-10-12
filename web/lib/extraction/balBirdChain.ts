@@ -11,6 +11,19 @@ import { calcHd, hdWithinTolerance } from "./digitEvidence";
 // the previous row is for the IMMEDIATELY PRECEDING calendar day — a gap
 // (e.g. a skipped upload) breaks the chain, so callers must not use this
 // when the previous entry isn't exactly one day earlier.
+//
+// Owner report, 2026-10-12, production: BAB-2, 2026-08-05 was wrong in the
+// database (15551) when Aug 6 was uploaded. The chain computed Aug 6 as
+// 15551 − 6 = 15545 and OVERWROTE the correctly-extracted 15566 with it,
+// because 15545 happened to land within tolerance of written HD (73.72%
+// vs written 73.6%) — even though the actually-extracted 15566 matched
+// written HD far better (73.62% vs written 73.6%). The old rule only ever
+// asked "does the chain's candidate corroborate written HD at all?", never
+// "does it corroborate BETTER than the value already extracted?" — so a
+// stale previous-day value could cascade forward and clobber a genuinely
+// correct reading. Candidate 1 (below) now requires the chain's candidate
+// to match written HD at least as well as today's own extracted reading
+// before it's allowed to overwrite anything.
 
 export interface ChainCheckInput {
   eggsTotal: number | null;
@@ -22,24 +35,26 @@ export interface ChainCheckInput {
   // function, since it needs a DB lookup this module deliberately has no
   // access to, staying a pure function).
   previousBalBird: number | null;
-  // Only used to build the corroboration sentence in the flag_previous
-  // case — not a gating condition.
-  previousEggs: number | null;
-  previousWrittenHd: number | null;
 }
 
 export type ChainCheckResult =
   | { kind: "no_previous" }
   | { kind: "match" }
   | { kind: "auto_correct"; correctedBalBird: number; note: string }
-  | { kind: "flag_previous"; suggestedPreviousValue: number; note: string }
+  // Owner report, 2026-10-12: a day-to-day change mortality alone can't
+  // explain, where today's OWN reading still corroborates today's OWN
+  // written HD, is no longer treated as "the previous day was probably
+  // misread" — that framing was flatly wrong whenever the real cause was a
+  // genuine bird transfer between flocks (see birdTransfer.ts). Previous
+  // day's row is never touched or suggested-at from here any more;
+  // `unexplainedDelta` carries the un-mortality-explained change for
+  // pipeline.ts's page-wide applyBirdTransferDetection stage to interpret
+  // (paired into a transfer, or flagged solo), always on TODAY's row only.
+  | { kind: "flag_previous"; unexplainedDelta: number }
   | { kind: "flag_today"; note: string };
 
 export function checkBalBirdChain(input: ChainCheckInput): ChainCheckResult {
-  const {
-    eggsTotal, todayMortality, todayExtractedBalBird, todayWrittenHd,
-    previousBalBird, previousEggs, previousWrittenHd,
-  } = input;
+  const { eggsTotal, todayMortality, todayExtractedBalBird, todayWrittenHd, previousBalBird } = input;
 
   if (previousBalBird === null || todayMortality === null || todayExtractedBalBird === null) {
     return { kind: "no_previous" };
@@ -51,61 +66,52 @@ export function checkBalBirdChain(input: ChainCheckInput): ChainCheckResult {
     return { kind: "match" };
   }
 
-  // Candidate 1: the chain-expected value. If eggs/expected corroborates
-  // today's written HD, the extracted figure was the misread one — safe to
-  // auto-correct (the only place this pass ever auto-applies a value).
-  if (eggsTotal !== null && todayWrittenHd !== null && expected > 0) {
-    const candidateHd = calcHd(eggsTotal, expected);
-    if (candidateHd !== null && hdWithinTolerance(candidateHd, todayWrittenHd)) {
-      return {
-        kind: "auto_correct",
-        correctedBalBird: expected,
-        note: `${todayExtractedBalBird} corrected to ${expected}: equals previous day's bal bird minus today's mortality (${previousBalBird} − ${todayMortality}) and matches written HD (${eggsTotal}/${expected} = ${candidateHd.toFixed(2)}% vs written ${todayWrittenHd}%).`,
-      };
-    }
+  const candidateHd = eggsTotal !== null && expected > 0 ? calcHd(eggsTotal, expected) : null;
+  const extractedHd = eggsTotal !== null ? calcHd(eggsTotal, todayExtractedBalBird) : null;
+  const candidateGap = candidateHd !== null && todayWrittenHd !== null ? Math.abs(candidateHd - todayWrittenHd) : null;
+  const extractedGap = extractedHd !== null && todayWrittenHd !== null ? Math.abs(extractedHd - todayWrittenHd) : null;
+  const candidateCorroborated =
+    candidateHd !== null && todayWrittenHd !== null && hdWithinTolerance(candidateHd, todayWrittenHd);
+  const extractedCorroborated =
+    extractedHd !== null && todayWrittenHd !== null && hdWithinTolerance(extractedHd, todayWrittenHd);
+
+  // Candidate 1: the chain-expected value. Only auto-corrected when it's
+  // corroborated by written HD AND it explains written HD at least as well
+  // as the value actually extracted today — never overwrite a reading that
+  // already matches written HD better than the "fix" would (the 2026-10-12
+  // incident above).
+  if (candidateCorroborated && (extractedGap === null || (candidateGap as number) <= extractedGap)) {
+    return {
+      kind: "auto_correct",
+      correctedBalBird: expected,
+      note: `${todayExtractedBalBird} corrected to ${expected}: equals previous day's bal bird minus today's mortality (${previousBalBird} − ${todayMortality}) and matches written HD (${eggsTotal}/${expected} = ${(candidateHd as number).toFixed(2)}% vs written ${todayWrittenHd}%).`,
+    };
   }
 
-  // Candidate 2 (reverse): if eggs/extracted corroborates today's written
-  // HD, today's own reading is probably right — the PREVIOUS day's saved
-  // value is the misread one. Never rewritten automatically; flagged with
-  // a suggestion for the owner to confirm.
-  if (eggsTotal !== null && todayWrittenHd !== null) {
-    const extractedHd = calcHd(eggsTotal, todayExtractedBalBird);
-    if (extractedHd !== null && hdWithinTolerance(extractedHd, todayWrittenHd)) {
-      const suggestedPrevious = todayExtractedBalBird + todayMortality;
-      let note =
-        `Previous day's saved bird_population (${previousBalBird}) looks misread: ` +
-        `today's bird_population (${todayExtractedBalBird}) matches today's written HD ` +
-        `(${eggsTotal}/${todayExtractedBalBird} = ${extractedHd.toFixed(2)}% vs written ${todayWrittenHd}%). ` +
-        `Suggested value for this row: ${suggestedPrevious} (today's ${todayExtractedBalBird} + today's mortality ${todayMortality}).`;
-      if (previousEggs !== null && previousWrittenHd !== null) {
-        const corroborationHd = calcHd(previousEggs, suggestedPrevious);
-        if (corroborationHd !== null) {
-          note += ` Corroboration: ${previousEggs}/${suggestedPrevious} = ${corroborationHd.toFixed(2)}% vs this row's own written HD ${previousWrittenHd}%.`;
-        }
-      }
-      return { kind: "flag_previous", suggestedPreviousValue: suggestedPrevious, note };
-    }
+  // Candidate 2: today's OWN reading corroborates today's OWN written HD,
+  // even though the chain doesn't hold — today's figure looks right on its
+  // own evidence, so the discrepancy is a genuine day-to-day CHANGE (a
+  // transfer, or something else), never a reason to doubt or rewrite
+  // either row from here.
+  if (extractedCorroborated) {
+    return { kind: "flag_previous", unexplainedDelta: todayExtractedBalBird - expected };
   }
 
-  // Neither candidate is corroborated — surface both numbers and whatever
-  // HD evidence exists, and let a human decide. Deliberately does NOT say
-  // just "increased" (the old, misleading message per the owner report) —
-  // it names the previous day's value as the likely source of the
-  // discrepancy, without asserting which side is actually wrong.
+  // Neither candidate corroborates written HD — genuinely ambiguous,
+  // surface both numbers and whatever HD evidence exists, and let a human
+  // decide. Deliberately does NOT say just "increased" (the old, misleading
+  // message per the owner report) — it names the previous day's value as
+  // the likely source of the discrepancy, without asserting which side is
+  // actually wrong.
   const parts = [
     `bird_population may not match the previous day's chain: extracted ${todayExtractedBalBird}, ` +
       `but previous day's bal bird (${previousBalBird}) minus today's mortality (${todayMortality}) expects ${expected} — ` +
       `the previous day's entry may be the misread one.`,
   ];
-  if (eggsTotal !== null) {
-    const extractedHd = calcHd(eggsTotal, todayExtractedBalBird);
-    const expectedHd = expected > 0 ? calcHd(eggsTotal, expected) : null;
-    const hdBits: string[] = [];
-    if (extractedHd !== null) hdBits.push(`extracted implies ${extractedHd.toFixed(2)}%`);
-    if (expectedHd !== null) hdBits.push(`expected implies ${expectedHd.toFixed(2)}%`);
-    if (todayWrittenHd !== null) hdBits.push(`written HD is ${todayWrittenHd}%`);
-    if (hdBits.length > 0) parts.push(hdBits.join(", "));
-  }
+  const hdBits: string[] = [];
+  if (extractedHd !== null) hdBits.push(`extracted implies ${extractedHd.toFixed(2)}%`);
+  if (candidateHd !== null) hdBits.push(`expected implies ${candidateHd.toFixed(2)}%`);
+  if (todayWrittenHd !== null) hdBits.push(`written HD is ${todayWrittenHd}%`);
+  if (hdBits.length > 0) parts.push(hdBits.join(", "));
   return { kind: "flag_today", note: parts.join(" ") };
 }
