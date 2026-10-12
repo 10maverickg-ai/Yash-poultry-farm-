@@ -2055,6 +2055,121 @@ stages 1-7, or any Daily Production SQL function beyond what's needed —
 confirmed via `git status` and by re-running every existing Daily
 Production regression fixture unchanged (all still pass).
 
+## Phase 3 increment 14, follow-up: production crash — `section_subtotals` never got the `flocks` guard (2026-10-12)
+
+Owner report: a fresh upload on the live deploy failed with "Photo was
+read, but something went wrong saving the results. Technical detail:
+c.filter is not a function or its return value is not iterable" — and,
+confirmed directly against Supabase, **nothing** was saved: no
+`daily_production` row, no `daily_egg_stock_summary` row, no
+`daily_feed_bag_stock` row. The owner's own framing: either the bug is in
+the Daily Production path (from increment 13's bird-transfer/stage
+reordering work), or the egg-ledger/feed-box step (increment 14) isn't
+actually isolated from Daily Production the way it's supposed to be.
+
+**Root cause, confirmed by re-reading the actual code (not guessed):** the
+"Photo was read, but something went wrong saving the results" text is a
+FIXED string, produced by exactly one `catch` block — the one wrapping the
+Daily Production `withTransaction(...)` call in `app/upload/actions.ts`.
+That already narrows it to the Daily Production path, not the separate
+ledger/feed step (which has its own, differently-worded failure text and
+runs in a completely separate `try/catch` AFTER Daily Production has
+already committed).
+
+`extraction.section_subtotals` (`lib/extraction/dailyProduction.ts`) comes
+from the exact same unchecked `toolUse.input as ExtractionResult` cast as
+`extraction.flocks` — and `extraction.flocks` already got an explicit
+`Array.isArray` guard after the 2026-09-30 "X is not iterable" incident
+(see `extractDailyProductionSafely`). `section_subtotals` never got the
+same guard. `app/upload/actions.ts` only ever did
+`extraction.section_subtotals ?? []`, which protects against
+null/undefined but not against some OTHER non-array value a malformed or
+partial model tool-call response could contain for a field the schema
+declares as `"type": "array"`. That value was handed straight to
+`pipeline.ts`'s `applyMortalityChecksum` (stage 3) and `applyPageChecksum`
+(stage 6), both of which call `mortalityChecksum.ts`/`pageChecksum.ts`'s
+own `subtotals.filter(looksLikeGenuineSubtotal)` with no defensive check —
+a non-array `subtotals` throws `"subtotals.filter is not a function"`
+(minified to `"c.filter is not a function"` on Vercel's production
+build), **inside** the Daily Production transaction, before a single row
+has been written — hence the full rollback and the "nothing was saved at
+all" symptom. Confirmed by temporarily reverting the fix and running the
+new fixture: the exact error text reproduces at every real call site
+(`checkMortalitySectionChecksums`, `checkPageChecksums`, and the
+`applyMortalityChecksum`/`applyPageChecksum` wrappers `app/upload/actions.ts`
+actually calls).
+
+**This has nothing to do with the egg-ledger/feed-box step.** That step's
+own extraction (`ledgerFeedExtraction.ts`) already has an `Array.isArray`
+guard on its own two array fields (`egg_ledgers`/`feed_boxes`), throwing a
+clean, named `Error` instead of crashing — and it runs in its own
+`try/catch`, strictly after Daily Production's transaction has committed,
+unable to affect Daily Production's result either way. The owner's two-
+sided hypothesis resolves cleanly to one side: the bug was in the Daily
+Production pipeline itself, not a leak in the ledger/feed step's
+isolation.
+
+**Fix:** `checkPageChecksums` (`pageChecksum.ts`) and
+`checkMortalitySectionChecksums` (`mortalityChecksum.ts`) now guard their
+`subtotals` parameter with `Array.isArray(subtotals) ? subtotals : []` —
+the same defensive pattern already used elsewhere in this codebase (e.g.
+`pipeline.ts`'s `resolveFieldsLocally`, for `raw.birdPopulationReadings`).
+A malformed `section_subtotals` is now treated exactly like the
+already-handled null/undefined case ("no subtotal evidence available"),
+never a crash. The same guard was added to `pipeline.ts`'s
+`applyBirdTransferDetection`, `dedupeNotes`, and
+`excludeAlreadyAutoCorrectedFields` — not the confirmed cause of this
+incident (their one real call site in `app/upload/actions.ts` always
+passes a genuine array today), but named in the bug report and deserving
+the same backstop against the same class of bug. `birdTransfer.ts`,
+`balBirdChain.ts`, `nextDayRecheck.ts`, `app/flagged/actions.ts`,
+`lib/records.ts`'s `listOpenLedgerExtractionIssues`, and
+`components/UploadForm.tsx` were all individually re-read and confirmed
+already safe (no unguarded `.filter` on a value that can be non-array at
+that call site).
+
+**Stage-naming (owner's item 4):** `app/upload/actions.ts`'s
+`logAndFriendly` now takes a `stage` argument, prefixed onto the
+`technicalDetail` line as `"failed in: <stage> — <message>"` (e.g.
+`"failed in: daily production pipeline — ..."`) for all three of its catch
+blocks (photo storage, extraction call, daily production pipeline); the
+separate ledger/feed catch block's own `ledgerFeedIssue` text got the same
+`"(failed in: ledger/feed pipeline)"` marker. The user-facing `friendly`
+text is unchanged — only the technical-detail line a bug report would
+quote now names which stage threw, so a future failure doesn't require
+re-deriving this same investigation from scratch.
+
+**Isolation, proven, not just asserted (owner's item 3):** this sandbox has
+no live DB/API access, so `extractAndSaveLedgerFeed` can't be exercised
+end-to-end — what's actually provable, and is proven in
+`scripts/regression-ledger-feed-isolation.ts`, is the structural guarantee
+`app/upload/actions.ts` is built on: two sequential, independent
+`try/catch` blocks, where the second's own catch can only ever set
+`ledgerFeedIssue`, never touch `error`/`written`/`autoCorrections` (already
+decided by the first block, including this exact TypeError text thrown
+from a stand-in for the ledger/feed step).
+
+**Copy fix (owner's item 5):** `app/upload/page.tsx` no longer says "Daily
+Production only, for now... Egg Stock Ledger and Feed Bag Stock extraction
+are next" — both are read now (since increment 14); the page now says so
+and names that a ledger/feed failure is reported separately rather than
+blocking the Daily Production save.
+
+**Regression fixtures:** `scripts/regression-malformed-section-subtotals.ts`
+(reproduces the exact crash via every real call site before the fix —
+confirmed in this session by temporarily reverting the fix — then proves
+the fix tolerates it, and that normal well-formed input is unaffected) and
+`scripts/regression-ledger-feed-isolation.ts` (proves the two-phase
+isolation structurally, including with the exact production error text).
+Every pre-existing regression fixture re-run unchanged, all still pass.
+
+**Scope discipline:** touched `lib/extraction/pageChecksum.ts`,
+`lib/extraction/mortalityChecksum.ts`, `lib/extraction/pipeline.ts`,
+`app/upload/actions.ts`, `app/upload/page.tsx`, and the two new regression
+fixtures. No schema/migration change, no change to any extraction prompt,
+no change to any stage's actual correction/flagging logic — only defensive
+input guards and error-message text.
+
 ## Noted for later phases (no Phase 1 action)
 
 - **Trays-vs-eggs magnitude heuristic (owner addendum, 2026-07-09):** register

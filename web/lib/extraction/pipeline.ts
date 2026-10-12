@@ -455,13 +455,20 @@ export function applyChainCorrections(
  * day's row; only ever adds to a flock's OWN extraFlagReasons.
  */
 export function applyBirdTransferDetection(flocks: ResolvedFlock[]): ResolvedFlock[] {
-  const candidates: TransferCandidate[] = flocks
+  // Owner report, 2026-10-12, production: "c.filter is not a function" —
+  // same defensive discipline as resolveFieldsLocally's
+  // rawBirdPopulationReadings guard above: never assume an array-typed
+  // input is actually an array. Not the confirmed cause of that incident
+  // (see pageChecksum.ts/mortalityChecksum.ts), but this stage's own input
+  // deserves the same backstop.
+  const safeFlocks = Array.isArray(flocks) ? flocks : [];
+  const candidates: TransferCandidate[] = safeFlocks
     .filter((f): f is ResolvedFlock & { transferCandidateDelta: number } => f.transferCandidateDelta !== null)
     .map((f) => ({ label: f.displayLabelAsWritten, unexplainedDelta: f.transferCandidateDelta }));
   const findings = detectBirdTransfers(candidates);
   const findingByLabel = new Map(findings.map((f) => [f.label, f]));
 
-  return flocks.map((f) => {
+  return safeFlocks.map((f) => {
     if (f.transferCandidateDelta === null) return f;
     const finding = findingByLabel.get(f.displayLabelAsWritten);
     return {
@@ -671,7 +678,7 @@ function stripNoteSentence(note: string, marker: string): string | null {
  * order; collapses only EXACT string duplicates, never near-duplicates.
  */
 export function dedupeNotes(notes: string[]): string[] {
-  return [...new Set(notes)];
+  return [...new Set(Array.isArray(notes) ? notes : [])];
 }
 
 /**
@@ -696,5 +703,5 @@ export function excludeAlreadyAutoCorrectedFields(
   if (flock.birdPopulationOriginal !== null) alreadyAutoCorrected.add("bird_population");
   if (flock.eggsTotalOriginal !== null) alreadyAutoCorrected.add("eggs_total");
   if (flock.hdPercentWrittenOriginal !== null) alreadyAutoCorrected.add("hd_percent");
-  return fields.filter((f) => !alreadyAutoCorrected.has(f));
+  return (Array.isArray(fields) ? fields : []).filter((f) => !alreadyAutoCorrected.has(f));
 }
