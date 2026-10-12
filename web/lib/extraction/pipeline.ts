@@ -39,9 +39,23 @@
 //     — then the bal-bird day-to-day chain runs using whatever mortality
 //     is left.
 //
-//   STAGE 5 — applyPageChecksum: the only stage that needs EVERY OTHER
+//   STAGE 5 — applyBirdTransferDetection (owner report, 2026-10-12,
+//     production: BAB-5 and BAB-6, 2026-08-06 -> 08-07 — a real ~480-bird
+//     transfer between the two flocks got reported on BOTH rows as
+//     "Previous day's saved bird_population looks misread", which was
+//     simply wrong). Needs EVERY OTHER flock stage 4 marked as a
+//     "transfer candidate" (today's reading doesn't continue the chain,
+//     but corroborates its OWN written HD) at once, to pair opposite-
+//     signed, roughly-equal changes across flocks into one shared
+//     "likely transfer" message — see birdTransfer.ts. A candidate with no
+//     matching pair gets an honest "no matching transfer found" flag
+//     instead. Never touches bird_population on any row, and never writes
+//     anything to a previous day's row — this stage only ever adds a flag
+//     reason to TODAY's own row.
+//
+//   STAGE 6 — applyPageChecksum: the only stage that needs EVERY OTHER
 //     flock on the page — section sums can only be computed once every
-//     flock's own numbers are final. Reads the full array of stage-4
+//     flock's own numbers are final. Reads the full array of stage-5
 //     output, never raw extraction data. May auto-correct ONE flock's
 //     eggs_total when a checksum mismatch traces to a single candidate
 //     that's simultaneously exact (closes the section sum precisely),
@@ -52,16 +66,19 @@
 //     this mainly re-confirms a clean page or surfaces what stage 3
 //     couldn't isolate to one flock.)
 //
-//   STAGE 6 — applyWrittenHdCheck (owner request, 2026-10-01): a
+//   STAGE 7 — applyWrittenHdCheck (owner request, 2026-10-01): a
 //     lighter-touch digit-accuracy pass on hd_percent_written
 //     specifically, since it's reference-only (never feeds hd_percent,
 //     the GENERATED column every analytics query actually reads). Reads
-//     stage 5's fully-resolved eggs_total/bird_population (the ONLY point
+//     stage 6's fully-resolved eggs_total/bird_population (the ONLY point
 //     the true calculated HD can be known, since eggs_total may still
-//     have changed in stage 5 itself) and proposes a correction only when
+//     have changed in stage 6 itself) and proposes a correction only when
 //     exactly one digit-substitution/decimal-shift candidate would bring
-//     a large written/calculated gap back into the SAME quiet-note band
-//     fn_validate_daily_production already treats as ordinary rounding.
+//     the written/calculated gap to within WRITTEN_HD_AUTO_CORRECT_MAX_GAP
+//     of the calculated figure (owner request, 2026-10-12: tightened from
+//     1.0 to 0.1 points — see writtenHdCheck.ts). A gap beyond
+//     WRITTEN_HD_CLEAN_TOLERANCE that no candidate resolves convincingly is
+//     now a real flag, not silence.
 //
 // Each stage is a pure function — no database, no network — so every one
 // of them (and the pipeline as a whole) can be exercised with synthetic
@@ -79,6 +96,7 @@ import { checkMortalityFeedSwap } from "./mortalityFeedSwap";
 import { checkBalBirdChain } from "./balBirdChain";
 import { checkWrittenHdDigitAccuracy } from "./writtenHdCheck";
 import { checkMortalitySectionChecksums } from "./mortalityChecksum";
+import { detectBirdTransfers, type TransferCandidate } from "./birdTransfer";
 import type { RecheckableField } from "./dailyProduction";
 import {
   checkPageChecksums,
@@ -102,15 +120,12 @@ export interface RawFlockInput {
   confidence: Record<string, number>;
 }
 
+// eggsTotal/hdPercentWritten were removed (owner request, 2026-10-12):
+// they existed only to build the old "previous day looks misread"
+// corroboration sentence, which stage 5 (applyBirdTransferDetection) no
+// longer builds — see balBirdChain.ts's flag_previous case.
 export interface PreviousDayData {
   birdPopulation: number | null;
-  eggsTotal: number | null;
-  hdPercentWritten: number | null;
-}
-
-export interface PreviousDayFlag {
-  displayLabelAsWritten: string;
-  note: string;
 }
 
 export interface ResolvedFlock {
@@ -129,6 +144,12 @@ export interface ResolvedFlock {
   autoCorrectionNotes: string[];
   extraFlagReasons: string[];
   suppressBirdPopulationIncreaseFlag: boolean;
+  // Set by stage 4 when the day-to-day chain broke AND today's own reading
+  // corroborates today's own written HD (balBirdChain.ts's "flag_previous"
+  // case) — consumed and cleared by stage 5 (applyBirdTransferDetection),
+  // which is the only place this ever becomes an actual flag message. Null
+  // on every other row.
+  transferCandidateDelta: number | null;
 }
 
 // ===================== STAGE 2 =====================
@@ -269,7 +290,10 @@ export function resolveFieldsLocally(raw: RawFlockInput): LocallyResolvedFlock {
     hdPercentWritten: raw.hdPercentWritten,
     confidence: raw.confidence,
     extraFlagReasons,
-    collisionNotes,
+    // Deduped (owner report, 2026-10-12: a two-line Bal Bird block where
+    // BOTH lines were misread as the same suspect value pushed the exact
+    // same sentence twice) — see dedupeNotes.
+    collisionNotes: dedupeNotes(collisionNotes),
     mortalityOriginal: null, // stage 3 (applyMortalityChecksum) may still set this
     mortalityChecksumNotes: [],
   };
@@ -332,7 +356,7 @@ export function applyMortalityChecksum(
 export function applyChainCorrections(
   local: LocallyResolvedFlock,
   previousDay: PreviousDayData | null
-): { resolved: ResolvedFlock; previousDayFlag: PreviousDayFlag | null } {
+): { resolved: ResolvedFlock } {
   // Seeded with stage 2's collision-guard notes AND stage 3's mortality-
   // checksum notes (see LocallyResolvedFlock's doc comments) — a
   // successful discard-and-keep-clean, or a section-sum-corroborated
@@ -349,7 +373,7 @@ export function applyChainCorrections(
   let birdPopulation = local.birdPopulation;
   let birdPopulationOriginal: number | null = null;
   let suppressBirdPopulationIncreaseFlag = false;
-  let previousDayFlag: PreviousDayFlag | null = null;
+  let transferCandidateDelta: number | null = null;
 
   // Mortality/feed_bags column swap — runs FIRST, since a wrong mortality
   // would otherwise feed a wrong "expected" bal_bird into the chain check
@@ -380,16 +404,19 @@ export function applyChainCorrections(
     todayExtractedBalBird: local.birdPopulation,
     todayWrittenHd: local.hdPercentWritten,
     previousBalBird: previousDay?.birdPopulation ?? null,
-    previousEggs: previousDay?.eggsTotal ?? null,
-    previousWrittenHd: previousDay?.hdPercentWritten ?? null,
   });
   if (chain.kind === "auto_correct") {
     birdPopulationOriginal = local.birdPopulation;
     birdPopulation = chain.correctedBalBird;
     autoCorrectionNotes.push(chain.note);
   } else if (chain.kind === "flag_previous") {
+    // Never a reason to doubt today's own reading or touch the previous
+    // day's row from here — see balBirdChain.ts and birdTransfer.ts.
+    // suppressBirdPopulationIncreaseFlag still applies: whatever stage 5
+    // decides to say about this change, fn_validate_daily_production's
+    // generic "bird_population increased" reason would only duplicate it.
     suppressBirdPopulationIncreaseFlag = true;
-    previousDayFlag = { displayLabelAsWritten: local.displayLabelAsWritten, note: chain.note };
+    transferCandidateDelta = chain.unexplainedDelta;
   } else if (chain.kind === "flag_today") {
     extraFlagReasons.push(chain.note);
   }
@@ -402,21 +429,50 @@ export function applyChainCorrections(
       mortalityOriginal,
       feedBags: local.feedBags,
       eggsTotal: local.eggsTotal,
-      eggsTotalOriginal: null, // stage 5 (applyPageChecksum) may still set this
+      eggsTotalOriginal: null, // stage 6 (applyPageChecksum) may still set this
       birdPopulation,
       birdPopulationOriginal,
       hdPercentWritten: local.hdPercentWritten,
-      hdPercentWrittenOriginal: null, // stage 6 (applyWrittenHdCheck) may still set this
+      hdPercentWrittenOriginal: null, // stage 7 (applyWrittenHdCheck) may still set this
       confidence: local.confidence,
       autoCorrectionNotes,
       extraFlagReasons,
       suppressBirdPopulationIncreaseFlag,
+      transferCandidateDelta,
     },
-    previousDayFlag,
   };
 }
 
 // ===================== STAGE 5 =====================
+
+/**
+ * Page-wide: pairs every "transfer candidate" flock (stage 4's
+ * flag_previous case — see balBirdChain.ts) against every other on the
+ * same page by opposite-signed, roughly-equal unexplained change, and
+ * turns each into either a shared "likely transfer" flag or a solo "no
+ * matching transfer found" flag — see birdTransfer.ts for the pairing
+ * logic itself. Never changes bird_population, never touches a previous
+ * day's row; only ever adds to a flock's OWN extraFlagReasons.
+ */
+export function applyBirdTransferDetection(flocks: ResolvedFlock[]): ResolvedFlock[] {
+  const candidates: TransferCandidate[] = flocks
+    .filter((f): f is ResolvedFlock & { transferCandidateDelta: number } => f.transferCandidateDelta !== null)
+    .map((f) => ({ label: f.displayLabelAsWritten, unexplainedDelta: f.transferCandidateDelta }));
+  const findings = detectBirdTransfers(candidates);
+  const findingByLabel = new Map(findings.map((f) => [f.label, f]));
+
+  return flocks.map((f) => {
+    if (f.transferCandidateDelta === null) return f;
+    const finding = findingByLabel.get(f.displayLabelAsWritten);
+    return {
+      ...f,
+      extraFlagReasons: finding ? [...f.extraFlagReasons, finding.note] : f.extraFlagReasons,
+      transferCandidateDelta: null,
+    };
+  });
+}
+
+// ===================== STAGE 6 =====================
 
 export interface PageChecksumResult {
   resolved: ResolvedFlock[];
@@ -472,27 +528,34 @@ export function applyPageChecksum(
   return { resolved: [...byLabel.values()], pageIssueText: buildPageIssueText(remainingFindings) };
 }
 
-// ===================== STAGE 6 =====================
+// ===================== STAGE 7 =====================
 
 /**
- * Runs strictly after stage 5 (never before — eggs_total may itself have
+ * Runs strictly after stage 6 (never before — eggs_total may itself have
  * just been auto-corrected there, and the true calculated HD depends on
  * the FINAL eggs_total/bird_population, not an earlier stage's). Per-flock,
  * no other row's data needed. Pure and non-mutating, same discipline as
  * every other stage — shallow-copies rather than editing `flocks` in
- * place.
+ * place. A gap beyond the clean tolerance that no candidate resolves
+ * (writtenHdCheck.ts's "ambiguous" kind) is now a real flag (owner
+ * request, 2026-10-12) — previously this case was silently dropped here.
  */
 export function applyWrittenHdCheck(flocks: ResolvedFlock[]): ResolvedFlock[] {
   return flocks.map((f) => {
     const calculatedHd = f.eggsTotal !== null && f.birdPopulation !== null ? calcHd(f.eggsTotal, f.birdPopulation) : null;
     const result = checkWrittenHdDigitAccuracy(f.hdPercentWritten, calculatedHd);
-    if (result.kind !== "auto_correct") return f;
-    return {
-      ...f,
-      hdPercentWritten: result.correctedWrittenHd,
-      hdPercentWrittenOriginal: f.hdPercentWritten,
-      autoCorrectionNotes: [...f.autoCorrectionNotes, result.note],
-    };
+    if (result.kind === "auto_correct") {
+      return {
+        ...f,
+        hdPercentWritten: result.correctedWrittenHd,
+        hdPercentWrittenOriginal: f.hdPercentWritten,
+        autoCorrectionNotes: [...f.autoCorrectionNotes, result.note],
+      };
+    }
+    if (result.kind === "ambiguous") {
+      return { ...f, extraFlagReasons: [...f.extraFlagReasons, result.note] };
+    }
+    return f;
   });
 }
 
@@ -515,8 +578,34 @@ export function applyWrittenHdCheck(flocks: ResolvedFlock[]): ResolvedFlock[] {
  * recorded "original" value doesn't have a matching note, so a FUTURE
  * version of this same class of bug fails loudly instead of silently
  * saving a value its own note doesn't describe.
+ *
+ * Narrowed (owner report, 2026-10-12) from taking a full ResolvedFlock to
+ * this smaller shape — a ResolvedFlock still satisfies it structurally, so
+ * the upload path (app/upload/actions.ts) is unaffected, but it also lets
+ * the MANUAL entry-screen save path (app/production/actions.ts) call the
+ * exact same check without needing a section/confidence/etc. it doesn't
+ * have. That screen is where the SAME class of divergence showed up again:
+ * BAB-2, 2026-08-07 (id 243) — the owner edited bird_population back to
+ * 15557 on /flagged's entry screen; the save only touched the plain field
+ * columns, leaving bird_population_original and auto_correction_note from
+ * the earlier automatic correction untouched, so the saved row's own note
+ * still claimed "15557 corrected to 15536" while 15557 was what got saved.
+ * See reconcileManualEdit below for the actual fix on that path.
  */
-export function assertAutoCorrectionNotesConsistent(flock: ResolvedFlock): void {
+export interface AutoCorrectionConsistencyInput {
+  displayLabelAsWritten: string;
+  mortality: number | null;
+  mortalityOriginal: number | null;
+  birdPopulation: number | null;
+  birdPopulationOriginal: number | null;
+  eggsTotal: number | null;
+  eggsTotalOriginal: number | null;
+  hdPercentWritten: number | null;
+  hdPercentWrittenOriginal: number | null;
+  autoCorrectionNotes: string[];
+}
+
+export function assertAutoCorrectionNotesConsistent(flock: AutoCorrectionConsistencyInput): void {
   const checks: [number | null, number | null, string][] = [
     [flock.mortalityOriginal, flock.mortality, "mortality"],
     [flock.birdPopulationOriginal, flock.birdPopulation, "bird_population"],
@@ -532,6 +621,57 @@ export function assertAutoCorrectionNotesConsistent(flock: ResolvedFlock): void 
       );
     }
   }
+}
+
+/**
+ * The actual fix for the 2026-10-12 BAB-2/id-243 incident described above:
+ * when a human saves a NEW value for an auto-correctable field that
+ * differs from whatever was saved for it before, any `*_original`/note
+ * pairing recorded for that field is now stale by definition — a manual
+ * save is the owner asserting ground truth directly, so it must clear
+ * that provenance rather than silently leave it to contradict the value
+ * being saved. Called once per field on every manual save; a no-op
+ * (returns the inputs unchanged) whenever the field wasn't touched or
+ * never had an auto-correction to begin with.
+ */
+export function reconcileManualEdit(
+  original: number | null,
+  previouslySavedValue: number | null,
+  newValue: number | null,
+  note: string | null
+): { original: number | null; note: string | null } {
+  if (original === null || previouslySavedValue === newValue) {
+    return { original, note };
+  }
+  const marker = `${original} corrected to ${previouslySavedValue}`;
+  return { original: null, note: note ? stripNoteSentence(note, marker) : null };
+}
+
+/**
+ * Removes exactly the sentence beginning with `marker` from `note` (every
+ * auto-correction note is written as "<marker>: <reasoning>." and multiple
+ * notes are simply joined with a space — see app/upload/actions.ts's own
+ * comment on this convention). Returns null if nothing is left.
+ */
+function stripNoteSentence(note: string, marker: string): string | null {
+  const idx = note.indexOf(marker);
+  if (idx === -1) return note;
+  const periodAfter = note.indexOf(". ", idx);
+  const end = periodAfter === -1 ? note.length : periodAfter + 1;
+  const stripped = (note.slice(0, idx) + note.slice(end)).trim().replace(/\s{2,}/g, " ");
+  return stripped === "" ? null : stripped;
+}
+
+/**
+ * Exact-duplicate notes (owner report, 2026-10-12: Aug 6 BAB-10/BAB-7 each
+ * had the SAME collision-guard sentence appear twice in one row's
+ * auto_correction_note) — happens when two separate discarded readings
+ * produce identical wording (e.g. a two-line Bal Bird block where BOTH
+ * lines were misread as the same suspect value). Preserves first-seen
+ * order; collapses only EXACT string duplicates, never near-duplicates.
+ */
+export function dedupeNotes(notes: string[]): string[] {
+  return [...new Set(notes)];
 }
 
 /**
