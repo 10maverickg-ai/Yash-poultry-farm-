@@ -31,6 +31,7 @@ import {
   type MortalityChecksumInput,
 } from "@/lib/extraction/pipeline";
 import { compareLabels } from "@/lib/naturalSort";
+import { extractAndSaveLedgerFeed, type FlockSectionTotals, type LedgerFeedResult } from "@/lib/extraction/ledgerFeedPipeline";
 
 export interface UploadOutcome {
   error: string | null;
@@ -78,11 +79,22 @@ export interface UploadOutcome {
     to: number;
     note: string;
   }[];
+  // Owner request, 2026-10-19: the egg ledger/feed box step runs AFTER
+  // Daily Production above and is best-effort — null means it never even
+  // ran (shouldn't happen) or threw before producing a result; check
+  // ledgerFeedIssue for that case. Never affects `error`/the rest of this
+  // outcome, which always reflects Daily Production alone.
+  ledgerFeed: LedgerFeedResult | null;
+  // Set when the ledger/feed step failed or timed out — the SAME text
+  // recorded to ledger_extraction_issues, so the owner sees it here too,
+  // without it being treated as this upload's own `error`.
+  ledgerFeedIssue: string | null;
 }
 
 const EMPTY: UploadOutcome = {
   error: null, technicalDetail: null, photoUrl: null, date: null,
   pageNotes: null, pageIssue: null, written: [], unresolved: [], autoCorrections: [],
+  ledgerFeed: null, ledgerFeedIssue: null,
 };
 
 // Every error shown to the end user must be plain, non-technical text —
@@ -233,6 +245,17 @@ export async function uploadAndExtractDailyProduction(
   // output first) — hoisted out here so the final return can still read it.
   let pageIssueText: string | null = null;
 
+  // Owner request, 2026-10-19: accumulated inside the Daily Production
+  // transaction below (same per-upload section tagging as the flocks
+  // themselves), then handed to the SEPARATE ledger/feed step that runs
+  // only after that transaction has committed — see the end of this
+  // function. flockIds empty means "nothing resolved for this section",
+  // which the ledger/feed resolve functions treat as "no cross-check data".
+  const sectionTotals: Record<"main" | "continuation", { flockIds: string[]; eggsSum: number; feedBagsSum: number }> = {
+    main: { flockIds: [], eggsSum: 0, feedBagsSum: 0 },
+    continuation: { flockIds: [], eggsSum: 0, feedBagsSum: 0 },
+  };
+
   try {
     await withTransaction(async (client) => {
       // Bug 9 (owner report, 2026-09-29): re-uploading a date must not leave
@@ -382,6 +405,22 @@ export async function uploadAndExtractDailyProduction(
       for (const flock of finalFlocks) {
         const ctx = chainByLabel.get(flock.displayLabelAsWritten);
         const flockInternalId = ctx?.flockInternalId ?? null;
+
+        // Owner request, 2026-10-19: which flocks belong to the "big"
+        // ledger/"BAB-1-7" feed box (main section) vs. the "small"
+        // ledger/"BAB-8-10" feed box (continuation section) for the
+        // upcoming, separate ledger/feed step — reusing the SAME per-upload
+        // section tagging this extraction already did, rather than storing
+        // a section column on daily_production itself (that table must
+        // behave exactly as it does today). Unresolved flocks (no match)
+        // are never counted — only what's actually about to be saved to
+        // daily_production counts as "the flock side" of that cross-check.
+        if (flockInternalId) {
+          const acc = sectionTotals[flock.section];
+          acc.flockIds.push(flockInternalId);
+          if (flock.eggsTotal !== null) acc.eggsSum += flock.eggsTotal;
+          if (flock.feedBags !== null) acc.feedBagsSum += flock.feedBags;
+        }
 
         if (flock.mortalityOriginal !== null) {
           autoCorrections.push({
@@ -666,6 +705,49 @@ export async function uploadAndExtractDailyProduction(
     return { ...EMPTY, photoUrl, error: friendly, technicalDetail: detail };
   }
 
+  // ===== Separate, best-effort step (owner request, 2026-10-19) — runs
+  // ONLY after Daily Production has already committed above, reading the
+  // SAME photo's egg stock ledger(s) and feed bag box(es). A failure or
+  // timeout here is caught here and recorded as a visible, re-runnable
+  // issue; it never affects the Daily Production result already decided
+  // (and returned on error above) — this step runs completely outside that
+  // transaction and that try/catch. =====
+  let ledgerFeedResult: LedgerFeedResult | null = null;
+  let ledgerFeedIssue: string | null = null;
+  try {
+    const toTotals = (acc: { flockIds: string[]; eggsSum: number; feedBagsSum: number }): FlockSectionTotals => ({
+      flockIds: acc.flockIds,
+      eggsSum: acc.flockIds.length > 0 ? acc.eggsSum : null,
+      feedBagsSum: acc.flockIds.length > 0 ? acc.feedBagsSum : null,
+    });
+    ledgerFeedResult = await extractAndSaveLedgerFeed(
+      ACTIVE_FARM,
+      date,
+      photoUrl,
+      photoBase64,
+      photoMediaType,
+      toTotals(sectionTotals.main),
+      toTotals(sectionTotals.continuation)
+    );
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    console.error(`[upload] ledger/feed extraction failed for ${date}:`, err);
+    ledgerFeedIssue = `Ledger/feed box not read: ${detail}. Re-run the upload to try again.`;
+    try {
+      await pool.query(
+        `INSERT INTO ledger_extraction_issues (farm_code, date, source_photo_url, issue_text)
+         VALUES ($1, $2, $3, $4)`,
+        [ACTIVE_FARM, date, photoUrl, ledgerFeedIssue]
+      );
+    } catch (issueErr) {
+      console.error(`[upload] failed to even record the ledger/feed issue for ${date}:`, issueErr);
+    }
+  }
+  if (ledgerFeedResult) {
+    revalidatePath("/egg-stock");
+    revalidatePath("/feed-bag-stock");
+  }
+
   revalidatePath("/production");
   revalidatePath("/flagged");
   revalidatePath("/records");
@@ -686,5 +768,7 @@ export async function uploadAndExtractDailyProduction(
     written,
     unresolved,
     autoCorrections,
+    ledgerFeed: ledgerFeedResult,
+    ledgerFeedIssue,
   };
 }

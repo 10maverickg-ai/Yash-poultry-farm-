@@ -111,7 +111,7 @@ export async function listFeedStockRecords(limit = 90): Promise<FeedStockRecord[
 
 // --- the flagged queue -------------------------------------------------------
 
-export type FlaggedSource = "production" | "egg_stock" | "feed_stock";
+export type FlaggedSource = "production" | "egg_stock" | "feed_stock" | "feed_bag_stock";
 
 export interface FlaggedItem {
   source: FlaggedSource;
@@ -130,11 +130,12 @@ export interface FlaggedItem {
 }
 
 export async function listFlagged(filter: DateFilter = {}): Promise<FlaggedItem[]> {
-  // egg_stock and feed_stock extraction aren't wired up yet (Phase 3 scope
-  // is Daily Production only), so they have no deleted_at column — the date
-  // filter still applies to them for consistent browsing, delete just isn't
-  // offered for those two sources.
-  const [prod, egg, feed] = await Promise.all([
+  // feed_stock (Table 6, mill-level raw material) extraction isn't wired up
+  // yet (Phase 3 scope is Daily Production + the egg ledger/feed bag box —
+  // owner request, 2026-10-19), so it has no deleted_at column — the date
+  // filter still applies for consistent browsing, delete just isn't offered
+  // for that one source.
+  const [prod, egg, feed, feedBag] = await Promise.all([
     pool.query(
       `SELECT id, date, display_label_as_written AS label, flag_reason, source_photo_url, sections_found
          FROM daily_production
@@ -144,9 +145,9 @@ export async function listFlagged(filter: DateFilter = {}): Promise<FlaggedItem[
       [ACTIVE_FARM, filter.from ?? null, filter.to ?? null]
     ),
     pool.query(
-      `SELECT id, date, flag_reason, source_photo_url
+      `SELECT id, date, section, flag_reason, source_photo_url
          FROM daily_egg_stock_summary
-        WHERE farm_code = $1 AND flagged AND NOT reviewed_by_owner
+        WHERE farm_code = $1 AND flagged AND NOT reviewed_by_owner AND deleted_at IS NULL
           AND ($2::date IS NULL OR date >= $2) AND ($3::date IS NULL OR date <= $3)
         ORDER BY date DESC LIMIT 100`,
       [ACTIVE_FARM, filter.from ?? null, filter.to ?? null]
@@ -155,6 +156,14 @@ export async function listFlagged(filter: DateFilter = {}): Promise<FlaggedItem[
       `SELECT id, date, material_name, flag_reason, source_photo_url
          FROM feed_stock
         WHERE farm_code = $1 AND flagged AND NOT reviewed_by_owner
+          AND ($2::date IS NULL OR date >= $2) AND ($3::date IS NULL OR date <= $3)
+        ORDER BY date DESC LIMIT 100`,
+      [ACTIVE_FARM, filter.from ?? null, filter.to ?? null]
+    ),
+    pool.query(
+      `SELECT id, date, flock_group, flag_reason, source_photo_url
+         FROM daily_feed_bag_stock
+        WHERE farm_code = $1 AND flagged AND NOT reviewed_by_owner AND deleted_at IS NULL
           AND ($2::date IS NULL OR date >= $2) AND ($3::date IS NULL OR date <= $3)
         ORDER BY date DESC LIMIT 100`,
       [ACTIVE_FARM, filter.from ?? null, filter.to ?? null]
@@ -176,7 +185,7 @@ export async function listFlagged(filter: DateFilter = {}): Promise<FlaggedItem[
       source: "egg_stock" as const,
       id: r.id,
       date: r.date,
-      title: "Egg Stock Ledger",
+      title: `Egg Stock Ledger (${r.section})`,
       flag_reason: r.flag_reason,
       entry_href: `/egg-stock?date=${r.date}`,
       source_photo_url: r.source_photo_url,
@@ -189,6 +198,16 @@ export async function listFlagged(filter: DateFilter = {}): Promise<FlaggedItem[
       title: `Feed Stock — ${r.material_name}`,
       flag_reason: r.flag_reason,
       entry_href: `/feed-stock?date=${r.date}`,
+      source_photo_url: r.source_photo_url,
+      sections_found: null,
+    })),
+    ...feedBag.rows.map((r) => ({
+      source: "feed_bag_stock" as const,
+      id: r.id,
+      date: r.date,
+      title: `Feed Bag Stock — ${r.flock_group}`,
+      flag_reason: r.flag_reason,
+      entry_href: `/feed-bag-stock?date=${r.date}`,
       source_photo_url: r.source_photo_url,
       sections_found: null,
     })),
@@ -248,6 +267,25 @@ export async function listOpenPageIssues(filter: DateFilter = {}): Promise<PageI
   const { rows } = await pool.query(
     `SELECT id, date, source_photo_url, issue_text
        FROM daily_production_page_issues
+      WHERE farm_code = $1 AND NOT reviewed_by_owner AND deleted_at IS NULL
+        AND ($2::date IS NULL OR date >= $2) AND ($3::date IS NULL OR date <= $3)
+      ORDER BY date DESC
+      LIMIT 50`,
+    [ACTIVE_FARM, filter.from ?? null, filter.to ?? null]
+  );
+  return rows;
+}
+
+// Egg-ledger/feed-box extraction failures (owner request, 2026-10-19) — the
+// SEPARATE, best-effort vision call that runs after Daily Production has
+// already saved. A failure here never touches Daily Production; this is
+// how the owner sees "this upload's ledger/feed wasn't read, re-run it"
+// without it being confused for an actual data problem — same banner
+// pattern as listOpenPageIssues above, different table (migration 0020).
+export async function listOpenLedgerExtractionIssues(filter: DateFilter = {}): Promise<PageIssue[]> {
+  const { rows } = await pool.query(
+    `SELECT id, date, source_photo_url, issue_text
+       FROM ledger_extraction_issues
       WHERE farm_code = $1 AND NOT reviewed_by_owner AND deleted_at IS NULL
         AND ($2::date IS NULL OR date >= $2) AND ($3::date IS NULL OR date <= $3)
       ORDER BY date DESC

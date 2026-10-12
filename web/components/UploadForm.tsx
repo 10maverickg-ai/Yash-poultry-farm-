@@ -134,6 +134,56 @@ export function UploadForm() {
             </div>
           )}
 
+          {result.ledgerFeedIssue && (
+            <div className="flag-banner">
+              {result.ledgerFeedIssue}
+            </div>
+          )}
+
+          {result.ledgerFeed && result.ledgerFeed.pageNotes && (
+            <p className="muted" style={{ margin: 0 }}>
+              Ledger/feed model notes: {result.ledgerFeed.pageNotes}
+            </p>
+          )}
+
+          {result.ledgerFeed &&
+            (result.ledgerFeed.eggAutoCorrections.length > 0 || result.ledgerFeed.feedAutoCorrections.length > 0) && (
+              <div className="saved-banner">
+                <strong>
+                  Egg ledger / feed box: auto-corrected{" "}
+                  {result.ledgerFeed.eggAutoCorrections.length + result.ledgerFeed.feedAutoCorrections.length} value
+                  {result.ledgerFeed.eggAutoCorrections.length + result.ledgerFeed.feedAutoCorrections.length === 1 ? "" : "s"}
+                </strong>
+                <ul style={{ margin: "0.4rem 0 0", paddingLeft: "1.2rem" }}>
+                  {result.ledgerFeed.eggAutoCorrections.map((c, i) => (
+                    <li key={`egg-${i}`}>
+                      {c.section} ledger
+                      <br />
+                      <span className="muted">{c.note}</span>
+                    </li>
+                  ))}
+                  {result.ledgerFeed.feedAutoCorrections.map((c, i) => (
+                    <li key={`feed-${i}`}>
+                      {c.flockGroup} feed box
+                      <br />
+                      <span className="muted">{c.note}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+          {result.ledgerFeed && (result.ledgerFeed.eggFlags.length > 0 || result.ledgerFeed.feedFlags.length > 0) && (
+            <div className="flag-banner">
+              {result.ledgerFeed.eggFlags.map((f, i) => (
+                <div key={`egg-${i}`}>{f.section} ledger: {f.flagReason}</div>
+              ))}
+              {result.ledgerFeed.feedFlags.map((f, i) => (
+                <div key={`feed-${i}`}>{f.flockGroup} feed box: {f.flagReason}</div>
+              ))}
+            </div>
+          )}
+
           {result.written.length > 0 && (
             <div className="table-wrap">
               <table>

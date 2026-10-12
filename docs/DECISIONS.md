@@ -1880,6 +1880,181 @@ the new/updated regression fixtures. No change to the extraction prompt,
 per the owner's explicit instruction. Did not touch any existing bad
 production row (ids 193, 237, 243) — left for the owner's own decision.
 
+## Phase 3 increment 14: extend extraction to the egg stock ledger and feed bag box (2026-10-19)
+
+The owner's full worked spec (two parallel egg ledgers, two feed bag boxes,
+five checks each, single-digit-repair-or-flag resolution) implemented as a
+genuinely SEPARATE step, after Daily Production's prompt/few-shot
+examples/stages 1-7 — none of which were touched. Schema plan was shown
+and two open points confirmed with the owner before any migration ran: (1)
+keep `daily_egg_stock_entries.amount_eggs` SIGNED, matching the existing
+convention; (2) rework `/egg-stock`'s manual entry screen to be
+two-section-aware now, not later.
+
+### Schema (migration 0020, applied and verified live)
+
+- `daily_egg_stock_summary`: `+ section` (`'small'`/`'big'`, NOT NULL,
+  unique key becomes `(farm_code, date, section)` via a partial index —
+  there was previously no way to hold the farm's two parallel ledgers for
+  one day at all), `+ opening_balance_eggs` and `+ total_line_eggs` (the
+  register's own OB and written-total figures, both previously
+  untracked — `total_eggs_produced` stays the day's PRODUCTION figure,
+  never the total), one `*_original` column per auto-correctable field,
+  `+ auto_correction_note`, `+ deleted_at`. `grade_*` columns untouched,
+  per the owner's explicit instruction.
+- `daily_egg_stock_entries`: `+ amount_eggs_original`,
+  `+ auto_correction_note`. Deliberately no own `deleted_at` — an entry's
+  lifecycle is tied to its parent summary row (always read via a join to
+  a non-deleted summary), not an oversight.
+- `egg_stock_entry_category` enum: `+ 'local_sale'`, `+ 'labour_take'`.
+- `daily_feed_bag_stock`: `+ deleted_at`, one `*_original` column per one
+  of its seven raw fields (more columns than Daily Production's four, but
+  the SAME one-column-per-field convention, kept consistent rather than
+  inventing a second pattern for this one table), `+ auto_correction_note`.
+  Its existing `UNIQUE(farm_code, flock_group, date)` becomes a partial
+  index `WHERE deleted_at IS NULL`.
+- New table `ledger_extraction_issues`, an exact mirror of
+  `daily_production_page_issues` — a failed/timed-out ledger/feed read is
+  recorded here, never conflated with an actual Daily Production issue.
+- New table `daily_egg_stock_summary_flocks`, an exact mirror of the
+  EXISTING `daily_feed_bag_stock_flocks` (migration 0008) — section
+  membership is captured explicitly per upload, never guessed from a
+  BAB-number range (which shifts under renumbering), and Daily Production
+  itself gets no new column at all, keeping its own behavior unchanged.
+- `fn_validate_egg_stock_summary` and `fn_validate_feed_bag_stock`
+  rewritten/extended for the real 5-point checklists — this is the SINGLE
+  source of `flagged`/`flag_reason` for both the manual entry screens and
+  the new auto-extraction path (the TS-side resolve functions only ever
+  try to FIX a value before writing; whether the result is flagged, and
+  with what wording, is decided here, the same split
+  `fn_validate_daily_production` already has with `pipeline.ts`).
+  `fn_recompute_egg_stock_running_balances` now starts from the written
+  total line (falling back to opening+production, then production alone)
+  instead of production alone, since opening didn't exist as a concept
+  before.
+
+**Verified live against production Supabase**, not just by inspection:
+reproduced the owner's own Aug 2 big-ledger arithmetic (closing 185,550 —
+the owner explicitly hadn't read this off the photo and asked for it to be
+checked; confirmed by hand AND by running the real validation function),
+confirmed a deliberately wrong closing (185,540) correctly flags with all
+three expected reasons, and confirmed the check-5 previous-day message
+("opening_balance_eggs 185520 does not match the previous day's closing
+balance 185550 for the big ledger") fires exactly as specified.
+
+### Extraction
+
+`lib/extraction/ledgerFeedExtraction.ts`: a second, separate Anthropic
+call (`extractLedgerAndFeed`), reading ONLY the egg ledger(s) and feed
+box(es) on the same already-uploaded photo — raw numbers and per-field
+confidence only, including a category GUESS per deduction line (reading/
+classifying a label is not arithmetic, so this is consistent with how
+`daily_egg_stock_entries.category` was already described as "AI-
+classified" before this PR — but closing balances, totals, and any
+repair are always decided in code, never asked of the model). No
+few-shot examples added, per the owner's "only if needed after testing" —
+there was no way to test against a real photo this session (no live
+`ANTHROPIC_API_KEY`), stated plainly rather than guessed at.
+
+### Resolution (pure, no database)
+
+- `lib/extraction/digitRepair.ts` (`findSingleDigitRepair`): the generic
+  "exactly one single-digit change to one named field repairs every
+  currently-failing check" search, shared by both the egg ledger and the
+  feed box — reuses `digitEvidence.ts`'s existing confusion pairs. The
+  search space is restricted to the caller's own fields ONLY, which is
+  what structurally enforces "never change Daily Production from here,
+  never touch the previous day's row" — those are passed in only as fixed
+  comparison targets inside a check closure, never as candidate fields.
+- `lib/extraction/eggLedgerResolve.ts` / `feedBoxResolve.ts`: the five
+  checks each, built on top of `findSingleDigitRepair`. Sign convention
+  note: `eggLedgerResolve.ts` works entirely in the register's own
+  POSITIVE terms (a deduction's magnitude, never its signed DB value) —
+  `digitSubstitutionCandidates` only ever returns positive candidates, so
+  this is also what makes the repair search correct for deductions, not
+  just a readability choice. The existing signed-storage convention is
+  applied only at the write boundary (`writeLedgerFeed.ts`), per the
+  owner's own confirmed answer to keep it.
+- `lib/extraction/writeLedgerFeed.ts` / `ledgerFeedPipeline.ts`: the
+  persistence + orchestration layer, parallel to `writeDailyProduction.ts`.
+  Which flocks belong to the "big"/"small" ledger (and matching feed
+  group) is taken directly from the SAME per-upload section tagging
+  (`main`/`continuation`) the Daily Production extraction already did
+  for THIS upload — reusing in-memory data from the same request, rather
+  than adding a persisted column to `daily_production` or guessing from a
+  label range.
+
+### Wiring (never blocks or changes Daily Production)
+
+`app/upload/actions.ts`: the ledger/feed step is a separate
+`try`/`catch` placed AFTER the Daily Production transaction's own
+`try`/`catch` has already returned (on success OR failure). Any failure —
+the vision call itself, a timeout (a 90s per-request timeout is set
+explicitly, rather than relying on the SDK's much longer default), a
+write — is caught there alone and recorded as a `ledger_extraction_issues`
+row ("ledger not read, re-run"); it is never rethrown, and nothing about
+it can affect the Daily Production result already decided and returned
+on error above this point.
+
+**What's verified vs. not, stated plainly:** the resolve-level logic (all
+five checks, single-digit repair, ambiguous-stays-flagged) is verified
+directly in `scripts/regression-egg-ledger-feed-box.ts` against the
+owner's own real numbers. The "a ledger/feed failure never blocks Daily
+Production" guarantee is verified by the actual CODE STRUCTURE (read
+`app/upload/actions.ts`) plus one concrete, reproducible failure in this
+sandbox (`extractLedgerAndFeed` throwing because no `ANTHROPIC_API_KEY`
+is configured here — exactly the failure mode this guarantee exists for)
+— not by a full live end-to-end upload, since this session has no live
+database connection or Anthropic API key to run one. The model's own real
+extraction behavior against an actual photo is similarly unverified this
+session.
+
+### Display
+
+`/egg-stock` reworked to two fixed section cards (small/big), mirroring
+`/feed-bag-stock`'s existing multi-group-card pattern — kept intentionally
+minimal/functional only, per the owner's explicit answer, no layout
+changes beyond what two-section-awareness requires. `/flagged` gets a new
+"Ledger/feed box not read" banner (mirroring the existing page-issues
+banner) and now also lists flagged `daily_feed_bag_stock` rows (it
+already listed `daily_egg_stock_summary` rows before this PR, just without
+a `deleted_at` filter, now added). The upload result page shows ledger/feed
+auto-corrections and flags the same way Daily Production's already are.
+
+### Also in this PR: the deferred next-day chain re-check
+
+From the prior "Round 2 accuracy fixes" PR, item 2's second half: when a
+PAST row's mortality/eggs_total/bird_population changes (a human edit on
+the entry screen, reached directly or via `/flagged`), the day-to-day
+bal-bird chain the NEXT day's already-saved row was checked against may no
+longer hold. `lib/extraction/nextDayRecheck.ts`
+(`checkNextDayChainStillHolds`) re-runs that exact chain check against the
+next day's row using the just-saved value as the new "previous day" input;
+`app/production/actions.ts`'s `saveProduction` fetches the next day's row
+and applies the result as a flag ONLY — the next day's row is never
+auto-edited. A fixed, substring-matched marker
+(`NEXT_DAY_CHAIN_FLAG_PREFIX`) lets a re-save replace or clear this
+SPECIFIC flag without disturbing any other flag reason already on that
+row (`stripNextDayChainFlag`). Verified directly against the real BAB-2
+Aug5/Aug6 numbers from the prior PR's own stale-chain-cascade incident:
+editing Aug 5 back to the stale, wrong 15551 correctly flags Aug 6;
+editing it to the true 15572 clears that flag again.
+
+**Scope discipline:** touched `lib/extraction/digitRepair.ts`,
+`eggLedgerResolve.ts`, `feedBoxResolve.ts`, `ledgerFeedExtraction.ts`,
+`writeLedgerFeed.ts`, `ledgerFeedPipeline.ts`, `nextDayRecheck.ts` (all
+new), `lib/eggstock-types.ts`, `lib/eggstock.ts`, `lib/feedBagStock.ts`,
+`lib/records.ts`, `components/EggStockForm.tsx`,
+`components/FeedBagStockForm.tsx`, `components/UploadForm.tsx`,
+`app/egg-stock/actions.ts`, `app/feed-bag-stock/actions.ts`,
+`app/flagged/actions.ts`, `app/flagged/page.tsx`,
+`app/production/actions.ts`, `app/upload/actions.ts`, migration 0020, and
+the new regression fixture. Zero changes to `lib/extraction/dailyProduction.ts`
+(the prompt, few-shot examples, and schema), `lib/extraction/pipeline.ts`'s
+stages 1-7, or any Daily Production SQL function beyond what's needed —
+confirmed via `git status` and by re-running every existing Daily
+Production regression fixture unchanged (all still pass).
+
 ## Noted for later phases (no Phase 1 action)
 
 - **Trays-vs-eggs magnitude heuristic (owner addendum, 2026-07-09):** register

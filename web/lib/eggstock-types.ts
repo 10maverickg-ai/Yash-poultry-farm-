@@ -4,7 +4,9 @@
 
 export const ENTRY_CATEGORIES = [
   "sale",
+  "local_sale",
   "breakage",
+  "labour_take",
   "gift",
   "cross_farm_adjustment",
   "production_addition",
@@ -12,32 +14,66 @@ export const ENTRY_CATEGORIES = [
 ] as const;
 export type EntryCategory = (typeof ENTRY_CATEGORIES)[number];
 
+// The farm runs TWO parallel ledgers on the same page (owner-confirmed,
+// 2026-10-19): "big" under the BAB-1..7 table, "small" under the BAB-8..10
+// table — see migration 0020.
+export const EGG_STOCK_SECTIONS = ["small", "big"] as const;
+export type EggStockSection = (typeof EGG_STOCK_SECTIONS)[number];
+
 export interface EggStockEntry {
   id: number;
   sequence_order: number;
   label_as_written: string;
   category: EntryCategory | null;
   amount_eggs: number;
+  amount_eggs_original: number | null;
+  auto_correction_note: string | null;
   running_balance_after: number | null;
   linked_sale_id: number | null;
 }
 
-export interface EggStockDay {
-  summary: null | {
-    id: number;
-    total_eggs_produced: number | null;
-    grade_13_eggs: number | null;
-    grade_14_eggs: number | null;
-    grade_15_eggs: number | null;
-    grade_15plus_eggs: number | null;
-    closing_balance_eggs: number | null;
-    closing_balance_trays: string | null; // pg numeric
-    flagged: boolean;
-    flag_reason: string | null;
-  };
+export interface EggStockSectionSummary {
+  id: number;
+  section: EggStockSection;
+  opening_balance_eggs: number | null;
+  opening_balance_eggs_original: number | null;
+  total_eggs_produced: number | null;
+  total_eggs_produced_original: number | null;
+  total_line_eggs: number | null;
+  total_line_eggs_original: number | null;
+  grade_13_eggs: number | null;
+  grade_14_eggs: number | null;
+  grade_15_eggs: number | null;
+  grade_15plus_eggs: number | null;
+  closing_balance_eggs: number | null;
+  closing_balance_eggs_original: number | null;
+  closing_balance_trays: string | null; // pg numeric
+  auto_correction_note: string | null;
+  flagged: boolean;
+  flag_reason: string | null;
+}
+
+export interface ActiveEggFlockOption {
+  flock_internal_id: string;
+  display_label: string;
+  eggs_total: number | null;
+}
+
+export interface EggStockSectionDay {
+  section: EggStockSection;
+  summary: EggStockSectionSummary | null;
   entries: EggStockEntry[];
-  productionSum: number | null; // SUM of that date's daily_production.eggs_total
-  previousClosing: number | null; // most recent earlier day's closing balance
+  // SUM of eggs_total for THIS section's linked flocks on this date (null
+  // if nothing linked yet) — the check 4 cross-check.
+  linkedProductionSum: number | null;
+  // Most recent earlier day's closing balance for this SAME section.
+  previousClosing: number | null;
+  linkedFlockIds: string[];
+}
+
+export interface EggStockDay {
+  sections: EggStockSectionDay[]; // always both "small" and "big", one card each even if unsaved
+  activeFlocks: ActiveEggFlockOption[];
 }
 
 export interface SaleRow {

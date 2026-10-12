@@ -6,12 +6,20 @@ export interface FeedBagGroupRow {
   id: number;
   flock_group: string;
   opening_balance_bags: number | null;
+  opening_balance_bags_original: number | null;
   produced_bags: number | null;
+  produced_bags_original: number | null;
   total_bags: number | null;
+  total_bags_original: number | null;
   consumed_bags: number | null;
+  consumed_bags_original: number | null;
   mill_inventory_bags: number | null;
+  mill_inventory_bags_original: number | null;
   shed_inventory_bags: number | null;
+  shed_inventory_bags_original: number | null;
   closing_balance_bags: number | null;
+  closing_balance_bags_original: number | null;
+  auto_correction_note: string | null;
   flagged: boolean;
   flag_reason: string | null;
   linked_flock_ids: string[];
@@ -35,16 +43,22 @@ export interface FeedBagStockDay {
 export async function getFeedBagStockDay(date: string): Promise<FeedBagStockDay> {
   const [groupsRes, flocksRes, namesRes] = await Promise.all([
     pool.query(
-      `SELECT g.id, g.flock_group, g.opening_balance_bags, g.produced_bags,
-              g.total_bags, g.consumed_bags, g.mill_inventory_bags,
-              g.shed_inventory_bags, g.closing_balance_bags, g.flagged, g.flag_reason,
+      `SELECT g.id, g.flock_group,
+              g.opening_balance_bags, g.opening_balance_bags_original,
+              g.produced_bags, g.produced_bags_original,
+              g.total_bags, g.total_bags_original,
+              g.consumed_bags, g.consumed_bags_original,
+              g.mill_inventory_bags, g.mill_inventory_bags_original,
+              g.shed_inventory_bags, g.shed_inventory_bags_original,
+              g.closing_balance_bags, g.closing_balance_bags_original,
+              g.auto_correction_note, g.flagged, g.flag_reason,
               coalesce(
                 array_agg(l.flock_internal_id) FILTER (WHERE l.flock_internal_id IS NOT NULL),
                 '{}'
               ) AS linked_flock_ids
          FROM daily_feed_bag_stock g
          LEFT JOIN daily_feed_bag_stock_flocks l ON l.feed_bag_stock_id = g.id
-        WHERE g.farm_code = $1 AND g.date = $2
+        WHERE g.farm_code = $1 AND g.date = $2 AND g.deleted_at IS NULL
         GROUP BY g.id
         ORDER BY g.flock_group`,
       [ACTIVE_FARM, date]
@@ -63,7 +77,7 @@ export async function getFeedBagStockDay(date: string): Promise<FeedBagStockDay>
     ),
     pool.query(
       `SELECT DISTINCT flock_group FROM daily_feed_bag_stock
-        WHERE farm_code = $1 ORDER BY flock_group`,
+        WHERE farm_code = $1 AND deleted_at IS NULL ORDER BY flock_group`,
       [ACTIVE_FARM]
     ),
   ]);

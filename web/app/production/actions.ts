@@ -16,6 +16,7 @@ import {
   assertAutoCorrectionNotesConsistent,
   reconcileManualEdit,
 } from "@/lib/extraction/pipeline";
+import { checkNextDayChainStillHolds, stripNextDayChainFlag } from "@/lib/extraction/nextDayRecheck";
 
 // Saves the whole day's sheet in one transaction: one upsert per flock that
 // has any data entered (a fully blank flock card = not entered yet, skipped —
@@ -179,6 +180,57 @@ export async function saveProduction(
           [rows[0].id]
         );
         savedCount += 1;
+
+        // Owner request, 2026-10-19 (deferred from the "Round 2 accuracy
+        // fixes" PR): mortality/eggs_total/bird_population just changed
+        // (either edited away from what was saved, or saved for the first
+        // time) — the day-to-day bal-bird chain the NEXT day's already-
+        // saved row was checked against may no longer hold. Re-run that
+        // check now and flag the NEXT day's row if so — NEVER auto-edit it,
+        // same rule as every other chain check in this codebase.
+        const changed =
+          !existing ||
+          existing.mortality !== mortality ||
+          existing.eggs_total !== eggsTotal ||
+          existing.bird_population !== birdPopulation;
+        if (changed) {
+          const { rows: nextRows } = await client.query(
+            `SELECT id, mortality, eggs_total, bird_population, hd_percent_written, flag_reason
+               FROM daily_production
+              WHERE flock_internal_id = $1 AND date = $2::date + 1 AND deleted_at IS NULL`,
+            [flockId, date]
+          );
+          const nextRow = nextRows[0] as
+            | {
+                id: number;
+                mortality: number | null;
+                eggs_total: number | null;
+                bird_population: number | null;
+                hd_percent_written: string | null;
+                flag_reason: string | null;
+              }
+            | undefined;
+          if (nextRow) {
+            const flagText = checkNextDayChainStillHolds(
+              {
+                mortality: nextRow.mortality,
+                eggsTotal: nextRow.eggs_total,
+                birdPopulation: nextRow.bird_population,
+                hdPercentWritten: nextRow.hd_percent_written != null ? Number(nextRow.hd_percent_written) : null,
+              },
+              birdPopulation
+            );
+            const keptReasons = stripNextDayChainFlag(nextRow.flag_reason);
+            const newReasons = flagText ? [...keptReasons, flagText] : keptReasons;
+            const newFlagReason = newReasons.length > 0 ? newReasons.join("; ") : null;
+            if (newFlagReason !== nextRow.flag_reason) {
+              await client.query(
+                `UPDATE daily_production SET flagged = $2, flag_reason = $3, reviewed_by_owner = false WHERE id = $1`,
+                [nextRow.id, newFlagReason !== null, newFlagReason]
+              );
+            }
+          }
+        }
       }
 
       if (savedCount === 0)
@@ -215,5 +267,6 @@ export async function saveProduction(
     return { error: errorMessage(err), values: formValues(formData) };
   }
   revalidatePath("/production");
+  revalidatePath("/flagged");
   redirect(`/production?date=${date}&saved=1`);
 }
