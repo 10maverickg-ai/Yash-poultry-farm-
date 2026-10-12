@@ -106,6 +106,9 @@ export function FeedBagStockForm({
           savedFlagReason={
             day.groups.find((g) => g.flock_group === card.groupName)?.flag_reason
           }
+          savedAutoCorrectionNote={
+            day.groups.find((g) => g.flock_group === card.groupName)?.auto_correction_note
+          }
           onChange={(patch) => setCard(card.key, patch)}
           onRemove={() => setCards((cs) => cs.filter((c) => c.key !== card.key))}
         />
@@ -131,6 +134,7 @@ function GroupCardFields({
   knownGroupNames,
   savedFlagged,
   savedFlagReason,
+  savedAutoCorrectionNote,
   onChange,
   onRemove,
 }: {
@@ -140,6 +144,7 @@ function GroupCardFields({
   knownGroupNames: string[];
   savedFlagged?: boolean;
   savedFlagReason?: string | null;
+  savedAutoCorrectionNote?: string | null;
   onChange: (patch: Partial<GroupCard>) => void;
   onRemove: () => void;
 }) {
@@ -184,6 +189,9 @@ function GroupCardFields({
       </h2>
       {savedFlagged && savedFlagReason && (
         <div className="flag-banner">{savedFlagReason}</div>
+      )}
+      {savedAutoCorrectionNote && (
+        <p className="muted" style={{ margin: 0 }}>{savedAutoCorrectionNote}</p>
       )}
       <label className="field">
         <span>Group name</span>

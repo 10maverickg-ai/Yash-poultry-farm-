@@ -12,6 +12,7 @@ const TABLES: Record<FlaggedSource, string> = {
   production: "daily_production",
   egg_stock: "daily_egg_stock_summary",
   feed_stock: "feed_stock",
+  feed_bag_stock: "daily_feed_bag_stock",
 };
 
 // "Mark reviewed" acknowledges a flag that reflects a real event rather than
@@ -48,6 +49,28 @@ export async function markPageIssueReviewed(id: number) {
 export async function deletePageIssue(id: number) {
   await pool.query(
     `UPDATE daily_production_page_issues SET deleted_at = now() WHERE id = $1 AND farm_code = $2 AND deleted_at IS NULL`,
+    [id, ACTIVE_FARM]
+  );
+  revalidatePath("/flagged");
+  redirect("/flagged");
+}
+
+// Egg-ledger/feed-box extraction failures (migration 0020, owner request
+// 2026-10-19) — same reviewed/deleted lifecycle as page issues above, own
+// small table so a failed ledger/feed read can be acknowledged or dismissed
+// independently of any Daily Production flag.
+export async function markLedgerIssueReviewed(id: number) {
+  await pool.query(
+    `UPDATE ledger_extraction_issues SET reviewed_by_owner = true WHERE id = $1 AND farm_code = $2`,
+    [id, ACTIVE_FARM]
+  );
+  revalidatePath("/flagged");
+  redirect("/flagged");
+}
+
+export async function deleteLedgerIssue(id: number) {
+  await pool.query(
+    `UPDATE ledger_extraction_issues SET deleted_at = now() WHERE id = $1 AND farm_code = $2 AND deleted_at IS NULL`,
     [id, ACTIVE_FARM]
   );
   revalidatePath("/flagged");
