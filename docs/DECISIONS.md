@@ -2170,6 +2170,118 @@ fixtures. No schema/migration change, no change to any extraction prompt,
 no change to any stage's actual correction/flagging logic — only defensive
 input guards and error-message text.
 
+## Upload page: iPad/iPhone Safari file picker, HEIC, and size limits (2026-10-13)
+
+Owner request: on iPad/iPhone Safari, the photo field must offer Photo
+Library and Choose File, not just the camera, and photos picked from the
+Photo Library can be HEIC — confirm that's handled end to end.
+
+**1. File picker.** `components/UploadForm.tsx`'s file input had
+`capture="environment"`, which forces iOS/iPadOS Safari straight into the
+camera and hides Photo Library/Choose File entirely. Removed. `accept`
+changed from `"image/*"` to `"image/*,.heic,.heif"` — the explicit
+extensions are needed because some browsers don't reliably map `.heic`/
+`.heif` to an `image/*` MIME type on their own, which can otherwise hide a
+HEIC file from an `image/*`-only accept filter.
+
+**2. HEIC, traced end to end.** Since iOS 13, Safari hands a Photo Library
+HEIC pick to the page as the ORIGINAL HEIC file, not an auto-converted
+JPEG — so this is a real, common case, not an edge case. Traced the whole
+path: `UploadForm.tsx` → `compressImageForUpload` (`lib/compressImage.ts`)
+→ `uploadRegisterPhoto` (`lib/storage.ts`, just stores bytes, doesn't care
+about format) → `app/upload/actions.ts`'s `photoMediaType = file.type ||
+"image/jpeg"` → `extractDailyProduction` (`lib/extraction/dailyProduction.ts`)
+→ the Anthropic API call, which only accepts `image/jpeg`, `image/png`,
+`image/gif`, `image/webp`. A raw HEIC file reaching that last step fails
+the API call outright — caught by the existing "extraction call failed"
+catch, but surfaced as a generic "something went wrong reading this
+photo" with no hint that the actual problem is the file format, not photo
+quality, and that retrying the same photo can never work.
+
+Found a second, specific bug in `compressImageForUpload` itself:
+`if (!blob || blob.size >= file.size) return file;` discarded the
+converted JPEG and kept the ORIGINAL file whenever the re-encode wasn't
+smaller — which HEIC commonly triggers, since HEIC generally compresses
+better than an equivalent-quality JPEG. So even on a browser that CAN
+decode HEIC (confirmed: Safari can, via the OS's native image decoder;
+Chromium/Android generally cannot, having no built-in HEIC codec), the
+function could still silently hand back the original, unusable HEIC file
+instead of the JPEG it had just successfully produced.
+
+Fixed both failure modes in `compressImageForUpload`:
+- A file whose declared type isn't one of the four API-accepted types
+  (`ANTHROPIC_SUPPORTED_TYPES`) is now ALWAYS converted to JPEG when
+  decode succeeds, regardless of the size comparison — there is no
+  "smaller but still unusable" option for it.
+- If decode genuinely fails for such a file (the browser can't read HEIC
+  at all), it now throws a new `UnsupportedPhotoFormatError` with a clear,
+  actionable message (names HEIC specifically when the type/extension
+  looks like HEIC, points at the iPhone's Camera → Formats → "Most
+  Compatible" setting) instead of silently handing back a file that can
+  only ever fail later. `UploadForm.tsx`'s `handleFileChange` catches it
+  and shows the message via the existing `clientError` banner, clearing
+  the input — the same UX pattern already used for "photo too large."
+- For a file already in an API-safe format, every existing behavior is
+  byte-for-byte unchanged: same size-comparison fallback, same silent
+  "keep original on any other decode failure" path.
+
+**3. Size vs. the server's body limit.** `next.config.ts`'s
+`serverActions.bodySizeLimit` is `8mb`; `UploadForm.tsx`'s own
+pre-submit `MAX_UPLOAD_BYTES` check is `7mb`. `compressImageForUpload`'s
+defaults (`maxDimension: 2000`, `quality: 0.9`) already downscale any
+larger photo to at most 2000px on the long edge before upload — below the
+owner's suggested ~2500px legibility floor, but that 2000px figure was
+itself a deliberate choice from the 2026-09-28 digit-accuracy pass (bumped
+up from 1600px specifically because smaller was hurting digit legibility),
+so it already clears the bar this request is checking for; left
+unchanged, per "don't change anything else." Verified empirically (real
+Chromium, not just by inspection): a deliberately large, visually busy
+4000×3000 synthetic photo compresses to ~220KB after the existing
+pipeline — far under both limits, with comfortable headroom even for a
+much busier real register photo.
+
+**Testing — what WAS verified, concretely, in this session:**
+- A temporary, not-committed Playwright + headless Chromium harness
+  (this sandbox has Chromium pre-installed but no WebKit/Safari) ran the
+  ACTUAL `lib/compressImage.ts` code (compiled, not reimplemented) against:
+  a large ordinary JPEG (unchanged behavior: resized, smaller, still
+  comfortably under both size limits); a small file labeled
+  `image/heic` whose bytes decode successfully (standing in for "a
+  browser that CAN decode real HEIC," i.e. Safari) — confirmed it is
+  ALWAYS converted to JPEG now, even though the converted copy is BIGGER
+  than the tiny original, which is exactly the bug being fixed; a
+  genuinely undecodable `image/heic`-labeled file (standing in for a
+  browser with no HEIC codec at all, e.g. Chromium/Android) — confirmed it
+  throws `UnsupportedPhotoFormatError` with a message naming HEIC and the
+  Settings fix, rather than silently returning garbage; and a corrupt but
+  already-`image/jpeg`-typed file — confirmed the old silent-fallback
+  behavior is completely unchanged for formats the API already accepts.
+- The actual rendered `/upload` page (real Next.js dev server, real
+  Chromium) was driven end to end: confirmed the file input's live DOM
+  attributes (`accept="image/*,.heic,.heif"`, no `capture`); confirmed
+  selecting an ordinary photo shows no error and the submit button
+  re-enables; confirmed selecting an undecodable HEIC-labeled file shows
+  the HEIC-specific error banner, clears the broken file from the input,
+  and leaves the submit button usable — with zero uncaught page errors
+  either way.
+
+**What could NOT be tested (plainly, per the owner's own request):** real
+Safari/WebKit — this sandbox has no WebKit browser at all, only Chromium,
+so the actual behavior of real iOS/iPadOS Safari's file picker UI (does
+Photo Library/Take Photo/Choose File actually all appear with this
+`accept` value, on real hardware, on a real current iOS version) and real
+Safari's native HEIC decode path (via `createImageBitmap` on an actual
+HEIC-encoded file, not a relabeled JPEG standing in for one) were never
+exercised on the real target browser/OS — only reasoned about from known
+WebKit/iOS behavior and verified structurally in Chromium. The owner's own
+verification on a real iPhone/iPad is the only way to close that gap.
+
+**Scope discipline:** touched exactly `components/UploadForm.tsx` and
+`lib/compressImage.ts`. No layout change, no extraction-logic change, no
+change to `next.config.ts`'s body size limit or to any other file; full
+diff is two files. All pre-existing regression fixtures re-run unchanged,
+all still pass.
+
 ## Noted for later phases (no Phase 1 action)
 
 - **Trays-vs-eggs magnitude heuristic (owner addendum, 2026-07-09):** register

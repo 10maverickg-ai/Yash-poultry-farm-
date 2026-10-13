@@ -3,7 +3,7 @@
 import { useActionState, useState, type ChangeEvent } from "react";
 import Link from "next/link";
 import { uploadAndExtractDailyProduction } from "@/app/upload/actions";
-import { compressImageForUpload } from "@/lib/compressImage";
+import { compressImageForUpload, UnsupportedPhotoFormatError } from "@/lib/compressImage";
 
 function todayISO() {
   return new Date().toISOString().slice(0, 10);
@@ -52,6 +52,19 @@ export function UploadForm() {
         dt.items.add(compressed);
         input.files = dt.files;
       }
+    } catch (err) {
+      // A format the extraction API could never read anyway (HEIC most
+      // commonly — see lib/compressImage.ts) and that this browser also
+      // couldn't convert to JPEG — caught here, before a photo that can
+      // only ever fail is even submitted, with a message that actually
+      // names the problem instead of a generic "something went wrong
+      // reading this photo" after a full, pointless extraction round-trip.
+      setClientError(
+        err instanceof UnsupportedPhotoFormatError
+          ? err.message
+          : "Couldn't read that photo — please try a different one."
+      );
+      input.value = "";
     } finally {
       setCompressing(false);
     }
@@ -77,11 +90,16 @@ export function UploadForm() {
         </label>
         <label className="field">
           <span>Photo</span>
+          {/* No `capture` attribute — that forces the camera only. Plain
+              accept="image/*,.heic,.heif" lets iOS/iPadOS Safari offer
+              Photo Library, Take Photo, AND Choose File (owner request,
+              2026-10-13). The .heic/.heif extensions are listed explicitly
+              because some browsers don't map those extensions to an
+              image/* MIME type on their own. */}
           <input
             type="file"
             name="photo"
-            accept="image/*"
-            capture="environment"
+            accept="image/*,.heic,.heif"
             required
             onChange={handleFileChange}
           />
