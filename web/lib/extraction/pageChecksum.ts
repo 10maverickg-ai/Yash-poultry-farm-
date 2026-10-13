@@ -156,7 +156,14 @@ export function checkPageChecksums(
   subtotals: SectionSubtotal[]
 ): ChecksumFinding[] {
   const findings: ChecksumFinding[] = [];
-  const trustedSubtotals = subtotals.filter(looksLikeGenuineSubtotal);
+  // Owner report, 2026-10-12, production: "c.filter is not a function" —
+  // extraction.section_subtotals comes from the same unchecked model-JSON
+  // cast as extraction.flocks (dailyProduction.ts), but never got that
+  // field's own Array.isArray guard. A malformed/partial response here must
+  // be treated the same as the already-handled null/undefined case (no
+  // subtotal evidence), never crash the whole Daily Production save.
+  const safeSubtotals = Array.isArray(subtotals) ? subtotals : [];
+  const trustedSubtotals = safeSubtotals.filter(looksLikeGenuineSubtotal);
 
   for (const sub of trustedSubtotals) {
     const inSection = flocks.filter((f) => f.section === sub.section);

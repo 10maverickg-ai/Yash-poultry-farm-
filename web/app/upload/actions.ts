@@ -105,12 +105,25 @@ const EMPTY: UploadOutcome = {
 // additionally show it as a technical-detail line on the page — owner
 // report, 2026-09-28: "please retry" with no detail left the owner unable
 // to say anything more specific when reporting a stuck upload.
+// Owner report, 2026-10-12, production: a "database write failed" error
+// could originate from any of several stages inside the Daily Production
+// pipeline (loop 1's per-flock resolution, stage 3's mortality checksum,
+// stage 4's chain correction, stage 5's transfer detection, stage 6's page
+// checksum, stage 7's HD check, or the actual INSERT loop) with nothing in
+// the surfaced message saying which — diagnosing the 2026-10-12 crash
+// required re-reading the whole file end to end. `stage` names the broad
+// phase that failed, prefixed onto `detail` (the only place a human sees
+// it — the `friendly` message stays plain, same as before), so a future
+// failure here points at itself instead of requiring the same investigation
+// again.
 function logAndFriendly(
   context: string,
   err: unknown,
-  friendly: string
+  friendly: string,
+  stage: string
 ): { friendly: string; detail: string } {
-  const detail = err instanceof Error ? err.message : String(err);
+  const rawDetail = err instanceof Error ? err.message : String(err);
+  const detail = `failed in: ${stage} — ${rawDetail}`;
   console.error(`[upload] ${context}:`, err);
   return { friendly, detail };
 }
@@ -146,7 +159,8 @@ export async function uploadAndExtractDailyProduction(
     const { friendly } = logAndFriendly(
       "storage upload failed",
       err,
-      "Photo couldn't be uploaded — please try again."
+      "Photo couldn't be uploaded — please try again.",
+      "photo storage"
     );
     return { ...EMPTY, error: friendly };
   }
@@ -199,7 +213,8 @@ export async function uploadAndExtractDailyProduction(
     const { friendly, detail } = logAndFriendly(
       "extraction call failed",
       err,
-      "Something went wrong reading this photo — please try again. If it keeps happening, report the technical detail below; this may not be about photo quality."
+      "Something went wrong reading this photo — please try again. If it keeps happening, report the technical detail below; this may not be about photo quality.",
+      "extraction call"
     );
     return { ...EMPTY, photoUrl, error: friendly, technicalDetail: detail };
   }
@@ -700,7 +715,8 @@ export async function uploadAndExtractDailyProduction(
     const { friendly, detail } = logAndFriendly(
       "database write failed",
       err,
-      "Photo was read, but something went wrong saving the results — please try again."
+      "Photo was read, but something went wrong saving the results — please try again.",
+      "daily production pipeline"
     );
     return { ...EMPTY, photoUrl, error: friendly, technicalDetail: detail };
   }
@@ -732,7 +748,11 @@ export async function uploadAndExtractDailyProduction(
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
     console.error(`[upload] ledger/feed extraction failed for ${date}:`, err);
-    ledgerFeedIssue = `Ledger/feed box not read: ${detail}. Re-run the upload to try again.`;
+    // Named the same way as the Daily Production pipeline's own
+    // technicalDetail (see logAndFriendly above) — this step has its own
+    // separate failure surface (ledgerFeedIssue, never `error`), but a
+    // future failure here deserves the same "which stage" visibility.
+    ledgerFeedIssue = `Ledger/feed box not read (failed in: ledger/feed pipeline): ${detail}. Re-run the upload to try again.`;
     try {
       await pool.query(
         `INSERT INTO ledger_extraction_issues (farm_code, date, source_photo_url, issue_text)

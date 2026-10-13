@@ -150,7 +150,13 @@ export function checkMortalitySectionChecksums(
 ): MortalityChecksumResult {
   const corrections: MortalityCorrection[] = [];
   const flags: MortalityFlag[] = [];
-  const trustedSubtotals = subtotals.filter(looksLikeGenuineSubtotal);
+  // Owner report, 2026-10-12, production: "c.filter is not a function" —
+  // see pageChecksum.ts's checkPageChecksums for the full incident. Same
+  // guard needed here: subtotals comes from the same unchecked model-JSON
+  // field, and a malformed response must be treated as "no subtotal
+  // evidence", never crash the whole Daily Production save.
+  const safeSubtotals = Array.isArray(subtotals) ? subtotals : [];
+  const trustedSubtotals = safeSubtotals.filter(looksLikeGenuineSubtotal);
 
   for (const sub of trustedSubtotals) {
     if (sub.mortality === null) continue;
