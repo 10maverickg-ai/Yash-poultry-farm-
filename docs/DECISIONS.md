@@ -2282,7 +2282,99 @@ change to `next.config.ts`'s body size limit or to any other file; full
 diff is two files. All pre-existing regression fixtures re-run unchanged,
 all still pass.
 
+## V4 build prompt, slice 1: bird movements — resolution logic + review UI (2026-10-15)
+
+Owner handed a large, multi-phase "V4 build prompt" (Phase 1: reader rebuild,
+multi-photo queue, review screen; Phase 2: egg rates + costs; Phase 3: flock
+generations + chick batches + moulting; Phase 4: dashboard/alerts) — far too
+large for one PR. Working through it phase by phase, PR by PR, starting with
+the piece of Phase 1 that was most self-contained and fully verifiable in
+this sandbox (no ANTHROPIC_API_KEY/DATABASE_URL here — see below for how
+verification was actually done).
+
+**What was found before writing anything:** `flock_movements`,
+`chick_daily_mortality`, `daily_egg_rates`, and 3 extra `bv300_standard_laying`
+columns were already applied directly against the live Supabase project
+(migrations dated 2026-10-15, presumably the owner's own prep ahead of this
+prompt), with real seeded historical data (28 movement rows, 48 chick-mortality
+rows, 31 egg-rate rows) — but zero app code touched any of them, and none of
+it had a matching file in `db/migrations/`. Backfilled `db/migrations/0021-0023`
++ `db/seeds/0004` to restore repo/DB parity (schema only — the real historical
+rows are operational data, same treatment `daily_production`'s rows already
+get: never checked into the repo, live in the database only).
+
+Also found, incidentally, a SEPARATE pre-existing gap while reconciling this:
+`db/seeds/0003_bv300_standards.sql`'s `bv300_standard_laying` seed only has
+~19 sparse-week rows, but the live table has a full 82-row (every week 19-100)
+table. This predates this PR and isn't fixed here — noted under "for later"
+below.
+
+**This PR builds the structural piece only** — `lib/flockMovements.ts` (list
+open items, 5 resolution functions) + a new "Bird movements needing review"
+section on `/flagged` + server actions in `app/flagged/actions.ts`. Reading
+margin notes off the photo itself (feeding this same table) is a separate,
+harder, later slice — this PR works with whatever's already in
+`flock_movements`, regardless of how it got there.
+
+Five one-tap resolutions, matching the ground rules' exact wording
+("another flock, Anil farm, sold with price per bird, culled") plus a 5th the
+schema and the already-seeded real data already use and this prompt's wording
+didn't name (`count_adjustment` — the owner confirming the written figure
+itself is correct, nothing moved; e.g. BAB-2 2026-08-22, -5, already in the
+database before this PR). Sale and cull are guarded to outflows only
+(`birds_change < 0`) at the SQL level, not just hidden in the UI. Anil farm is
+free text in `buyer` (not a `flocks` row — confirmed the real seeded data
+already does this, and that `farms` does have a separate `APF` row for it,
+unrelated to this table), matching the real data's own established
+convention exactly, verified against it directly. Every resolution only ever
+updates the ONE row being resolved — never a guessed-at counterpart row on
+another flock/date — per the ground rule against silently assuming things.
+
+**Verification — unusually thorough for this sandbox, because it was
+possible:**
+- Every one of the 5 UPDATE statements was run, via Supabase MCP, directly
+  against the REAL live Supabase project's 3 real currently-unresolved rows
+  (BAB-2 -275 2026-08-16, BAB-4 +800 2026-08-17, BAB-2 -5 2026-08-22, found by
+  querying `needs_review=true AND reviewed_by_owner=false` directly), wrapped
+  in `BEGIN; ... ROLLBACK;` — confirmed each produces exactly the right field
+  values against the real schema and real data, then rolled back so the
+  owner's actual queue is untouched by this verification.
+- Discovered PostgreSQL 16 is installed in this sandbox (not previously
+  known) — set up a real local Postgres, ran the full `db/migrations/0001-0023`
+  + `db/seeds/0001-0004` against it from scratch (confirming the new
+  migration files apply cleanly in sequence with the full history), inserted
+  representative flock/movement rows mirroring the real ones, and ran the
+  ACTUAL Next.js dev server against this real database — true end-to-end
+  verification, not just pure-function fixtures. Used headless Chromium
+  (Playwright) to really click through the review screen: confirmed Sold/
+  Culled buttons don't even render for an inflow row (BAB-4 +800); submitted
+  "Another flock," "Anil farm," "Count is correct," and "Sold" (with a price)
+  through real `<form>` submits, and confirmed via direct `psql` against that
+  same local database that each produced exactly the intended row — correct
+  `movement_type`, `counterpart_flock_id`/`buyer`/`price_per_bird`, `reason`,
+  `needs_review=false`, `reviewed_by_owner=true` — and that the card
+  disappeared from the queue once resolved.
+- `npx tsc --noEmit`, `npm run lint`, `npm run build` all clean; all 6
+  pre-existing regression fixtures re-run unchanged, still pass.
+
+**Scope discipline:** touched `lib/flockMovements.ts` (new),
+`app/flagged/actions.ts`, `app/flagged/page.tsx`, plus the 4 migration/seed
+backfill files. No change to the Daily Production pipeline, no change to any
+extraction prompt/schema (margin-note reading is explicitly a separate PR),
+no RLS/auth change (per the ground rules — tables confirmed still
+RLS-disabled via `get_advisors`, same as every other table, untouched).
+
 ## Noted for later phases (no Phase 1 action)
+
+- **`bv300_standard_laying` seed/live mismatch** (found 2026-10-15, not fixed
+  in this PR): `db/seeds/0003_bv300_standards.sql` only seeds ~19 sparse-week
+  rows, but the live table has a full week-by-week 82-row table (weeks 19-100).
+  A fresh database built from this repo's migrations+seeds alone will be
+  missing most of those rows and most of migration 0022/seed 0004's new
+  columns won't attach to anything. Needs its own reconciliation pass (dump
+  the live table's original 5 columns too, not just the 3 new ones this PR
+  already dumped) before Phase 4's dashboard leans on it at finer granularity
+  than the sparse table provides.
 
 - **Trays-vs-eggs magnitude heuristic (owner addendum, 2026-07-09):** register
   numbers can be trays or eggs depending on magnitude (1 tray = 30 eggs;
