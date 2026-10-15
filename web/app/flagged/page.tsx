@@ -198,15 +198,6 @@ export default async function FlaggedPage({
               (f) => f.flock_internal_id !== m.flock_internal_id
             );
             const isOutflow = m.birds_change < 0;
-            // Owner request, 2026-10-16: when the chain's own note already
-            // names a likely source flock (e.g. "...possibly the 1080 that
-            // left BAB-7 on Aug 11"), default the dropdown to it instead of
-            // a bare placeholder — still just a suggestion the owner can
-            // change before submitting, never auto-applied.
-            const suggestedLabel = m.register_note?.match(/BAB-\d+/)?.[0];
-            const suggestedFlock = suggestedLabel
-              ? otherFlocks.find((f) => f.display_label === suggestedLabel)
-              : undefined;
             return (
               <div key={m.id} className="card stack">
                 <h3 style={{ margin: 0 }}>
@@ -225,19 +216,13 @@ export default async function FlaggedPage({
                     className="actions-bar"
                     style={{ marginBottom: 0 }}
                   >
-                    <select
-                      name="counterpartFlockId"
-                      required
-                      defaultValue={suggestedFlock?.flock_internal_id ?? ""}
-                      aria-label="Which flock"
-                    >
+                    <select name="counterpartFlockId" required defaultValue="" aria-label="Which flock">
                       <option value="" disabled>
                         Moved to/from…
                       </option>
                       {otherFlocks.map((f) => (
                         <option key={f.flock_internal_id} value={f.flock_internal_id}>
                           {f.display_label}
-                          {f.flock_internal_id === suggestedFlock?.flock_internal_id ? " (suggested)" : ""}
                         </option>
                       ))}
                     </select>
