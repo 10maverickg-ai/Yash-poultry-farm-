@@ -64,6 +64,13 @@ export interface ExtractedFlockRow {
     bird_population: number;
     hd_percent: number;
   };
+  // Owner request, 2026-10-15: a handwritten note in the margin next to
+  // this flock's label block (a bird-count adjustment — sale, transfer to
+  // another flock/shed, movement to/from Anil farm), e.g. "(-)2967", "740",
+  // "485". Transcribed EXACTLY as written, never interpreted — see
+  // pipeline.ts's RawFlockInput for why the app never derives sign/meaning
+  // from this text alone. Null if there's no margin note for this flock.
+  margin_note: string | null;
 }
 
 export interface ExtractionResult {
@@ -179,6 +186,10 @@ const EXTRACT_TOOL = {
               description: "The 'Bal Bird' figure exactly as written on EACH line of this flock's block, top to bottom (see the two-line note below). Usually 2 entries if the block has two written lines, 1 if it only has one.",
             },
             hd_percent: { type: ["number", "null"], description: "The '%' column, as written." },
+            margin_note: {
+              type: ["string", "null"],
+              description: "A handwritten note in the MARGIN next to this flock's label block (not in any of the normal Mort/Feed/Total/Bal Bird/% columns) — usually a number, sometimes with a sign or parentheses, e.g. '(-)2967', '740', '485'. This marks a bird-count adjustment (a sale, a transfer to another flock, a movement to/from Anil farm) that the day-to-day Mort/Bal Bird numbers alone don't explain. Transcribe it EXACTLY as written — do not interpret what it means, do not add or remove a sign, do not guess which other flock it relates to. Null if there is no margin note next to this flock's block.",
+            },
             confidence: {
               type: "object",
               description: "0.0-1.0 self-assessed confidence per field, independent of any arithmetic check.",
@@ -200,7 +211,7 @@ const EXTRACT_TOOL = {
             "display_label_as_written", "section", "mortality", "feed_bags",
             "eggs_total", "eggs_ii",
             "bird_population", "bird_population_readings",
-            "hd_percent", "confidence",
+            "hd_percent", "margin_note", "confidence",
           ],
         },
       },
@@ -249,6 +260,7 @@ Field mapping (extract exactly these, nothing else) — apply to EVERY flock blo
 - Egg total: eggs is written in exactly two places on each flock block — the "II" column and the "Total" column. The "I" column is always a dash on this register; never write a number for it, and never use it as a place to put any other figure you're unsure where else to record. Read "II" and "Total" independently of each other (report them as eggs_ii and eggs_total) — do not assume one equals another just because they usually match, and never substitute this flock's Bal Bird or Mort/Feed figures into either of them even if you're short on somewhere to put a number. eggs_total is the flock's official egg count.
 - Two-line flock blocks: some flock blocks span TWO written lines — a first line, then a second line that also carries that day's Mort/Feed and the "%" figure. When a flock has two lines, the Bal Bird figure is typically written on BOTH lines — read it from each line it appears on and report them, top to bottom, as bird_population_readings. If a flock has only one line, report a single value. bird_population itself is this flock's official current bird balance (the more authoritative of the reading(s), typically the bottom line's).
 - "%" column: HD% as written on the page (do not calculate it yourself — read the written figure). Leave it null if nothing is written there — a missing written % is normal and not a problem, the app calculates its own official HD% from eggs and Bal Bird.
+- Margin note: some flock blocks have a short handwritten note in the MARGIN beside the label — outside the normal Mort/Feed/Total/Bal Bird/% columns — usually a number, sometimes with a sign or in parentheses (e.g. "(-)2967", "740", "485"). This marks birds moved, sold, or transferred, separately from the day's Mort/Feed/egg/Bal Bird figures. Report it in margin_note EXACTLY as written — same digits, same sign/parentheses if any. Do not calculate anything from it, do not guess which other flock it relates to, and do not write anything here that belongs in one of the normal columns above. Null if there's no margin note next to this flock's block.
 
 If this photo also shows other registers (an Egg Stock Ledger with running +/- entries, or Feed Bag Stock boxes with OB=/F=/S= figures), do NOT extract those — note their presence in page_notes only.
 
