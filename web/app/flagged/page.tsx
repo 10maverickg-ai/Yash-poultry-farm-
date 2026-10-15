@@ -7,12 +7,18 @@ import {
   type DateFilter,
 } from "@/lib/records";
 import { listFlocks } from "@/lib/flocks";
+import { listOpenFlockMovements } from "@/lib/flockMovements";
 import {
   markReviewed,
   markPageIssueReviewed,
   deletePageIssue,
   markLedgerIssueReviewed,
   deleteLedgerIssue,
+  resolveMovementAsTransfer,
+  resolveMovementAsAnilFarm,
+  resolveMovementAsSale,
+  resolveMovementAsCull,
+  resolveMovementAsCountAdjustment,
 } from "./actions";
 import { FlaggedProductionSection } from "@/components/FlaggedProductionSection";
 
@@ -29,12 +35,13 @@ export default async function FlaggedPage({
     to: /^\d{4}-\d{2}-\d{2}$/.test(sp.to ?? "") ? sp.to : undefined,
   };
 
-  const [items, unresolved, flocks, pageIssues, ledgerIssues] = await Promise.all([
+  const [items, unresolved, flocks, pageIssues, ledgerIssues, openMovements] = await Promise.all([
     listFlagged(dateFilter),
     listUnresolvedExtractions(dateFilter),
     listFlocks(),
     listOpenPageIssues(dateFilter),
     listOpenLedgerExtractionIssues(dateFilter),
+    listOpenFlockMovements(),
   ]);
   const activeFlocks = flocks.filter((f) => f.status === "active");
   const productionItems = items.filter((i) => i.source === "production");
@@ -176,13 +183,111 @@ export default async function FlaggedPage({
         </>
       )}
 
+      {openMovements.length > 0 && (
+        <>
+          <h2>Bird movements needing review</h2>
+          <p className="muted">
+            The day-to-day bird count for these flocks changed by more than
+            mortality explains, and there&apos;s no written destination to go
+            on. Pick what actually happened — nothing here guesses on its
+            own.
+          </p>
+          {openMovements.map((m) => {
+            const otherFlocks = activeFlocks.filter(
+              (f) => f.flock_internal_id !== m.flock_internal_id
+            );
+            const isOutflow = m.birds_change < 0;
+            return (
+              <div key={m.id} className="card stack">
+                <h3 style={{ margin: 0 }}>
+                  {m.flock_label} <span className="muted">· {m.date}</span>
+                </h3>
+                <div className="flag-banner">
+                  {m.flock_label}&apos;s count {isOutflow ? "dropped" : "rose"} by{" "}
+                  {Math.abs(m.birds_change).toLocaleString("en-IN")} bird
+                  {Math.abs(m.birds_change) === 1 ? "" : "s"} more than mortality
+                  explains{m.register_note ? ` — ${m.register_note}` : ""}.
+                </div>
+                <p className="muted" style={{ margin: 0 }}>What actually happened?</p>
+                <div className="actions-bar" style={{ flexWrap: "wrap" }}>
+                  <form
+                    action={resolveMovementAsTransfer.bind(null, m.id)}
+                    className="actions-bar"
+                    style={{ marginBottom: 0 }}
+                  >
+                    <select name="counterpartFlockId" required defaultValue="" aria-label="Which flock">
+                      <option value="" disabled>
+                        Moved to/from…
+                      </option>
+                      {otherFlocks.map((f) => (
+                        <option key={f.flock_internal_id} value={f.flock_internal_id}>
+                          {f.display_label}
+                        </option>
+                      ))}
+                    </select>
+                    <button type="submit" className="btn">
+                      Another flock
+                    </button>
+                  </form>
+
+                  <form action={resolveMovementAsAnilFarm.bind(null, m.id)}>
+                    <button type="submit" className="btn">
+                      Anil farm
+                    </button>
+                  </form>
+
+                  {isOutflow && (
+                    <>
+                      <form
+                        action={resolveMovementAsSale.bind(null, m.id)}
+                        className="actions-bar"
+                        style={{ marginBottom: 0 }}
+                      >
+                        <input
+                          type="number"
+                          name="pricePerBird"
+                          placeholder="₹ per bird"
+                          min="0"
+                          step="0.01"
+                          aria-label="Price per bird"
+                          style={{ width: "9rem" }}
+                        />
+                        <button type="submit" className="btn">
+                          Sold
+                        </button>
+                      </form>
+
+                      <form action={resolveMovementAsCull.bind(null, m.id)}>
+                        <button type="submit" className="btn">
+                          Culled
+                        </button>
+                      </form>
+                    </>
+                  )}
+
+                  <form action={resolveMovementAsCountAdjustment.bind(null, m.id)}>
+                    <button type="submit" className="btn-secondary">
+                      Count is correct, nothing moved
+                    </button>
+                  </form>
+                </div>
+              </div>
+            );
+          })}
+        </>
+      )}
+
       <FlaggedProductionSection
         productionItems={productionItems}
         unresolvedItems={unresolved}
         activeFlocks={activeFlocks}
       />
 
-      {items.length === 0 && unresolved.length === 0 && pageIssues.length === 0 && ledgerIssues.length === 0 && (
+      {items.length === 0 &&
+        unresolved.length === 0 &&
+        pageIssues.length === 0 &&
+        ledgerIssues.length === 0 &&
+        openMovements.length === 0 && (
         <p className="card muted">
           Nothing in the queue{dateFilter.from || dateFilter.to ? " for this date range" : ""} —
           every saved record passes its checks or has been reviewed.

@@ -6,6 +6,13 @@ import { pool, withTransaction } from "@/lib/db";
 import { ACTIVE_FARM } from "@/lib/farm";
 import type { FlaggedSource } from "@/lib/records";
 import { insertDailyProductionRow } from "@/lib/extraction/writeDailyProduction";
+import {
+  resolveFlockMovementAsTransfer,
+  resolveFlockMovementAsAnilFarm,
+  resolveFlockMovementAsSale,
+  resolveFlockMovementAsCull,
+  resolveFlockMovementAsCountAdjustment,
+} from "@/lib/flockMovements";
 
 // Fixed mapping — never interpolate a table name from user input.
 const TABLES: Record<FlaggedSource, string> = {
@@ -164,4 +171,51 @@ export async function deleteFlaggedRecords(input: {
   revalidatePath("/flagged");
   revalidatePath("/production");
   revalidatePath("/records");
+}
+
+// Bird movements — one-tap review (see lib/flockMovements.ts for the
+// resolution rules and docs/DECISIONS.md for why these are the choices).
+// No try/catch, same as markReviewed/markPageIssueReviewed above: these are
+// plain <form action={fn.bind(null, id)}> submits with no useActionState
+// wiring, so a genuine error surfaces as Next's own error boundary rather
+// than a silently-swallowed failure — consistent with every other action in
+// this file at this same level of simplicity.
+
+export async function resolveMovementAsTransfer(id: number, formData: FormData) {
+  const counterpartFlockId = formData.get("counterpartFlockId");
+  if (typeof counterpartFlockId !== "string" || !counterpartFlockId) {
+    throw new Error("Choose a flock");
+  }
+  await resolveFlockMovementAsTransfer(id, counterpartFlockId);
+  revalidatePath("/flagged");
+  redirect("/flagged");
+}
+
+export async function resolveMovementAsAnilFarm(id: number) {
+  await resolveFlockMovementAsAnilFarm(id);
+  revalidatePath("/flagged");
+  redirect("/flagged");
+}
+
+export async function resolveMovementAsSale(id: number, formData: FormData) {
+  const priceRaw = formData.get("pricePerBird");
+  const price = typeof priceRaw === "string" && priceRaw.trim() !== "" ? Number(priceRaw) : null;
+  if (price !== null && (!Number.isFinite(price) || price <= 0)) {
+    throw new Error("Enter a valid price per bird, or leave it blank");
+  }
+  await resolveFlockMovementAsSale(id, price);
+  revalidatePath("/flagged");
+  redirect("/flagged");
+}
+
+export async function resolveMovementAsCull(id: number) {
+  await resolveFlockMovementAsCull(id);
+  revalidatePath("/flagged");
+  redirect("/flagged");
+}
+
+export async function resolveMovementAsCountAdjustment(id: number) {
+  await resolveFlockMovementAsCountAdjustment(id);
+  revalidatePath("/flagged");
+  redirect("/flagged");
 }
