@@ -92,6 +92,24 @@ export async function resolveFlockMovementAsSale(
   );
 }
 
+// A purchase is always an inflow — birds bought from outside (not another
+// flock, not Anil farm). Owner request, 2026-10-16 — named explicitly for
+// BAB-4's own +800 case (2026-08-17), one of the one-tap choices alongside
+// "another flock" and "Anil farm". Guarded by birds_change > 0, the mirror
+// of the sale/cull guard below.
+export async function resolveFlockMovementAsPurchased(id: number): Promise<void> {
+  await pool.query(
+    `UPDATE flock_movements
+        SET movement_type = 'unexplained_in',
+            buyer = 'Purchased',
+            reason = 'Purchased from outside (owner confirmed)',
+            needs_review = false,
+            reviewed_by_owner = true
+      WHERE id = $1 AND farm_code = $2 AND birds_change > 0`,
+    [id, ACTIVE_FARM]
+  );
+}
+
 // Culling is always an outflow too — same guard as a sale.
 export async function resolveFlockMovementAsCull(id: number): Promise<void> {
   await pool.query(

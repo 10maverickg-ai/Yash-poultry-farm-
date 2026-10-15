@@ -2364,6 +2364,63 @@ extraction prompt/schema (margin-note reading is explicitly a separate PR),
 no RLS/auth change (per the ground rules — tables confirmed still
 RLS-disabled via `get_advisors`, same as every other table, untouched).
 
+## V4 build prompt, facts update (2026-10-16): purchased option + feed-box biweekly recording
+
+Owner's follow-up message confirmed several real cases and added one
+one-tap resolution ("purchased") the first bird-movements PR didn't have.
+Two concrete, verified gaps found and fixed — neither touches the reader,
+so both shipped straight to `main` (per the owner's own rule: smaller
+pieces that don't touch the reader can merge as they're ready).
+
+**1. "Purchased" resolution** (`lib/flockMovements.ts`,
+`resolveFlockMovementAsPurchased`) — an inflow a flock's own chain can't
+explain, that isn't from another flock and isn't from Anil farm: birds
+bought from outside. Guarded to `birds_change > 0` (the mirror of the
+sale/cull guard), reuses the `buyer` field (already established for Anil
+farm) rather than a new column — no schema change, per the owner's rule 7.
+Also: when a movement's own `register_note` already names a specific flock
+(e.g. BAB-4's real still-open row, 2026-08-17, +800: "...possibly the 1080
+that left BAB-7 on Aug 11"), the "Another flock" dropdown now defaults to
+that flock instead of a bare placeholder — still just a suggestion, never
+auto-applied, the owner can change it before submitting.
+
+**2. `fn_validate_feed_bag_stock`'s Check 5 was flagging a confirmed,
+ongoing supervisor habit.** Queried the real `daily_feed_bag_stock` rows
+directly: 2026-08-06 and 2026-08-09 already carry a hand-written
+`flag_reason` explaining the supervisor's every-two-days recording (with
+`flagged = false`) — but that text was a one-time historical annotation,
+not something the live `fn_validate_feed_bag_stock` function actually
+knows; re-running it against those same rows (confirmed directly) would
+still re-flag them, since Check 5 (OB must equal the previous day's
+closing) has no exception for this. Migration 0024 suppresses Check 5
+entirely for dates before 2026-11-01 (when the owner says the habit
+stops); Check 1 (OB + produced = total) is untouched — it stays a general,
+valuable check, since the one CONFIRMED case of a real arithmetic error
+(2026-08-11, 143+132≠264) is a one-off historical fact, not a recurring
+pattern, so it's handled the same way every other confirmed-real,
+non-error flag in this app is handled: that specific row was marked
+`reviewed_by_owner = true` directly (matching exactly what clicking "Mark
+reviewed" in `/flagged` would have done), not exempted from the check
+going forward.
+
+Verified directly against the real live Supabase project (not a copy):
+ran `fn_validate_feed_bag_stock` on the real Aug 1 (clean), Aug 6 and Aug 9
+("every two days") and Aug 11 (confirmed arithmetic error) rows after
+applying the migration — confirmed Aug 6/9 now return no reasons, Aug 11
+still correctly returns the Check-1 mismatch (proving the fix is scoped to
+Check 5 only), and Aug 1 is unaffected. Also verified "Purchased" and the
+BAB-7 suggestion end to end: real local Postgres, real Next.js dev server,
+real headless-Chromium form submission, confirmed via `psql` that the
+write landed exactly as intended and the card left the queue.
+
+**Branching note:** this PR's commit is based on `main`, not on the
+shared feature branch — the feature branch's tip at this point also
+carries the margin-note extraction commit (reader-touching, held back per
+the owner's instruction), and a PR from that branch would have pulled it
+in too. A separate branch off `main` was the only way to merge this piece
+without the reader commit riding along; the feature branch keeps
+accumulating reader work in the meantime.
+
 ## Noted for later phases (no Phase 1 action)
 
 - **`bv300_standard_laying` seed/live mismatch** (found 2026-10-15, not fixed
