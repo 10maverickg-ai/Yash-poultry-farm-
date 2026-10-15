@@ -10,6 +10,7 @@ import {
   resolveFlockMovementAsTransfer,
   resolveFlockMovementAsAnilFarm,
   resolveFlockMovementAsSale,
+  resolveFlockMovementAsPurchased,
   resolveFlockMovementAsCull,
   resolveFlockMovementAsCountAdjustment,
 } from "@/lib/flockMovements";
@@ -204,6 +205,12 @@ export async function resolveMovementAsSale(id: number, formData: FormData) {
     throw new Error("Enter a valid price per bird, or leave it blank");
   }
   await resolveFlockMovementAsSale(id, price);
+  revalidatePath("/flagged");
+  redirect("/flagged");
+}
+
+export async function resolveMovementAsPurchased(id: number) {
+  await resolveFlockMovementAsPurchased(id);
   revalidatePath("/flagged");
   redirect("/flagged");
 }
