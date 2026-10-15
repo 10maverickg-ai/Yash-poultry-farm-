@@ -2421,6 +2421,42 @@ in too. A separate branch off `main` was the only way to merge this piece
 without the reader commit riding along; the feature branch keeps
 accumulating reader work in the meantime.
 
+## V4 build prompt, owner update (2026-10-16): BAB-7 suggestion was wrong on its only real test
+
+The owner confirmed, directly in the database already (nothing for this
+session to write): BAB-4's real +800 row (2026-08-17) was shifted FROM
+Anil farm TO Yash farm — `reviewed_by_owner = true`, `buyer = 'Anil
+farm'`, reason already recorded. BAB-5's -713 row (2026-08-09) was
+likewise already resolved as an Anil-farm shift. Both independently
+re-verified read-only against the live Supabase project before touching
+anything — confirmed already correct, nothing to redo.
+
+This means the "default the dropdown to whatever flock the register_note
+mentions" heuristic added in the previous PR (regex-matching "BAB-\d+" in
+the note text) was WRONG on the one real row it ever had to guess about —
+the note said "possibly ... BAB-7", but the real answer was Anil farm, not
+BAB-7. Removed the heuristic entirely (`app/flagged/page.tsx`) — the
+dropdown goes back to a plain, unselected placeholder. The "Purchased" and
+"Anil farm" one-tap buttons themselves are untouched and stay available
+for future rows; only the speculative default-selection guess is gone.
+
+Also independently re-confirmed, read-only, directly against the live
+database (not assumed from the previous PR's own claim):
+- `fn_validate_feed_bag_stock` (migration 0024) is genuinely live and still
+  behaving correctly — re-ran it against the real Aug 6/9/11 rows again,
+  identical results to the first verification.
+- The three egg-ledger breakage amounts the owner named (Aug 24 -300, Aug
+  26 -180, Aug 30 -210) are already `category = 'breakage'` in the live
+  `daily_egg_stock_entries` table, and the Aug 26/30 ones are already
+  `reviewed_by_owner = true` — nothing to change there either.
+
+**Deliberately NOT touched, per explicit instruction:** BAB-2's two real
+still-open movement rows (2026-08-16, -275, sold/price unknown; 2026-08-22,
+-5, counting difference) — the owner is using these to test the review
+screen themselves and asked that they stay unresolved. No resolve function
+was called against either row this round; both were only ever read via
+plain `SELECT`s.
+
 ## Noted for later phases (no Phase 1 action)
 
 - **`bv300_standard_laying` seed/live mismatch** (found 2026-10-15, not fixed
