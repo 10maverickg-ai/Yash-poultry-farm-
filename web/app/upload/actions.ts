@@ -285,6 +285,24 @@ export async function uploadAndExtractDailyProduction(
         [ACTIVE_FARM, date]
       );
 
+      // Same reasoning as the page-issues cleanup above, for flock_movements
+      // rows this reader generates from margin notes: a re-upload of this
+      // date must not leave a STALE, still-unresolved candidate sitting
+      // alongside a fresh one. flock_movements has no deleted_at column
+      // (unlike page issues), so this is a hard delete — but only ever of
+      // rows this exact mechanism wrote AND the owner hasn't touched yet
+      // (reviewed_by_owner = false). A movement the owner has already
+      // resolved for this date (e.g. confirmed "shifted to Anil farm") is
+      // real, owner-confirmed history and must survive a re-upload
+      // untouched — never deleted or regenerated from here.
+      await client.query(
+        `DELETE FROM flock_movements
+          WHERE farm_code = $1 AND date = $2
+            AND source = 'register margin note + bird-count chain'
+            AND reviewed_by_owner = false`,
+        [ACTIVE_FARM, date]
+      );
+
       // ===== Stage 2, per flock (pipeline.ts) — needs only this flock's
       // own raw reading, so it runs for every flock the model found —
       // matched or not, same as the page checksums below: the page's own
@@ -313,6 +331,7 @@ export async function uploadAndExtractDailyProduction(
           birdPopulationReadings: flock.bird_population_readings,
           hdPercentWritten: flock.hd_percent,
           confidence: flock.confidence,
+          marginNote: flock.margin_note,
         };
         const local = resolveFieldsLocally(rawInput);
 
@@ -510,6 +529,43 @@ export async function uploadAndExtractDailyProduction(
           );
           unresolved.push(flock.displayLabelAsWritten);
           continue;
+        }
+
+        // Owner request, 2026-10-15: stage 5 (applyBirdTransferDetection)
+        // decided this flock's unexplained bird-count change deserves a
+        // flock_movements row, not just the flag message already in
+        // extraFlagReasons — write it now, inside this same transaction, so
+        // it can never exist without the daily_production row it's about
+        // also existing (and vice versa). counterpartLabel (if any) is
+        // resolved through chainByLabel — built from THIS SAME upload's own
+        // flock resolution, never a fresh query — since the counterpart is
+        // necessarily a flock this same upload already processed (margin
+        // notes only ever pair flocks on the same page).
+        if (flock.movementCandidate) {
+          const mc = flock.movementCandidate;
+          const counterpartFlockId = mc.counterpartLabel
+            ? chainByLabel.get(mc.counterpartLabel)?.flockInternalId ?? null
+            : null;
+          const movementType =
+            mc.unexplainedDelta < 0
+              ? counterpartFlockId
+                ? "transfer_out"
+                : "unexplained_out"
+              : counterpartFlockId
+                ? "transfer_in"
+                : "unexplained_in";
+          const registerNote = mc.marginNote
+            ? `Margin note ${mc.marginNote}`
+            : mc.counterpartLabel
+              ? `Paired with ${mc.counterpartLabel}'s own margin note`
+              : "No margin note; source not known";
+          await client.query(
+            `INSERT INTO flock_movements
+                 (farm_code, date, flock_internal_id, birds_change, movement_type,
+                  counterpart_flock_id, register_note, source, needs_review, reviewed_by_owner)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,'register margin note + bird-count chain', true, false)`,
+            [ACTIVE_FARM, date, flockInternalId, mc.unexplainedDelta, movementType, counterpartFlockId, registerNote]
+          );
         }
 
         // Owner report, 2026-10-03, production: BAB-2, 2026-08-05 —

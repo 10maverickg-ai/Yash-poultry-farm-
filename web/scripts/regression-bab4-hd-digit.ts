@@ -73,7 +73,7 @@ const raw: RawFlockInput = {
   birdPopulation: 7410,
   birdPopulationReadings: [7410, 7410],
   hdPercentWritten: 88.1,
-  confidence: {},
+  confidence: {}, marginNote: null,
 };
 const local = resolveFieldsLocally(raw);
 const { resolved } = applyChainCorrections(local, null);
@@ -122,7 +122,7 @@ const bab1Raw: RawFlockInput = {
   birdPopulation: 8598,
   birdPopulationReadings: [8598, 8598],
   hdPercentWritten: 64.7,
-  confidence: {},
+  confidence: {}, marginNote: null,
 };
 const bab1Local = resolveFieldsLocally(bab1Raw);
 const { resolved: bab1Resolved } = applyChainCorrections(bab1Local, null);
