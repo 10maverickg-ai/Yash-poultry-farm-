@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { listBenchmarkDates } from "@/lib/extraction/readerV2/benchmark";
+import { BenchmarkPhotoUploadForm } from "./BenchmarkPhotoUploadForm";
 
 // Protected admin page (owner's "V4 build prompt", Phase 1): lets the owner
 // run the NEW region-cropped reader against photos already stored by this
@@ -51,19 +52,24 @@ export default async function ReaderBenchmarkPage({
   }
 
   const dates = await listBenchmarkDates();
+  const key = sp.key ?? "";
 
   return (
     <>
       <h1>Reader benchmark</h1>
       <p className="muted">
-        Taps the NEW region-cropped reader against a photo already stored
-        for that date, and compares its reads field by field against what&apos;s
-        currently saved. Read-only — this never changes any saved data.
-        Pick a date you already trust (a reviewed, unflagged day is the most
-        meaningful test).
+        Taps the NEW region-cropped reader against a photo for that date,
+        and compares its reads field by field against what&apos;s currently
+        saved. Read-only — this never changes any saved data. Pick a date
+        you already trust (a reviewed, unflagged day is the most meaningful
+        test). A date with no photo yet (most of August was entered by
+        hand) needs one added below before it can be run.
       </p>
+
+      <BenchmarkPhotoUploadForm benchmarkKey={key} />
+
       {dates.length === 0 ? (
-        <p className="card muted">No dates with a stored photo yet.</p>
+        <p className="card muted">No saved daily_production dates yet.</p>
       ) : (
         <div className="table-wrap">
           <table>
@@ -80,12 +86,16 @@ export default async function ReaderBenchmarkPage({
                   <td>{d.date}</td>
                   <td>{d.flockCount}</td>
                   <td>
-                    <Link
-                      className="btn"
-                      href={`/admin/reader-benchmark/${d.date}?key=${encodeURIComponent(sp.key ?? "")}`}
-                    >
-                      Run
-                    </Link>
+                    {d.photoUrl ? (
+                      <Link
+                        className="btn"
+                        href={`/admin/reader-benchmark/${d.date}?key=${encodeURIComponent(key)}`}
+                      >
+                        Run
+                      </Link>
+                    ) : (
+                      <span className="muted">No photo yet — add one above</span>
+                    )}
                   </td>
                 </tr>
               ))}

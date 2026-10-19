@@ -26,27 +26,39 @@ import { extractDailyProductionV2 } from "./index";
 
 export interface BenchmarkDateSummary {
   date: string;
-  photoUrl: string;
+  // Null means this date has saved, verified rows but no photo of any kind
+  // yet — the benchmark can't run until one is attached via the
+  // "Add a photo for the benchmark" form (reader_benchmark_photos),
+  // which never touches daily_production or any other production table.
+  photoUrl: string | null;
   flockCount: number;
 }
 
 export async function listBenchmarkDates(
   farmCode: string = ACTIVE_FARM
 ): Promise<BenchmarkDateSummary[]> {
+  // Every date with saved, verified daily_production rows is listed,
+  // whether or not a real upload photo exists for it (owner request,
+  // 2026-10-19: most of August was entered by hand with no photo at all) —
+  // photoUrl falls back to a benchmark-only upload (reader_benchmark_photos)
+  // when the production rows themselves have none.
   const { rows } = await pool.query(
-    `SELECT date::text AS date,
-            (array_agg(source_photo_url ORDER BY id))[1] AS photo_url,
-            count(*) AS flock_count
-       FROM daily_production
-      WHERE farm_code = $1 AND deleted_at IS NULL AND source_photo_url IS NOT NULL
-      GROUP BY date
-      ORDER BY date DESC
-      LIMIT 60`,
+    `SELECT dp.date::text AS date,
+            count(*) AS flock_count,
+            (array_agg(dp.source_photo_url ORDER BY dp.id) FILTER (WHERE dp.source_photo_url IS NOT NULL))[1] AS production_photo_url,
+            bp.photo_url AS benchmark_photo_url
+       FROM daily_production dp
+       LEFT JOIN reader_benchmark_photos bp
+              ON bp.farm_code = dp.farm_code AND bp.date = dp.date
+      WHERE dp.farm_code = $1 AND dp.deleted_at IS NULL
+      GROUP BY dp.date, bp.photo_url
+      ORDER BY dp.date DESC
+      LIMIT 90`,
     [farmCode]
   );
   return rows.map((r) => ({
     date: r.date as string,
-    photoUrl: r.photo_url as string,
+    photoUrl: (r.production_photo_url as string | null) ?? (r.benchmark_photo_url as string | null) ?? null,
     flockCount: Number(r.flock_count),
   }));
 }
@@ -146,9 +158,18 @@ export async function runBenchmarkForDate(
   if (dbRows.length === 0) {
     throw new Error(`No saved daily_production rows for ${date} — nothing to benchmark against.`);
   }
-  const photoUrl = dbRows.find((r) => r.source_photo_url)?.source_photo_url ?? null;
+  let photoUrl = dbRows.find((r) => r.source_photo_url)?.source_photo_url ?? null;
   if (!photoUrl) {
-    throw new Error(`${date} has no source_photo_url recorded — can't re-run the reader on it.`);
+    const { rows: benchmarkPhotoRows } = await pool.query(
+      `SELECT photo_url FROM reader_benchmark_photos WHERE farm_code = $1 AND date = $2`,
+      [farmCode, date]
+    );
+    photoUrl = (benchmarkPhotoRows[0]?.photo_url as string | undefined) ?? null;
+  }
+  if (!photoUrl) {
+    throw new Error(
+      `${date} has no stored photo — use "Add a photo for the benchmark" on the list page first.`
+    );
   }
 
   const photoResponse = await fetch(photoUrl);
