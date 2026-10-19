@@ -157,8 +157,106 @@ export default async function ReaderBenchmarkDatePage({
             <span> (re-asked about: {result.retriedLabels.join(", ")})</span>
           )}
         </p>
+        {result.fellBackToFullPage.length > 0 && (
+          <p>
+            <strong>Fell back to reading the whole page</strong> for:{" "}
+            {result.fellBackToFullPage.join(", ")} — the detected region for this/these looked too small
+            to trust (see the debug images below).
+          </p>
+        )}
         {result.v2PageNotes && <p className="muted">Page notes: {result.v2PageNotes}</p>}
       </div>
+
+      <h2>What the model actually saw</h2>
+      <p className="muted">
+        The whole upright page with every detected region box drawn on it, and every individual crop sent
+        to its own vision call. If a reading looks wrong, check here first — a bad box or a sideways crop
+        explains itself immediately; a bad NUMBER on an otherwise-correct crop is a different kind of
+        problem.
+      </p>
+      <div className="card">
+        <p className="muted" style={{ margin: 0 }}>
+          Whole page, boxes drawn (color = region kind):
+        </p>
+        {/* eslint-disable-next-line @next/next/no-img-element -- base64 debug image, never a static asset */}
+        <img
+          src={`data:image/jpeg;base64,${result.debugImages.fullPageWithBoxes}`}
+          alt="Upright page with detected region boxes"
+          style={{ maxWidth: "100%", height: "auto", border: "1px solid var(--line)", borderRadius: 8 }}
+        />
+      </div>
+      <div className="table-wrap" style={{ padding: "0.8rem" }}>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "0.8rem" }}>
+          {result.debugImages.crops.map((c) => (
+            <div key={c.kind} style={{ maxWidth: 320 }}>
+              <p className="muted" style={{ margin: "0 0 0.3rem" }}>
+                {c.kind}
+                {c.isWholePageFallback && (
+                  <span className="badge badge-flagged" style={{ marginLeft: 6 }}>
+                    whole-page fallback
+                  </span>
+                )}
+              </p>
+              {/* eslint-disable-next-line @next/next/no-img-element -- base64 debug image, never a static asset */}
+              <img
+                src={`data:image/jpeg;base64,${c.base64}`}
+                alt={`Crop sent for ${c.kind}`}
+                style={{ maxWidth: "100%", height: "auto", border: "1px solid var(--line)", borderRadius: 8 }}
+              />
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <h2>New reader vs. old reader (same photo, same ground truth)</h2>
+      {result.oldReader.error ? (
+        <p className="card muted">The old reader failed on this photo: {result.oldReader.error}</p>
+      ) : (
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Field</th>
+                <th>New reader</th>
+                <th>Old reader (live today)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {COMPARED_FIELDS.map((f) => {
+                const n = result.summary[f];
+                const o = result.oldReader.summary[f];
+                const nPct = n.comparable > 0 ? Math.round((n.correct / n.comparable) * 100) : null;
+                const oPct = o.comparable > 0 ? Math.round((o.correct / o.comparable) * 100) : null;
+                return (
+                  <tr key={f}>
+                    <td>{FIELD_LABELS[f]}</td>
+                    <td>{nPct === null ? "—" : `${nPct}% (${n.correct}/${n.comparable})`}</td>
+                    <td>{oPct === null ? "—" : `${oPct}% (${o.correct}/${o.comparable})`}</td>
+                  </tr>
+                );
+              })}
+              <tr>
+                <td>Margin note</td>
+                <td>
+                  {result.marginNoteSummary.comparable > 0
+                    ? `${Math.round((result.marginNoteSummary.correct / result.marginNoteSummary.comparable) * 100)}%`
+                    : "—"}
+                </td>
+                <td>
+                  {result.oldReader.marginNoteSummary.comparable > 0
+                    ? `${Math.round((result.oldReader.marginNoteSummary.correct / result.oldReader.marginNoteSummary.comparable) * 100)}%`
+                    : "—"}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      )}
+      <p className="muted">
+        Scoped to the flock tables, subtotals and margin notes — the old reader reads the egg ledger/feed
+        box in one combined whole-page call with a different shape, and doesn&apos;t read chick rows at
+        all, so those don&apos;t have an old-reader comparison here yet.
+      </p>
 
       <h2>Flock tables — accuracy by field</h2>
       <AccuracySummaryTable fields={COMPARED_FIELDS} labels={FIELD_LABELS} summary={result.summary} />
@@ -263,6 +361,9 @@ export default async function ReaderBenchmarkDatePage({
         result.ledgers.map((l) => (
           <div className="card" key={l.section}>
             <h3>{l.section === "big" ? "Big ledger (BAB-1..7)" : "Small ledger (BAB-8..10)"}</h3>
+            <p className="muted" style={{ margin: 0 }}>
+              Checksum retry rounds: {result.ledgerRetryRounds[l.section] ?? 0}
+            </p>
             {l.note && <p className="muted">{l.note}</p>}
             <div className="table-wrap">
               <table>
@@ -312,6 +413,9 @@ export default async function ReaderBenchmarkDatePage({
         result.feedBoxes.map((f) => (
           <div className="card" key={f.groupLabel}>
             <h3>{f.groupLabel === "ALL" ? "Single box (covers every flock)" : `Box: ${f.groupLabel}`}</h3>
+            <p className="muted" style={{ margin: 0 }}>
+              Checksum retry rounds: {result.feedBoxRetryRounds[f.groupLabel] ?? 0}
+            </p>
             {f.note && <p className="muted">{f.note}</p>}
             <div className="table-wrap">
               <table>
