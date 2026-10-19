@@ -101,9 +101,13 @@ Call record_feed_box_extraction with your findings.`;
 export async function extractFeedBoxRegion(
   imageBase64: string,
   mediaType: string,
-  groupLabel: FeedBoxGroupLabel
+  groupLabel: FeedBoxGroupLabel,
+  opts: { confusionHint?: string } = {}
 ): Promise<ExtractedFeedBoxRegion> {
   const client = getAnthropicClient();
+  const promptText = opts.confusionHint
+    ? `${promptFor(groupLabel)}\n\nRETRY NOTICE — this box's own arithmetic didn't check out after your first reading: ${opts.confusionHint} Look very carefully at those specific figures before answering again.`
+    : promptFor(groupLabel);
 
   const response = await client.messages.create(
     {
@@ -119,7 +123,7 @@ export async function extractFeedBoxRegion(
               type: "image",
               source: { type: "base64", media_type: mediaType as "image/jpeg" | "image/png" | "image/webp", data: imageBase64 },
             },
-            { type: "text", text: promptFor(groupLabel) },
+            { type: "text", text: promptText },
           ],
         },
       ],

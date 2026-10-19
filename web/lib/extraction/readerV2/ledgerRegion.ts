@@ -107,10 +107,14 @@ Call record_egg_ledger_extraction with your findings.`;
 export async function extractEggLedgerRegion(
   imageBase64: string,
   mediaType: string,
-  section: EggStockSection
+  section: EggStockSection,
+  opts: { confusionHint?: string } = {}
 ): Promise<ExtractedEggLedgerRegion> {
   const client = getAnthropicClient();
   const sectionLabel = section === "big" ? "big (under the BAB-1..7 table)" : "small (under the BAB-8..10 table)";
+  const promptText = opts.confusionHint
+    ? `${promptFor(sectionLabel)}\n\nRETRY NOTICE — this ledger's own arithmetic didn't check out after your first reading: ${opts.confusionHint} Look very carefully at those specific figures before answering again.`
+    : promptFor(sectionLabel);
 
   const response = await client.messages.create(
     {
@@ -126,7 +130,7 @@ export async function extractEggLedgerRegion(
               type: "image",
               source: { type: "base64", media_type: mediaType as "image/jpeg" | "image/png" | "image/webp", data: imageBase64 },
             },
-            { type: "text", text: promptFor(sectionLabel) },
+            { type: "text", text: promptText },
           ],
         },
       ],

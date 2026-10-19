@@ -1,15 +1,19 @@
 import { pool } from "../../db";
 import { ACTIVE_FARM } from "../../farm";
-import { getActiveLabels, matchFlockLabel } from "../flockMatch";
-import { BAL_BIRD_TOLERANCE, type Section } from "../pageChecksum";
+import { extractDailyProductionSafely, type ExtractedFlockRow } from "../dailyProduction";
+import { getActiveLabels, matchFlockLabel, type ActiveLabel } from "../flockMatch";
+import { BAL_BIRD_TOLERANCE, type Section, type SectionSubtotal } from "../pageChecksum";
 import { calcHd } from "../digitEvidence";
 import type { EggStockSection } from "../../eggstock-types";
+import { autoOrientPhoto } from "./autoOrient";
 import { detectOrientationAndRegions } from "./orientationAndRegions";
 import { rotateAndCropRegions, type CroppedRegion } from "./crop";
 import { extractTableBlocksFromCrops } from "./index";
 import { extractEggLedgerRegion } from "./ledgerRegion";
 import { extractFeedBoxRegion, type FeedBoxGroupLabel } from "./feedBoxRegion";
 import { extractChickRowsRegion } from "./chickRowsRegion";
+import { checkEggLedgerArithmetic, checkFeedBoxArithmetic } from "./ledgerFeedChecksum";
+import { drawRegionBoxes, downscaleForDisplay } from "./debugImage";
 
 // Reader rebuild benchmark (owner's "V4 build prompt", Phase 1): runs the
 // NEW region-cropped reader against a photo this app already has stored
@@ -230,6 +234,52 @@ export interface ChickRowsResult {
   note: string | null;
 }
 
+// ===================== Old reader (for side-by-side comparison) =====================
+
+// Owner request, 2026-10-19: "so we know whether the new reader is
+// actually better than what is live" — the SAME photo is also run through
+// the existing single-call reader (dailyProduction.ts, exactly what every
+// real upload uses today) and scored against the SAME ground truth, with
+// the SAME field comparison logic, so the two numbers are directly
+// comparable. Scoped to the flock tables + subtotals + margin notes for
+// now, not the egg ledger/feed box/chick rows — the old reader reads
+// ledger/feed in one combined whole-page call with a different shape, and
+// extending this comparison to those too is follow-up work, not done
+// here.
+export interface OldReaderComparison {
+  summary: Record<ComparedField, { comparable: number; correct: number }>;
+  marginNoteSummary: { comparable: number; correct: number };
+  subtotalSummary: Record<SubtotalField, { comparable: number; correct: number }>;
+  missingFromExtraction: string[];
+  unmatchedExtractedLabels: string[];
+  // Set instead of the above if the old reader itself failed outright
+  // (e.g. its own runaway-count rejection) — still worth showing, since
+  // "the old reader also can't read this photo" is itself a useful answer.
+  error: string | null;
+}
+
+// ===================== Debug images =====================
+
+// Owner request, 2026-10-19 (Aug 8 benchmark): every crop actually sent to
+// a vision call, plus the whole upright page with the detected boxes
+// drawn on it, so a bad region box is visible at a glance instead of
+// inferred from garbled output. All downscaled for display only — the
+// model itself always gets the full-resolution version these are derived
+// from.
+export interface DebugCropImage {
+  kind: string;
+  base64: string;
+  // True if this is the MIN_TABLE_AREA_FRACTION fallback — i.e. what's
+  // shown here is the whole page, sent in place of a detected box that
+  // looked too small to trust (see readerV2/index.ts).
+  isWholePageFallback: boolean;
+}
+
+export interface DebugImages {
+  fullPageWithBoxes: string; // base64 jpeg, boxes + labels drawn
+  crops: DebugCropImage[];
+}
+
 // ===================== Overall result =====================
 
 export interface BenchmarkResult {
@@ -239,6 +289,7 @@ export interface BenchmarkResult {
   v2PageNotes: string | null;
   retryRoundsRun: number;
   retriedLabels: string[];
+  fellBackToFullPage: string[];
   rows: FlockComparison[];
   unmatchedExtractedLabels: string[];
   missingFromExtraction: string[];
@@ -250,11 +301,16 @@ export interface BenchmarkResult {
 
   ledgers: LedgerComparison[];
   ledgerSummary: Record<LedgerField, { comparable: number; correct: number }>;
+  ledgerRetryRounds: Record<EggStockSection, number>;
 
   feedBoxes: FeedBoxComparison[];
   feedBoxSummary: Record<FeedBoxField, { comparable: number; correct: number }>;
+  feedBoxRetryRounds: Record<string, number>;
 
   chickRows: ChickRowsResult;
+
+  oldReader: OldReaderComparison;
+  debugImages: DebugImages;
 }
 
 const EGG_LEDGER_REGION_KINDS: Record<string, EggStockSection> = {
@@ -267,79 +323,30 @@ const FEED_BOX_REGION_KINDS: Record<string, FeedBoxGroupLabel> = {
   feed_box_continuation: "BAB-8-10",
 };
 
-export async function runBenchmarkForDate(
-  date: string,
-  farmCode: string = ACTIVE_FARM
-): Promise<BenchmarkResult> {
-  const { rows: dbRowsRaw } = await pool.query(
-    `SELECT display_label_as_written, flock_internal_id, mortality, feed_bags, eggs_total,
-            bird_population, hd_percent_written, flagged, flag_reason, source_photo_url
-       FROM daily_production
-      WHERE farm_code = $1 AND date = $2 AND deleted_at IS NULL`,
-    [farmCode, date]
-  );
-  const dbRows = dbRowsRaw as DbProductionRow[];
-  if (dbRows.length === 0) {
-    throw new Error(`No saved daily_production rows for ${date} — nothing to benchmark against.`);
-  }
-
-  let photoUrl = dbRows.find((r) => r.source_photo_url)?.source_photo_url ?? null;
-  if (!photoUrl) {
-    const { rows: benchmarkPhotoRows } = await pool.query(
-      `SELECT photo_url FROM reader_benchmark_photos WHERE farm_code = $1 AND date = $2`,
-      [farmCode, date]
-    );
-    photoUrl = (benchmarkPhotoRows[0]?.photo_url as string | undefined) ?? null;
-  }
-  if (!photoUrl) {
-    throw new Error(
-      `${date} has no stored photo — use "Add a photo for the benchmark" on the list page first.`
-    );
-  }
-
-  const photoResponse = await fetch(photoUrl);
-  if (!photoResponse.ok) {
-    throw new Error(`Couldn't download the stored photo for ${date} (HTTP ${photoResponse.status}).`);
-  }
-  const photoBuffer = Buffer.from(await photoResponse.arrayBuffer());
-  const contentType = photoResponse.headers.get("content-type") || "image/jpeg";
-
-  // One orientation/region call, one set of crops — reused by every region
-  // kind below, so this never pays for a second whole-page vision call.
-  const layout = await detectOrientationAndRegions(photoBuffer.toString("base64"), contentType);
-  const crops = await rotateAndCropRegions(photoBuffer, layout);
-  const cropByKind = new Map<string, CroppedRegion>(crops.map((c) => [c.kind, c]));
-
-  const tableBlocks = await extractTableBlocksFromCrops(cropByKind);
-  const activeLabels = await getActiveLabels(pool, farmCode, date);
-
-  // Ground truth for margin notes: every real movement this farm recorded
-  // for a flock on this date (any source — a margin note is the usual
-  // origin, but this is deliberately not scoped to just that source so a
-  // movement resolved to a different type still counts as "something was
-  // really there").
-  const { rows: movementRows } = await pool.query(
-    `SELECT flock_internal_id, sum(abs(birds_change))::int AS total_magnitude
-       FROM flock_movements
-      WHERE farm_code = $1 AND date = $2
-      GROUP BY flock_internal_id`,
-    [farmCode, date]
-  );
-  const movementMagnitudeByFlock = new Map<string, number>(
-    movementRows.map((r) => [r.flock_internal_id as string, Number(r.total_magnitude)])
-  );
-
+// Shared between the new reader's own detailed comparison and the old
+// reader's side-by-side summary — same matching, same fields, same
+// subtotal-sum-from-ground-truth logic, so the two numbers mean exactly
+// the same thing and are safe to put next to each other.
+function compareFlockTables(
+  extractedFlocks: ExtractedFlockRow[],
+  sectionSubtotals: Record<Section, SectionSubtotal | null>,
+  dbRows: DbProductionRow[],
+  activeLabels: ActiveLabel[],
+  movementMagnitudeByFlock: Map<string, number>
+): {
+  rows: FlockComparison[];
+  unmatchedExtractedLabels: string[];
+  missingFromExtraction: string[];
+  summary: Record<ComparedField, { comparable: number; correct: number }>;
+  marginNoteSummary: { comparable: number; correct: number };
+  subtotals: SubtotalComparison[];
+  subtotalSummary: Record<SubtotalField, { comparable: number; correct: number }>;
+} {
   const dbByFlockId = new Map(dbRows.map((r) => [r.flock_internal_id, r]));
   const matchedFlockIds = new Set<string>();
   const unmatchedExtractedLabels: string[] = [];
   const rows: FlockComparison[] = [];
 
-  // Section sums, built from GROUND TRUTH values of matched flocks (never
-  // from v2's own reads) and tagged by v2's OWN section assignment for
-  // that flock — this is what the subtotal row below is actually checked
-  // against. A null entry means at least one contributing flock had a
-  // null value for that field, so the expected sum is incomplete, not a
-  // real zero.
   interface SectionAcc {
     mortality: number | null;
     feedBags: number | null;
@@ -356,7 +363,7 @@ export async function runBenchmarkForDate(
     return current + value;
   }
 
-  for (const flock of tableBlocks.flocks) {
+  for (const flock of extractedFlocks) {
     const match = matchFlockLabel(flock.display_label_as_written, activeLabels);
     const dbRow = match.flockInternalId ? dbByFlockId.get(match.flockInternalId) : undefined;
     if (!dbRow) {
@@ -399,23 +406,21 @@ export async function runBenchmarkForDate(
     .filter((r) => !matchedFlockIds.has(r.flock_internal_id))
     .map((r) => r.display_label_as_written);
 
-  const summary = {} as BenchmarkResult["summary"];
+  const summary = {} as Record<ComparedField, { comparable: number; correct: number }>;
   for (const field of COMPARED_FIELDS) {
     const comparable = rows.filter((r) => r.fields[field].expected !== null || r.fields[field].actual !== null);
     summary[field] = { comparable: comparable.length, correct: comparable.filter((r) => r.fields[field].match).length };
   }
-  const marginComparable = rows.length;
   const marginNoteSummary = {
-    comparable: marginComparable,
+    comparable: rows.length,
     correct: rows.filter((r) => r.marginNote.match).length,
   };
 
-  // ---- Subtotal rows ----
   const subtotals: SubtotalComparison[] = [];
   for (const section of ["main", "continuation"] as const) {
-    const v2Subtotal = tableBlocks.subtotals[section];
+    const v2Subtotal = sectionSubtotals[section];
     const acc = sectionAcc[section];
-    if (!v2Subtotal && acc.flockCount === 0) continue; // this page genuinely has no such section
+    if (!v2Subtotal && acc.flockCount === 0) continue;
 
     const expectedHd =
       acc.eggsTotal !== null && acc.birdPopulation !== null && acc.birdPopulation > 0
@@ -431,10 +436,135 @@ export async function runBenchmarkForDate(
     };
     subtotals.push({ section, flocksUsedForExpected: acc.flockCount, fields });
   }
-  const subtotalSummary = {} as BenchmarkResult["subtotalSummary"];
+  const subtotalSummary = {} as Record<SubtotalField, { comparable: number; correct: number }>;
   for (const field of SUBTOTAL_FIELDS) {
     const comparable = subtotals.filter((s) => s.fields[field].expected !== null || s.fields[field].actual !== null);
     subtotalSummary[field] = { comparable: comparable.length, correct: comparable.filter((s) => s.fields[field].match).length };
+  }
+
+  return { rows, unmatchedExtractedLabels, missingFromExtraction, summary, marginNoteSummary, subtotals, subtotalSummary };
+}
+
+function sectionSubtotalsFromArray(arr: SectionSubtotal[]): Record<Section, SectionSubtotal | null> {
+  return {
+    main: arr.find((s) => s.section === "main") ?? null,
+    continuation: arr.find((s) => s.section === "continuation") ?? null,
+  };
+}
+
+// Owner request, 2026-10-19: the egg ledger and feed box now get the same
+// checksum-guided retry the flock tables already had — up to this many
+// rounds of "re-ask with a hint describing what didn't add up" before
+// accepting whatever the last attempt produced.
+const MAX_LEDGER_FEED_RETRIES = 2;
+
+export async function runBenchmarkForDate(
+  date: string,
+  farmCode: string = ACTIVE_FARM
+): Promise<BenchmarkResult> {
+  const { rows: dbRowsRaw } = await pool.query(
+    `SELECT display_label_as_written, flock_internal_id, mortality, feed_bags, eggs_total,
+            bird_population, hd_percent_written, flagged, flag_reason, source_photo_url
+       FROM daily_production
+      WHERE farm_code = $1 AND date = $2 AND deleted_at IS NULL`,
+    [farmCode, date]
+  );
+  const dbRows = dbRowsRaw as DbProductionRow[];
+  if (dbRows.length === 0) {
+    throw new Error(`No saved daily_production rows for ${date} — nothing to benchmark against.`);
+  }
+
+  let photoUrl = dbRows.find((r) => r.source_photo_url)?.source_photo_url ?? null;
+  if (!photoUrl) {
+    const { rows: benchmarkPhotoRows } = await pool.query(
+      `SELECT photo_url FROM reader_benchmark_photos WHERE farm_code = $1 AND date = $2`,
+      [farmCode, date]
+    );
+    photoUrl = (benchmarkPhotoRows[0]?.photo_url as string | undefined) ?? null;
+  }
+  if (!photoUrl) {
+    throw new Error(
+      `${date} has no stored photo — use "Add a photo for the benchmark" on the list page first.`
+    );
+  }
+
+  const photoResponse = await fetch(photoUrl);
+  if (!photoResponse.ok) {
+    throw new Error(`Couldn't download the stored photo for ${date} (HTTP ${photoResponse.status}).`);
+  }
+  const rawPhotoBuffer = Buffer.from(await photoResponse.arrayBuffer());
+  const contentType = photoResponse.headers.get("content-type") || "image/jpeg";
+
+  // Owner report, 2026-10-19 (Aug 8 benchmark): done ONCE, before anything
+  // else sees the photo, so the detection call and the actual crop always
+  // agree on orientation — see autoOrient.ts.
+  const photoBuffer = await autoOrientPhoto(rawPhotoBuffer);
+
+  // One orientation/region call, one set of crops — reused by every region
+  // kind below, so this never pays for a second whole-page vision call.
+  const layout = await detectOrientationAndRegions(photoBuffer.toString("base64"), contentType);
+  const { crops, fullPage } = await rotateAndCropRegions(photoBuffer, layout);
+  const cropByKind = new Map<string, CroppedRegion>(crops.map((c) => [c.kind, c]));
+
+  const tableBlocks = await extractTableBlocksFromCrops(cropByKind, fullPage);
+  const activeLabels = await getActiveLabels(pool, farmCode, date);
+
+  // Ground truth for margin notes: every real movement this farm recorded
+  // for a flock on this date (any source — a margin note is the usual
+  // origin, but this is deliberately not scoped to just that source so a
+  // movement resolved to a different type still counts as "something was
+  // really there").
+  const { rows: movementRows } = await pool.query(
+    `SELECT flock_internal_id, sum(abs(birds_change))::int AS total_magnitude
+       FROM flock_movements
+      WHERE farm_code = $1 AND date = $2
+      GROUP BY flock_internal_id`,
+    [farmCode, date]
+  );
+  const movementMagnitudeByFlock = new Map<string, number>(
+    movementRows.map((r) => [r.flock_internal_id as string, Number(r.total_magnitude)])
+  );
+
+  const {
+    rows,
+    unmatchedExtractedLabels,
+    missingFromExtraction,
+    summary,
+    marginNoteSummary,
+    subtotals,
+    subtotalSummary,
+  } = compareFlockTables(tableBlocks.flocks, tableBlocks.subtotals, dbRows, activeLabels, movementMagnitudeByFlock);
+
+  // ---- Old reader, same photo, same ground truth — see OldReaderComparison's own doc comment ----
+  let oldReader: OldReaderComparison;
+  try {
+    const oldResult = await extractDailyProductionSafely(photoBuffer.toString("base64"), contentType, dbRows.length);
+    const oldCompared = compareFlockTables(
+      oldResult.flocks,
+      sectionSubtotalsFromArray(oldResult.extraction.section_subtotals ?? []),
+      dbRows,
+      activeLabels,
+      movementMagnitudeByFlock
+    );
+    oldReader = {
+      summary: oldCompared.summary,
+      marginNoteSummary: oldCompared.marginNoteSummary,
+      subtotalSummary: oldCompared.subtotalSummary,
+      missingFromExtraction: oldCompared.missingFromExtraction,
+      unmatchedExtractedLabels: oldCompared.unmatchedExtractedLabels,
+      error: null,
+    };
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    const empty = { comparable: 0, correct: 0 };
+    oldReader = {
+      summary: { mortality: empty, feed_bags: empty, eggs_total: empty, bird_population: empty, hd_percent: empty },
+      marginNoteSummary: empty,
+      subtotalSummary: { mortality: empty, feed_bags: empty, eggs_total: empty, bird_population: empty, hd_percent: empty },
+      missingFromExtraction: [],
+      unmatchedExtractedLabels: [],
+      error: detail,
+    };
   }
 
   // ---- Egg ledger ----
@@ -461,6 +591,7 @@ export async function runBenchmarkForDate(
   }
 
   const ledgers: LedgerComparison[] = [];
+  const ledgerRetryRounds = {} as Record<EggStockSection, number>;
   for (const dbLedger of ledgerDbRows) {
     const section = dbLedger.section as EggStockSection;
     const regionKind = Object.entries(EGG_LEDGER_REGION_KINDS).find(([, s]) => s === section)?.[0];
@@ -480,7 +611,15 @@ export async function runBenchmarkForDate(
       continue;
     }
 
-    const v2Ledger = await extractEggLedgerRegion(crop.base64, crop.mediaType, section);
+    let v2Ledger = await extractEggLedgerRegion(crop.base64, crop.mediaType, section);
+    let ledgerRetries = 0;
+    for (; ledgerRetries < MAX_LEDGER_FEED_RETRIES; ledgerRetries++) {
+      const findings = checkEggLedgerArithmetic(v2Ledger);
+      if (findings.length === 0) break;
+      const hint = findings.map((f) => f.message).join("; ") + ".";
+      v2Ledger = await extractEggLedgerRegion(crop.base64, crop.mediaType, section, { confusionHint: hint });
+    }
+    ledgerRetryRounds[section] = ledgerRetries;
     const expectedDeductions = ledgerDeductionsBySummaryId.get(dbLedger.id) ?? [];
     const maxLen = Math.max(expectedDeductions.length, v2Ledger.deductions.length);
     const deductions: DeductionComparison[] = [];
@@ -526,6 +665,7 @@ export async function runBenchmarkForDate(
     [farmCode, date]
   );
   const feedBoxes: FeedBoxComparison[] = [];
+  const feedBoxRetryRounds: Record<string, number> = {};
   for (const dbFeed of feedDbRows) {
     const groupLabel = dbFeed.flock_group as FeedBoxGroupLabel;
     const regionKind = Object.entries(FEED_BOX_REGION_KINDS).find(([, g]) => g === groupLabel)?.[0];
@@ -548,7 +688,15 @@ export async function runBenchmarkForDate(
       continue;
     }
 
-    const v2Feed = await extractFeedBoxRegion(crop.base64, crop.mediaType, groupLabel);
+    let v2Feed = await extractFeedBoxRegion(crop.base64, crop.mediaType, groupLabel);
+    let feedRetries = 0;
+    for (; feedRetries < MAX_LEDGER_FEED_RETRIES; feedRetries++) {
+      const findings = checkFeedBoxArithmetic(v2Feed);
+      if (findings.length === 0) break;
+      const hint = findings.map((f) => f.message).join("; ") + ".";
+      v2Feed = await extractFeedBoxRegion(crop.base64, crop.mediaType, groupLabel, { confusionHint: hint });
+    }
+    feedBoxRetryRounds[groupLabel] = feedRetries;
     feedBoxes.push({
       groupLabel,
       fields: {
@@ -608,6 +756,16 @@ export async function runBenchmarkForDate(
     chickRows = { rows: chickComparisons, unmatchedExtracted, note: v2Chick.region_notes };
   }
 
+  // ---- Debug images (owner request, 2026-10-19) ----
+  const fullPageWithBoxes = (await drawRegionBoxes(fullPage.base64, layout.regions)).base64;
+  const debugCrops: DebugCropImage[] = await Promise.all(
+    crops.map(async (c) => ({
+      kind: c.kind,
+      base64: await downscaleForDisplay(c.base64),
+      isWholePageFallback: tableBlocks.fellBackToFullPage.includes(c.kind),
+    }))
+  );
+
   return {
     date,
     photoUrl,
@@ -615,6 +773,7 @@ export async function runBenchmarkForDate(
     v2PageNotes: tableBlocks.regionNotes.join(" ") || null,
     retryRoundsRun: tableBlocks.retryRoundsRun,
     retriedLabels: tableBlocks.retriedLabels,
+    fellBackToFullPage: tableBlocks.fellBackToFullPage,
     rows,
     unmatchedExtractedLabels,
     missingFromExtraction,
@@ -624,9 +783,13 @@ export async function runBenchmarkForDate(
     subtotalSummary,
     ledgers,
     ledgerSummary,
+    ledgerRetryRounds,
     feedBoxes,
     feedBoxSummary,
+    feedBoxRetryRounds,
     chickRows,
+    oldReader,
+    debugImages: { fullPageWithBoxes, crops: debugCrops },
   };
 }
 

@@ -16,6 +16,7 @@
 
 import sharp from "sharp";
 import { rotateAndCropRegions, recropForRetry } from "../lib/extraction/readerV2/crop";
+import { autoOrientPhoto } from "../lib/extraction/readerV2/autoOrient";
 import type { OrientationAndRegions } from "../lib/extraction/readerV2/types";
 
 let pass = 0;
@@ -93,7 +94,7 @@ async function main() {
       dateConfidence: 0.9,
       regions: [{ kind: "main_table_block", box: { x: 0, y: 0, width: 1, height: 1 } }], // whole image, just to get the rotated buffer back
     };
-    const crops = await rotateAndCropRegions(original, layout);
+    const { crops, fullPage } = await rotateAndCropRegions(original, layout);
     check("90°: produces exactly 1 crop for 1 region", crops.length === 1, crops.length);
     const buf = Buffer.from(crops[0].base64, "base64");
     const rotatedMeta = await sharp(buf).metadata();
@@ -109,6 +110,22 @@ async function main() {
     check("90° CW: the ORIGINAL top-left (red) marker is now at the TOP-RIGHT", closeTo(topRight, RED), topRight);
     check("90° CW: the ORIGINAL top-right (green) marker is now at the BOTTOM-RIGHT", closeTo(await averageColor(buf, (rotatedMeta.width ?? 300) - 30, (rotatedMeta.height ?? 400) - 30, 25), GREEN));
     check("90° CW: top-left corner is no longer red (something else rotated into it)", !closeTo(topLeft, RED));
+
+    // fullPage must be the SAME coordinate space every crop/box is
+    // relative to — same dimensions as the rotated crop above, and its
+    // own pixels must show the same rotated content (owner report,
+    // 2026-10-19: a coordinate-space mismatch here is exactly what
+    // produced garbled labels/wrong date on a real photo).
+    check(
+      "fullPage reports the same dimensions as the rotated crop",
+      fullPage.width === rotatedMeta.width && fullPage.height === rotatedMeta.height,
+      fullPage
+    );
+    const fullPageBuf = Buffer.from(fullPage.base64, "base64");
+    check(
+      "fullPage's own top-right is red too (same rotation as the crop)",
+      closeTo(await averageColor(fullPageBuf, fullPage.width - 30, 0, 25), RED)
+    );
   }
 
   // === Region cropping after rotation: crop just the purple needle marker,
@@ -126,7 +143,7 @@ async function main() {
       dateConfidence: 0.9,
       regions: [{ kind: "chick_rows", box: { x: 0.75, y: 0.45, width: 0.25, height: 0.25 } }],
     };
-    const crops = await rotateAndCropRegions(original, layout);
+    const { crops } = await rotateAndCropRegions(original, layout);
     const buf = Buffer.from(crops[0].base64, "base64");
     const meta = await sharp(buf).metadata();
     const center = await averageColor(buf, Math.floor((meta.width ?? 10) / 2) - 5, Math.floor((meta.height ?? 10) / 2) - 5, 10);
@@ -145,7 +162,7 @@ async function main() {
     };
     let threw = false;
     try {
-      const crops = await rotateAndCropRegions(original, layout);
+      const { crops } = await rotateAndCropRegions(original, layout);
       check("overflowing box still produces a crop (clamped, no crash)", crops.length === 1, crops);
     } catch {
       threw = true;
@@ -181,12 +198,17 @@ async function main() {
       dateConfidence: 0.9,
       regions: [{ kind: "main_table_block", box: { x: 0, y: 0, width: 1, height: 1 } }],
     };
-    const crops = await rotateAndCropRegions(original, layout);
+    const { crops, fullPage } = await rotateAndCropRegions(original, layout);
     const buf = Buffer.from(crops[0].base64, "base64");
     const meta = await sharp(buf).metadata();
     check("0° rotation keeps the original 400x300 dimensions", meta.width === 400 && meta.height === 300, meta);
     check("0° rotation: top-left stays red", closeTo(await averageColor(buf, 0, 0, 25), RED));
     check("0° rotation: bottom-right stays yellow", closeTo(await averageColor(buf, 370, 270, 25), YELLOW));
+    check(
+      "fullPage also keeps the original 400x300 dimensions at 0° (the defense-in-depth leading .rotate() is a no-op on an un-EXIF-tagged buffer)",
+      fullPage.width === 400 && fullPage.height === 300,
+      fullPage
+    );
   }
 
   // === Retry zoom: recropForRetry must actually upscale (more pixels than
@@ -199,7 +221,7 @@ async function main() {
       dateConfidence: 0.9,
       regions: [{ kind: "main_table_block", box: { x: 0, y: 0, width: 1, height: 1 } }],
     };
-    const [wholeCrop] = await rotateAndCropRegions(original, layout);
+    const { crops: [wholeCrop] } = await rotateAndCropRegions(original, layout);
     const zoomed = await recropForRetry(wholeCrop.base64, { x: 0.5, y: 0.0, width: 0.1, height: 0.1 }, 1200);
     const zoomedMeta = await sharp(Buffer.from(zoomed.base64, "base64")).metadata();
     console.log(`Retry zoom of a 40x30px sub-area -> ${zoomedMeta.width}x${zoomedMeta.height}`);
@@ -207,6 +229,72 @@ async function main() {
       "retry zoom upscales a small sub-area to roughly the target long edge",
       Math.max(zoomedMeta.width ?? 0, zoomedMeta.height ?? 0) >= 1100,
       zoomedMeta
+    );
+  }
+
+  // === EXIF orientation (owner report, 2026-10-19, Aug 8 benchmark:
+  // garbled labels, wrong date, "only one flock block visible" — traced to
+  // a coordinate-space mismatch between what the detection call saw and
+  // what crop.ts actually rotated/cropped). Tags the SAME 400x300 test
+  // image with real EXIF orientation 6 (phones commonly store sideways
+  // sensor data with a tag saying "rotate to display"), WITHOUT physically
+  // rotating its pixels — simulating exactly the kind of photo a phone
+  // produces — and confirms autoOrientPhoto bakes the correction in and
+  // strips the tag, landing on the SAME pixel layout our own
+  // rotationDegrees:90 convention already produces (both move the
+  // original top-left red marker to the top-right). ===
+  {
+    const tagged = await sharp(original).withMetadata({ orientation: 6 }).toBuffer();
+    const taggedMeta = await sharp(tagged).metadata();
+    check(
+      "EXIF orientation 6 was actually set on the test fixture, pixels NOT physically rotated",
+      taggedMeta.orientation === 6 && taggedMeta.width === 400 && taggedMeta.height === 300,
+      taggedMeta
+    );
+
+    const oriented = await autoOrientPhoto(tagged);
+    const orientedMeta = await sharp(oriented).metadata();
+    check(
+      "autoOrientPhoto strips the EXIF orientation tag",
+      orientedMeta.orientation === undefined,
+      orientedMeta
+    );
+    check(
+      "autoOrientPhoto bakes in the EXIF rotation (400x300 -> ~300x400, matching our own 90° convention)",
+      Math.abs((orientedMeta.width ?? 0) - 300) < 5 && Math.abs((orientedMeta.height ?? 0) - 400) < 5,
+      orientedMeta
+    );
+    const orientedTopRight = await averageColor(oriented, (orientedMeta.width ?? 300) - 30, 0, 25);
+    check(
+      "autoOrientPhoto's result matches rotationDegrees:90's own convention (red marker lands top-right)",
+      closeTo(orientedTopRight, RED),
+      orientedTopRight
+    );
+
+    // Defense in depth: even if a caller forgot to pre-orient and handed
+    // rotateAndCropRegions a STILL-TAGGED buffer with rotationDegrees:0
+    // (as if the detection call had already seen an EXIF-corrected,
+    // already-upright view and reasonably said "no further rotation
+    // needed"), the function's own leading .rotate() must still correct
+    // for the tag rather than silently cropping a sideways image.
+    const layout: OrientationAndRegions = {
+      rotationDegrees: 0,
+      pageNotes: null,
+      date: "2026-08-15",
+      dateConfidence: 0.9,
+      regions: [{ kind: "main_table_block", box: { x: 0, y: 0, width: 1, height: 1 } }],
+    };
+    const { fullPage } = await rotateAndCropRegions(tagged, layout);
+    check(
+      "defense in depth: rotateAndCropRegions corrects a still-EXIF-tagged buffer even with rotationDegrees:0",
+      Math.abs(fullPage.width - 300) < 5 && Math.abs(fullPage.height - 400) < 5,
+      fullPage
+    );
+    const fallbackTopRight = await averageColor(Buffer.from(fullPage.base64, "base64"), fullPage.width - 30, 0, 25);
+    check(
+      "defense in depth: the corrected image's red marker is where it should be (top-right)",
+      closeTo(fallbackTopRight, RED),
+      fallbackTopRight
     );
   }
 

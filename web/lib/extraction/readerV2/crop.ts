@@ -17,6 +17,25 @@ export interface CroppedRegion {
   height: number;
 }
 
+export interface FullPageImage {
+  base64: string;
+  mediaType: "image/jpeg";
+  width: number;
+  height: number;
+}
+
+export interface RotateAndCropResult {
+  crops: CroppedRegion[];
+  // The whole UPRIGHT (post-orientation) page, at full resolution — same
+  // coordinate space every crop and every region box is relative to.
+  // Exists for two reasons (owner request, 2026-10-19): (1) a fallback
+  // source when a detected region's own box looks too small/untrustworthy
+  // (see readerV2/index.ts's MIN_TABLE_AREA_FRACTION), and (2) so the
+  // benchmark page can draw the detected boxes on top of it and show the
+  // owner exactly what the model was shown.
+  fullPage: FullPageImage;
+}
+
 export interface RetryCrop {
   base64: string;
   mediaType: "image/jpeg";
@@ -50,12 +69,19 @@ function clamp(
 export async function rotateAndCropRegions(
   imageBuffer: Buffer,
   layout: OrientationAndRegions
-): Promise<CroppedRegion[]> {
+): Promise<RotateAndCropResult> {
   const sharp = await loadSharp();
-  // An explicit angle (even 0) overrides sharp's EXIF auto-orientation —
-  // deliberate: the page-layout call already read the real orientation off
-  // the pixels, so a stale/absent EXIF tag must never second-guess it.
-  const rotatedBuffer = await sharp(imageBuffer).rotate(layout.rotationDegrees).toBuffer();
+  // Owner report, 2026-10-19 (Aug 8 benchmark — garbled labels, wrong
+  // date, "only one flock block visible"): callers are expected to have
+  // already run the buffer through autoOrient.ts before it ever reaches
+  // the detection call OR here, so both see the exact same pixels. The
+  // leading, argument-less .rotate() below is defense in depth, not the
+  // primary fix — it re-applies (or, if already applied, harmlessly
+  // no-ops on) the EXIF correction immediately before the explicit
+  // rotationDegrees rotation, so this function can never silently misread
+  // a stale orientation tag even if some future caller forgets the
+  // upstream step.
+  const rotatedBuffer = await sharp(imageBuffer).rotate().rotate(layout.rotationDegrees).toBuffer();
   const rotatedMeta = await sharp(rotatedBuffer).metadata();
   const imageWidth = rotatedMeta.width ?? 0;
   const imageHeight = rotatedMeta.height ?? 0;
@@ -75,7 +101,16 @@ export async function rotateAndCropRegions(
       height,
     });
   }
-  return crops;
+
+  const fullPageBuffer = await sharp(rotatedBuffer).jpeg({ quality: 90 }).toBuffer();
+  const fullPage: FullPageImage = {
+    base64: fullPageBuffer.toString("base64"),
+    mediaType: "image/jpeg",
+    width: imageWidth,
+    height: imageHeight,
+  };
+
+  return { crops, fullPage };
 }
 
 // Checksum-driven retry: zoom into one flock's own row box (reported
