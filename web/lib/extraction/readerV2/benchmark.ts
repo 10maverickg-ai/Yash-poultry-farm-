@@ -1,28 +1,41 @@
 import { pool } from "../../db";
 import { ACTIVE_FARM } from "../../farm";
 import { getActiveLabels, matchFlockLabel } from "../flockMatch";
-import type { ExtractedFlockRow } from "../dailyProduction";
-import { extractDailyProductionV2 } from "./index";
+import { BAL_BIRD_TOLERANCE, type Section } from "../pageChecksum";
+import { calcHd } from "../digitEvidence";
+import type { EggStockSection } from "../../eggstock-types";
+import { detectOrientationAndRegions } from "./orientationAndRegions";
+import { rotateAndCropRegions, type CroppedRegion } from "./crop";
+import { extractTableBlocksFromCrops } from "./index";
+import { extractEggLedgerRegion } from "./ledgerRegion";
+import { extractFeedBoxRegion, type FeedBoxGroupLabel } from "./feedBoxRegion";
+import { extractChickRowsRegion } from "./chickRowsRegion";
 
 // Reader rebuild benchmark (owner's "V4 build prompt", Phase 1): runs the
-// NEW region-cropped reader against a photo this app already has stored,
-// and compares its raw reads field-by-field against whatever is currently
-// SAVED in daily_production for that date — the owner's own trusted record,
-// not a separate "ground truth" table. This is deliberately read-only: it
-// never writes anything, and it calls extractDailyProductionV2 directly,
-// completely independent of the READER_V2_ENABLED switch that gates real
-// uploads — running this benchmark can never affect what a real upload
-// saves.
+// NEW region-cropped reader against a photo this app already has stored
+// (or one uploaded just for this purpose — see listBenchmarkDates), and
+// compares its reads against whatever is currently SAVED — the owner's
+// own trusted record, not a separate "ground truth" table — across every
+// region kind the page-layout call can detect: the flock tables (plus
+// their subtotal rows), the egg ledger(s), the feed box(es), the chick
+// rows, and each flock's margin note. This is deliberately read-only: it
+// never writes anything, and every extraction call here runs completely
+// independent of the READER_V2_ENABLED switch that gates real uploads —
+// running this benchmark can never affect what a real upload saves.
 //
 // Comparison is against the CURRENT saved values (post pipeline.ts
-// correction), not the *_original columns — that's deliberately what the
-// owner already trusts as correct for a reviewed day, and it's the number
-// the old single-call reader's own accuracy already reflects, so this is
-// an apples-to-apples comparison of "would this reader produce the same
-// trusted answer". A flagged row's saved value is still used as the
-// comparison target, but dbFlagged is surfaced on every row so the owner
-// can tell a mismatch against an already-uncertain row apart from one
-// against an everybody-agrees-this-is-right row.
+// correction / post hand-entry review), not the *_original columns —
+// that's deliberately what the owner already trusts as correct for a
+// reviewed day. A flagged row's saved value is still used as the
+// comparison target, but dbFlagged is surfaced so a mismatch against an
+// already-uncertain row reads differently from one against an
+// everybody-agrees-this-is-right row.
+//
+// The chick-rows reader (chickRowsRegion.ts) has no prior art anywhere in
+// this app — chick_daily_mortality has always been filled in by hand.
+// Its results are reported the same way as everything else, but it's
+// worth remembering this one part is genuinely new and unproven, not an
+// existing prompt just asked of a smaller crop.
 
 export interface BenchmarkDateSummary {
   date: string;
@@ -63,6 +76,39 @@ export async function listBenchmarkDates(
   }));
 }
 
+export interface FieldComparison {
+  expected: number | null;
+  actual: number | null;
+  match: boolean;
+}
+
+function fieldComparison(expected: number | null, actual: number | null, tolerance = 0): FieldComparison {
+  const match =
+    expected === null || actual === null
+      ? expected === actual
+      : Math.abs(expected - actual) <= tolerance;
+  return { expected, actual, match };
+}
+
+function numOrNull(v: unknown): number | null {
+  if (v === null || v === undefined) return null;
+  const n = typeof v === "string" ? Number(v) : v;
+  return typeof n === "number" && Number.isFinite(n) ? n : null;
+}
+
+function firstIntInText(text: string | null): number | null {
+  if (!text) return null;
+  const m = text.match(/\d+/);
+  return m ? parseInt(m[0], 10) : null;
+}
+
+function firstNumberToken(label: string): string | null {
+  const m = label.match(/\d+/);
+  return m ? m[0] : null;
+}
+
+// ===================== Flock tables (+ subtotal + margin notes) =====================
+
 const COMPARED_FIELDS = ["mortality", "feed_bags", "eggs_total", "bird_population", "hd_percent"] as const;
 type ComparedField = (typeof COMPARED_FIELDS)[number];
 
@@ -91,29 +137,24 @@ interface DbProductionRow {
 }
 
 function dbValueFor(row: DbProductionRow, field: ComparedField): number | null {
-  if (field === "hd_percent") {
-    return row.hd_percent_written === null ? null : Number(row.hd_percent_written);
-  }
+  if (field === "hd_percent") return numOrNull(row.hd_percent_written);
   return row[field];
-}
-
-function extractedValueFor(flock: ExtractedFlockRow, field: ComparedField): number | null {
-  return flock[field];
 }
 
 // hd_percent is stored to 2 decimal places and the model reads it as
 // written, so a tiny float-parsing difference (e.g. "68.70" -> 68.7) must
 // never register as a mismatch — every other compared field is a plain
 // integer column, where exact equality is the correct (and only) test.
-function fieldsMatch(field: ComparedField, expected: number | null, actual: number | null): boolean {
-  if (expected === null || actual === null) return expected === actual;
-  if (field === "hd_percent") return Math.abs(expected - actual) < 0.01;
-  return expected === actual;
+function tableFieldComparison(field: ComparedField, expected: number | null, actual: number | null): FieldComparison {
+  return fieldComparison(expected, actual, field === "hd_percent" ? 0.01 : 0);
 }
 
-export interface FieldComparison {
-  expected: number | null;
-  actual: number | null;
+export interface MarginNoteComparison {
+  // Sum of |birds_change| across every flock_movements row for this
+  // flock/date — 0 when none exist, meaning "no movement expected".
+  expectedMagnitude: number;
+  actualText: string | null;
+  actualMagnitude: number | null;
   match: boolean;
 }
 
@@ -121,9 +162,75 @@ export interface FlockComparison {
   label: string;
   dbFlagged: boolean;
   dbFlagReason: string | null;
-  ambiguousDigits: string | null;
   fields: Record<ComparedField, FieldComparison>;
+  marginNote: MarginNoteComparison;
 }
+
+// ===================== Subtotal rows =====================
+
+const SUBTOTAL_FIELDS = ["mortality", "feed_bags", "eggs_total", "bird_population", "hd_percent"] as const;
+type SubtotalField = (typeof SUBTOTAL_FIELDS)[number];
+
+export interface SubtotalComparison {
+  section: Section;
+  // How many of this section's matched flocks actually contributed to the
+  // expected sums below (fewer than the section's full flock count means
+  // the expected figure is incomplete, not necessarily wrong).
+  flocksUsedForExpected: number;
+  fields: Record<SubtotalField, FieldComparison>;
+}
+
+// ===================== Egg ledger =====================
+
+const LEDGER_FIELDS = ["opening_balance_eggs", "total_eggs_produced", "total_line_eggs", "closing_balance_eggs"] as const;
+type LedgerField = (typeof LEDGER_FIELDS)[number];
+
+export interface DeductionComparison {
+  position: number;
+  expectedLabel: string | null;
+  expectedAmount: number | null;
+  actualLabel: string | null;
+  actualAmount: number | null;
+  match: boolean;
+}
+
+export interface LedgerComparison {
+  section: EggStockSection;
+  fields: Record<LedgerField, FieldComparison>;
+  deductions: DeductionComparison[];
+  note: string | null;
+}
+
+// ===================== Feed box =====================
+
+const FEED_BOX_FIELDS = [
+  "opening_balance_bags", "produced_bags", "total_bags", "closing_balance_bags",
+  "consumed_bags", "mill_inventory_bags", "shed_inventory_bags",
+] as const;
+type FeedBoxField = (typeof FEED_BOX_FIELDS)[number];
+
+export interface FeedBoxComparison {
+  groupLabel: FeedBoxGroupLabel;
+  fields: Record<FeedBoxField, FieldComparison>;
+  note: string | null;
+}
+
+// ===================== Chick rows =====================
+
+export interface ChickRowComparison {
+  label: string;
+  expectedDeaths: number | null;
+  actualDeaths: number | null;
+  match: boolean;
+}
+
+export interface ChickRowsResult {
+  rows: ChickRowComparison[];
+  unmatchedExtracted: string[];
+  note: string | null;
+}
+
+// ===================== Overall result =====================
 
 export interface BenchmarkResult {
   date: string;
@@ -133,15 +240,32 @@ export interface BenchmarkResult {
   retryRoundsRun: number;
   retriedLabels: string[];
   rows: FlockComparison[];
-  // v2 read a label that doesn't match any flock active that day.
   unmatchedExtractedLabels: string[];
-  // daily_production has a saved row for this label, but v2 never produced
-  // a matching read at all (e.g. it missed the row, or matched it to the
-  // wrong label and left this one orphaned) — the most important failure
-  // mode to see, since it's invisible in a field-by-field table otherwise.
   missingFromExtraction: string[];
   summary: Record<ComparedField, { comparable: number; correct: number }>;
+  marginNoteSummary: { comparable: number; correct: number };
+
+  subtotals: SubtotalComparison[];
+  subtotalSummary: Record<SubtotalField, { comparable: number; correct: number }>;
+
+  ledgers: LedgerComparison[];
+  ledgerSummary: Record<LedgerField, { comparable: number; correct: number }>;
+
+  feedBoxes: FeedBoxComparison[];
+  feedBoxSummary: Record<FeedBoxField, { comparable: number; correct: number }>;
+
+  chickRows: ChickRowsResult;
 }
+
+const EGG_LEDGER_REGION_KINDS: Record<string, EggStockSection> = {
+  big_egg_ledger: "big",
+  small_egg_ledger: "small",
+};
+const FEED_BOX_REGION_KINDS: Record<string, FeedBoxGroupLabel> = {
+  feed_box_single: "ALL",
+  feed_box_main: "BAB-1-7",
+  feed_box_continuation: "BAB-8-10",
+};
 
 export async function runBenchmarkForDate(
   date: string,
@@ -158,6 +282,7 @@ export async function runBenchmarkForDate(
   if (dbRows.length === 0) {
     throw new Error(`No saved daily_production rows for ${date} — nothing to benchmark against.`);
   }
+
   let photoUrl = dbRows.find((r) => r.source_photo_url)?.source_photo_url ?? null;
   if (!photoUrl) {
     const { rows: benchmarkPhotoRows } = await pool.query(
@@ -179,15 +304,59 @@ export async function runBenchmarkForDate(
   const photoBuffer = Buffer.from(await photoResponse.arrayBuffer());
   const contentType = photoResponse.headers.get("content-type") || "image/jpeg";
 
-  const v2 = await extractDailyProductionV2(photoBuffer, contentType);
+  // One orientation/region call, one set of crops — reused by every region
+  // kind below, so this never pays for a second whole-page vision call.
+  const layout = await detectOrientationAndRegions(photoBuffer.toString("base64"), contentType);
+  const crops = await rotateAndCropRegions(photoBuffer, layout);
+  const cropByKind = new Map<string, CroppedRegion>(crops.map((c) => [c.kind, c]));
+
+  const tableBlocks = await extractTableBlocksFromCrops(cropByKind);
   const activeLabels = await getActiveLabels(pool, farmCode, date);
+
+  // Ground truth for margin notes: every real movement this farm recorded
+  // for a flock on this date (any source — a margin note is the usual
+  // origin, but this is deliberately not scoped to just that source so a
+  // movement resolved to a different type still counts as "something was
+  // really there").
+  const { rows: movementRows } = await pool.query(
+    `SELECT flock_internal_id, sum(abs(birds_change))::int AS total_magnitude
+       FROM flock_movements
+      WHERE farm_code = $1 AND date = $2
+      GROUP BY flock_internal_id`,
+    [farmCode, date]
+  );
+  const movementMagnitudeByFlock = new Map<string, number>(
+    movementRows.map((r) => [r.flock_internal_id as string, Number(r.total_magnitude)])
+  );
 
   const dbByFlockId = new Map(dbRows.map((r) => [r.flock_internal_id, r]));
   const matchedFlockIds = new Set<string>();
   const unmatchedExtractedLabels: string[] = [];
   const rows: FlockComparison[] = [];
 
-  for (const flock of v2.flocks) {
+  // Section sums, built from GROUND TRUTH values of matched flocks (never
+  // from v2's own reads) and tagged by v2's OWN section assignment for
+  // that flock — this is what the subtotal row below is actually checked
+  // against. A null entry means at least one contributing flock had a
+  // null value for that field, so the expected sum is incomplete, not a
+  // real zero.
+  interface SectionAcc {
+    mortality: number | null;
+    feedBags: number | null;
+    eggsTotal: number | null;
+    birdPopulation: number | null;
+    flockCount: number;
+  }
+  const sectionAcc: Record<Section, SectionAcc> = {
+    main: { mortality: 0, feedBags: 0, eggsTotal: 0, birdPopulation: 0, flockCount: 0 },
+    continuation: { mortality: 0, feedBags: 0, eggsTotal: 0, birdPopulation: 0, flockCount: 0 },
+  };
+  function addToSum(current: number | null, value: number | null): number | null {
+    if (current === null || value === null) return null;
+    return current + value;
+  }
+
+  for (const flock of tableBlocks.flocks) {
     const match = matchFlockLabel(flock.display_label_as_written, activeLabels);
     const dbRow = match.flockInternalId ? dbByFlockId.get(match.flockInternalId) : undefined;
     if (!dbRow) {
@@ -198,18 +367,32 @@ export async function runBenchmarkForDate(
 
     const fields = {} as Record<ComparedField, FieldComparison>;
     for (const field of COMPARED_FIELDS) {
-      const expected = dbValueFor(dbRow, field);
-      const actual = extractedValueFor(flock, field);
-      fields[field] = { expected, actual, match: fieldsMatch(field, expected, actual) };
+      fields[field] = tableFieldComparison(field, dbValueFor(dbRow, field), flock[field]);
     }
 
+    const expectedMagnitude = movementMagnitudeByFlock.get(dbRow.flock_internal_id) ?? 0;
+    const actualMagnitude = firstIntInText(flock.margin_note);
     rows.push({
       label: flock.display_label_as_written,
       dbFlagged: dbRow.flagged,
       dbFlagReason: dbRow.flag_reason,
-      ambiguousDigits: null,
       fields,
+      marginNote: {
+        expectedMagnitude,
+        actualText: flock.margin_note,
+        actualMagnitude,
+        match:
+          (expectedMagnitude === 0 && actualMagnitude === null) ||
+          (expectedMagnitude !== 0 && actualMagnitude === expectedMagnitude),
+      },
     });
+
+    const acc = sectionAcc[flock.section];
+    acc.flockCount++;
+    acc.mortality = addToSum(acc.mortality, dbRow.mortality);
+    acc.feedBags = addToSum(acc.feedBags, dbRow.feed_bags);
+    acc.eggsTotal = addToSum(acc.eggsTotal, dbRow.eggs_total);
+    acc.birdPopulation = addToSum(acc.birdPopulation, dbRow.bird_population);
   }
 
   const missingFromExtraction = dbRows
@@ -219,25 +402,233 @@ export async function runBenchmarkForDate(
   const summary = {} as BenchmarkResult["summary"];
   for (const field of COMPARED_FIELDS) {
     const comparable = rows.filter((r) => r.fields[field].expected !== null || r.fields[field].actual !== null);
-    summary[field] = {
-      comparable: comparable.length,
-      correct: comparable.filter((r) => r.fields[field].match).length,
+    summary[field] = { comparable: comparable.length, correct: comparable.filter((r) => r.fields[field].match).length };
+  }
+  const marginComparable = rows.length;
+  const marginNoteSummary = {
+    comparable: marginComparable,
+    correct: rows.filter((r) => r.marginNote.match).length,
+  };
+
+  // ---- Subtotal rows ----
+  const subtotals: SubtotalComparison[] = [];
+  for (const section of ["main", "continuation"] as const) {
+    const v2Subtotal = tableBlocks.subtotals[section];
+    const acc = sectionAcc[section];
+    if (!v2Subtotal && acc.flockCount === 0) continue; // this page genuinely has no such section
+
+    const expectedHd =
+      acc.eggsTotal !== null && acc.birdPopulation !== null && acc.birdPopulation > 0
+        ? calcHd(acc.eggsTotal, acc.birdPopulation)
+        : null;
+
+    const fields = {
+      mortality: fieldComparison(acc.mortality, v2Subtotal?.mortality ?? null),
+      feed_bags: fieldComparison(acc.feedBags, v2Subtotal?.feed_bags ?? null),
+      eggs_total: fieldComparison(acc.eggsTotal, v2Subtotal?.eggs ?? null),
+      bird_population: fieldComparison(acc.birdPopulation, v2Subtotal?.bal_bird ?? null, BAL_BIRD_TOLERANCE),
+      hd_percent: fieldComparison(expectedHd, v2Subtotal?.hd_percent ?? null, 0.5),
     };
+    subtotals.push({ section, flocksUsedForExpected: acc.flockCount, fields });
+  }
+  const subtotalSummary = {} as BenchmarkResult["subtotalSummary"];
+  for (const field of SUBTOTAL_FIELDS) {
+    const comparable = subtotals.filter((s) => s.fields[field].expected !== null || s.fields[field].actual !== null);
+    subtotalSummary[field] = { comparable: comparable.length, correct: comparable.filter((s) => s.fields[field].match).length };
+  }
+
+  // ---- Egg ledger ----
+  const { rows: ledgerDbRows } = await pool.query(
+    `SELECT id, section, opening_balance_eggs, total_eggs_produced, total_line_eggs, closing_balance_eggs
+       FROM daily_egg_stock_summary
+      WHERE farm_code = $1 AND date = $2 AND deleted_at IS NULL`,
+    [farmCode, date]
+  );
+  const ledgerDeductionsBySummaryId = new Map<number, { sequence_order: number; label_as_written: string; amount_eggs: number }[]>();
+  if (ledgerDbRows.length > 0) {
+    const { rows: deductionRows } = await pool.query(
+      `SELECT egg_stock_summary_id, sequence_order, label_as_written, amount_eggs
+         FROM daily_egg_stock_entries
+        WHERE egg_stock_summary_id = ANY($1)
+        ORDER BY egg_stock_summary_id, sequence_order`,
+      [ledgerDbRows.map((r) => r.id)]
+    );
+    for (const d of deductionRows) {
+      const list = ledgerDeductionsBySummaryId.get(d.egg_stock_summary_id) ?? [];
+      list.push(d);
+      ledgerDeductionsBySummaryId.set(d.egg_stock_summary_id, list);
+    }
+  }
+
+  const ledgers: LedgerComparison[] = [];
+  for (const dbLedger of ledgerDbRows) {
+    const section = dbLedger.section as EggStockSection;
+    const regionKind = Object.entries(EGG_LEDGER_REGION_KINDS).find(([, s]) => s === section)?.[0];
+    const crop = regionKind ? cropByKind.get(regionKind) : undefined;
+    if (!crop) {
+      ledgers.push({
+        section,
+        fields: {
+          opening_balance_eggs: fieldComparison(dbLedger.opening_balance_eggs, null),
+          total_eggs_produced: fieldComparison(dbLedger.total_eggs_produced, null),
+          total_line_eggs: fieldComparison(dbLedger.total_line_eggs, null),
+          closing_balance_eggs: fieldComparison(dbLedger.closing_balance_eggs, null),
+        },
+        deductions: [],
+        note: `The reader didn't detect a ${section} egg ledger region on this photo.`,
+      });
+      continue;
+    }
+
+    const v2Ledger = await extractEggLedgerRegion(crop.base64, crop.mediaType, section);
+    const expectedDeductions = ledgerDeductionsBySummaryId.get(dbLedger.id) ?? [];
+    const maxLen = Math.max(expectedDeductions.length, v2Ledger.deductions.length);
+    const deductions: DeductionComparison[] = [];
+    for (let i = 0; i < maxLen; i++) {
+      const exp = expectedDeductions[i];
+      const act = v2Ledger.deductions[i];
+      const expAmount = exp ? Math.abs(exp.amount_eggs) : null; // stored signed (negative); magnitude is what's comparable
+      const actAmount = act ? act.amount_eggs : null;
+      deductions.push({
+        position: i + 1,
+        expectedLabel: exp?.label_as_written ?? null,
+        expectedAmount: expAmount,
+        actualLabel: act?.label_as_written ?? null,
+        actualAmount: actAmount,
+        match: expAmount !== null && actAmount !== null && expAmount === actAmount,
+      });
+    }
+
+    ledgers.push({
+      section,
+      fields: {
+        opening_balance_eggs: fieldComparison(dbLedger.opening_balance_eggs, v2Ledger.opening_balance_eggs),
+        total_eggs_produced: fieldComparison(dbLedger.total_eggs_produced, v2Ledger.total_eggs_produced),
+        total_line_eggs: fieldComparison(dbLedger.total_line_eggs, v2Ledger.total_line_eggs),
+        closing_balance_eggs: fieldComparison(dbLedger.closing_balance_eggs, v2Ledger.closing_balance_eggs),
+      },
+      deductions,
+      note: v2Ledger.region_notes,
+    });
+  }
+  const ledgerSummary = {} as BenchmarkResult["ledgerSummary"];
+  for (const field of LEDGER_FIELDS) {
+    const comparable = ledgers.filter((l) => l.fields[field].expected !== null || l.fields[field].actual !== null);
+    ledgerSummary[field] = { comparable: comparable.length, correct: comparable.filter((l) => l.fields[field].match).length };
+  }
+
+  // ---- Feed box ----
+  const { rows: feedDbRows } = await pool.query(
+    `SELECT flock_group, opening_balance_bags, produced_bags, total_bags, closing_balance_bags,
+            consumed_bags, mill_inventory_bags, shed_inventory_bags
+       FROM daily_feed_bag_stock
+      WHERE farm_code = $1 AND date = $2 AND deleted_at IS NULL`,
+    [farmCode, date]
+  );
+  const feedBoxes: FeedBoxComparison[] = [];
+  for (const dbFeed of feedDbRows) {
+    const groupLabel = dbFeed.flock_group as FeedBoxGroupLabel;
+    const regionKind = Object.entries(FEED_BOX_REGION_KINDS).find(([, g]) => g === groupLabel)?.[0];
+    const crop = regionKind ? cropByKind.get(regionKind) : undefined;
+    const emptyFields = (): Record<FeedBoxField, FieldComparison> => ({
+      opening_balance_bags: fieldComparison(dbFeed.opening_balance_bags, null),
+      produced_bags: fieldComparison(dbFeed.produced_bags, null),
+      total_bags: fieldComparison(dbFeed.total_bags, null),
+      closing_balance_bags: fieldComparison(dbFeed.closing_balance_bags, null),
+      consumed_bags: fieldComparison(dbFeed.consumed_bags, null),
+      mill_inventory_bags: fieldComparison(dbFeed.mill_inventory_bags, null),
+      shed_inventory_bags: fieldComparison(dbFeed.shed_inventory_bags, null),
+    });
+    if (!crop) {
+      feedBoxes.push({
+        groupLabel,
+        fields: emptyFields(),
+        note: `The reader didn't detect a feed box region matching "${groupLabel}" on this photo.`,
+      });
+      continue;
+    }
+
+    const v2Feed = await extractFeedBoxRegion(crop.base64, crop.mediaType, groupLabel);
+    feedBoxes.push({
+      groupLabel,
+      fields: {
+        opening_balance_bags: fieldComparison(dbFeed.opening_balance_bags, v2Feed.opening_balance_bags),
+        produced_bags: fieldComparison(dbFeed.produced_bags, v2Feed.produced_bags),
+        total_bags: fieldComparison(dbFeed.total_bags, v2Feed.total_bags),
+        closing_balance_bags: fieldComparison(dbFeed.closing_balance_bags, v2Feed.closing_balance_bags),
+        consumed_bags: fieldComparison(dbFeed.consumed_bags, v2Feed.consumed_bags),
+        mill_inventory_bags: fieldComparison(dbFeed.mill_inventory_bags, v2Feed.mill_inventory_bags),
+        shed_inventory_bags: fieldComparison(dbFeed.shed_inventory_bags, v2Feed.shed_inventory_bags),
+      },
+      note: v2Feed.region_notes,
+    });
+  }
+  const feedBoxSummary = {} as BenchmarkResult["feedBoxSummary"];
+  for (const field of FEED_BOX_FIELDS) {
+    const comparable = feedBoxes.filter((f) => f.fields[field].expected !== null || f.fields[field].actual !== null);
+    feedBoxSummary[field] = { comparable: comparable.length, correct: comparable.filter((f) => f.fields[field].match).length };
+  }
+
+  // ---- Chick rows ----
+  const { rows: chickDbRows } = await pool.query(
+    `SELECT label_as_written, deaths FROM chick_daily_mortality WHERE farm_code = $1 AND date = $2 ORDER BY row_position`,
+    [farmCode, date]
+  );
+  let chickRows: ChickRowsResult;
+  const chickCrop = cropByKind.get("chick_rows");
+  if (chickDbRows.length === 0) {
+    chickRows = { rows: [], unmatchedExtracted: [], note: "No saved chick-row data for this date." };
+  } else if (!chickCrop) {
+    chickRows = {
+      rows: chickDbRows.map((r) => ({ label: r.label_as_written, expectedDeaths: r.deaths, actualDeaths: null, match: false })),
+      unmatchedExtracted: [],
+      note: "The reader didn't detect a chick-rows region on this photo.",
+    };
+  } else {
+    const v2Chick = await extractChickRowsRegion(chickCrop.base64, chickCrop.mediaType);
+    const usedActual = new Set<number>();
+    const chickComparisons: ChickRowComparison[] = chickDbRows.map((dbRow) => {
+      const dbToken = firstNumberToken(dbRow.label_as_written);
+      const idx = v2Chick.rows.findIndex((r, i) => !usedActual.has(i) && firstNumberToken(r.label_as_written) === dbToken);
+      if (idx === -1) {
+        return { label: dbRow.label_as_written, expectedDeaths: dbRow.deaths, actualDeaths: null, match: false };
+      }
+      usedActual.add(idx);
+      const actual = v2Chick.rows[idx];
+      return {
+        label: dbRow.label_as_written,
+        expectedDeaths: dbRow.deaths,
+        actualDeaths: actual.deaths,
+        match: dbRow.deaths !== null && actual.deaths !== null && dbRow.deaths === actual.deaths,
+      };
+    });
+    const unmatchedExtracted = v2Chick.rows
+      .filter((_, i) => !usedActual.has(i))
+      .map((r) => r.label_as_written);
+    chickRows = { rows: chickComparisons, unmatchedExtracted, note: v2Chick.region_notes };
   }
 
   return {
     date,
     photoUrl,
-    v2DateRead: v2.extraction.date,
-    v2PageNotes: v2.extraction.page_notes,
-    retryRoundsRun: v2.retryRoundsRun,
-    retriedLabels: v2.retriedLabels,
+    v2DateRead: layout.date,
+    v2PageNotes: tableBlocks.regionNotes.join(" ") || null,
+    retryRoundsRun: tableBlocks.retryRoundsRun,
+    retriedLabels: tableBlocks.retriedLabels,
     rows,
     unmatchedExtractedLabels,
     missingFromExtraction,
     summary,
+    marginNoteSummary,
+    subtotals,
+    subtotalSummary,
+    ledgers,
+    ledgerSummary,
+    feedBoxes,
+    feedBoxSummary,
+    chickRows,
   };
 }
 
-export { COMPARED_FIELDS, FIELD_LABELS };
-export type { ComparedField };
+export { COMPARED_FIELDS, FIELD_LABELS, SUBTOTAL_FIELDS, LEDGER_FIELDS, FEED_BOX_FIELDS };
+export type { ComparedField, SubtotalField, LedgerField, FeedBoxField };

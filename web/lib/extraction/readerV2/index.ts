@@ -80,21 +80,23 @@ function isSectionSubtotal(s: SectionSubtotal | null): s is SectionSubtotal {
 
 const CONFUSION_PAIRS_TEXT = "3↔8, 1↔7, 1↔4, 9↔0, 5↔6, 2↔7, 9↔4";
 
-export async function extractDailyProductionV2(
-  photoBuffer: Buffer,
-  photoMediaType: string
-): Promise<ReaderV2Result> {
-  const photoBase64 = photoBuffer.toString("base64");
-  const layout = await detectOrientationAndRegions(photoBase64, photoMediaType);
+export interface TableBlocksResult {
+  flocks: ExtractedFlockRow[];
+  subtotals: Record<Section, SectionSubtotal | null>;
+  regionNotes: string[];
+  retryRoundsRun: number;
+  retriedLabels: string[];
+}
 
-  const tableRegionKinds = new Set<string>(TABLE_REGION_KINDS.map(([kind]) => kind));
-  if (!layout.regions.some((r) => tableRegionKinds.has(r.kind))) {
-    throw new Error("The page-layout call didn't find any flock table on this photo.");
-  }
-
-  const crops = await rotateAndCropRegions(photoBuffer, layout);
-  const cropByKind = new Map<string, CroppedRegion>(crops.map((c) => [c.kind, c]));
-
+// The core of the Daily-Production side of the reader rebuild — every
+// flock-table crop present, read, then checksum-guided-retried — factored
+// out of extractDailyProductionV2 below so the benchmark page's own
+// full-page orchestration (lib/extraction/readerV2/benchmark.ts) can reuse
+// it against crops it already has, rather than paying for a second
+// orientation/region-detection call just to get back to this same step.
+export async function extractTableBlocksFromCrops(
+  cropByKind: Map<string, CroppedRegion>
+): Promise<TableBlocksResult> {
   let flocks: WorkingFlock[] = [];
   const subtotals: Record<Section, SectionSubtotal | null> = { main: null, continuation: null };
   const regionNotes: string[] = [];
@@ -156,18 +158,39 @@ export async function extractDailyProductionV2(
     void ambiguousDigits;
     return rest;
   });
+
+  return { flocks: extractedFlocks, subtotals, regionNotes, retryRoundsRun, retriedLabels };
+}
+
+export async function extractDailyProductionV2(
+  photoBuffer: Buffer,
+  photoMediaType: string
+): Promise<ReaderV2Result> {
+  const photoBase64 = photoBuffer.toString("base64");
+  const layout = await detectOrientationAndRegions(photoBase64, photoMediaType);
+
+  const tableRegionKinds = new Set<string>(TABLE_REGION_KINDS.map(([kind]) => kind));
+  if (!layout.regions.some((r) => tableRegionKinds.has(r.kind))) {
+    throw new Error("The page-layout call didn't find any flock table on this photo.");
+  }
+
+  const crops = await rotateAndCropRegions(photoBuffer, layout);
+  const cropByKind = new Map<string, CroppedRegion>(crops.map((c) => [c.kind, c]));
+
+  const { flocks, subtotals, regionNotes, retryRoundsRun, retriedLabels } =
+    await extractTableBlocksFromCrops(cropByKind);
   const sectionsFound = TABLE_REGION_KINDS.filter(([kind]) => cropByKind.has(kind)).length;
 
   const extraction: ExtractionResult = {
     date: layout.date,
     date_confidence: layout.dateConfidence,
-    flocks: extractedFlocks,
+    flocks,
     section_subtotals: [subtotals.main, subtotals.continuation].filter(isSectionSubtotal),
     page_notes: [layout.pageNotes, ...regionNotes].filter((n): n is string => !!n).join(" ") || null,
     sections_found: sectionsFound,
   };
 
-  return { extraction, flocks: extractedFlocks, retryRoundsRun, retriedLabels };
+  return { extraction, flocks, retryRoundsRun, retriedLabels };
 }
 
 // Same app-level backstop extractDailyProductionSafely() applies to the old
