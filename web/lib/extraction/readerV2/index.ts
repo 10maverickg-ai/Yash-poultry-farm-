@@ -1,4 +1,5 @@
-import type { ExtractedFlockRow, ExtractionResult } from "../dailyProduction";
+import { ExtractionRejected, type ExtractedFlockRow, type ExtractionResult } from "../dailyProduction";
+import { dedupeByNormalizedLabel } from "../flockMatch";
 import { checkPageChecksums, type Section, type SectionFlock, type SectionSubtotal } from "../pageChecksum";
 import { detectOrientationAndRegions } from "./orientationAndRegions";
 import { rotateAndCropRegions, recropForRetry, type CroppedRegion } from "./crop";
@@ -167,4 +168,35 @@ export async function extractDailyProductionV2(
   };
 
   return { extraction, flocks: extractedFlocks, retryRoundsRun, retriedLabels };
+}
+
+// Same app-level backstop extractDailyProductionSafely() applies to the old
+// reader (dailyProduction.ts) — a schema's maxItems is only a hint to the
+// model, never a guarantee, so this dedupes an exact-label repeat and
+// rejects outright if the page still has implausibly many distinct flocks
+// for this farm. Reuses the SAME ExtractionRejected class the old reader
+// throws, so app/upload/actions.ts's existing catch (never attempts to
+// save a rejected extraction) handles both readers identically. Unlike the
+// old reader, there's no separate "stricter retry" here — each region call
+// already caps at 15 flocks on its own, and the checksum-guided retry loop
+// above already re-asks about specific rows; a second whole-page attempt
+// would not address a runaway-count failure differently.
+export async function extractDailyProductionV2Safely(
+  photoBuffer: Buffer,
+  photoMediaType: string,
+  activeFlockCount: number
+): Promise<ReaderV2Result> {
+  const maxSane = activeFlockCount + 2;
+  const result = await extractDailyProductionV2(photoBuffer, photoMediaType);
+  const flocks = dedupeByNormalizedLabel(result.flocks, (f) => f.display_label_as_written);
+  if (flocks.length > maxSane) {
+    throw new ExtractionRejected(
+      `Extraction returned an implausible number of rows for a page with ~${activeFlockCount} flocks — please retry the upload.`
+    );
+  }
+  return {
+    ...result,
+    flocks,
+    extraction: { ...result.extraction, flocks },
+  };
 }

@@ -9,6 +9,7 @@ import {
   ExtractionRejected,
   type ExtractedFlockRow,
 } from "@/lib/extraction/dailyProduction";
+import { extractDailyProductionV2Safely } from "@/lib/extraction/readerV2";
 import { getReferenceExamples } from "@/lib/extraction/references";
 import { reextractFlaggedFlocks, impliedFields, type FlockRecheckRequest } from "@/lib/extraction/reextract";
 import type { RecheckableField } from "@/lib/extraction/dailyProduction";
@@ -179,14 +180,36 @@ export async function uploadAndExtractDailyProduction(
   let extraction;
   let flocks: ExtractedFlockRow[];
   try {
-    photoBase64 = Buffer.from(await file.arrayBuffer()).toString("base64");
-    const safe = await extractDailyProductionSafely(
-      photoBase64,
-      photoMediaType,
-      precheckLabels.length
-    );
-    extraction = safe.extraction;
-    flocks = safe.flocks;
+    const photoBuffer = Buffer.from(await file.arrayBuffer());
+    photoBase64 = photoBuffer.toString("base64");
+    // Reader rebuild (owner's "V4 build prompt", Phase 1): the new
+    // region-cropped reader stays OFF by default — it only runs when this
+    // env var is explicitly set, so it can be exercised on a Vercel
+    // preview (the benchmark page) without ever becoming what a real
+    // upload saves until the owner has approved its accuracy. Both paths
+    // throw the SAME ExtractionRejected for a runaway-count failure and
+    // land on the SAME { extraction, flocks } shape below, so nothing
+    // past this point needs to know which reader ran.
+    if (process.env.READER_V2_ENABLED === "true") {
+      const safe = await extractDailyProductionV2Safely(
+        photoBuffer,
+        photoMediaType,
+        precheckLabels.length
+      );
+      console.log(
+        `[upload] readerV2: ${safe.retryRoundsRun} checksum retry round(s); retried flock(s): ${safe.retriedLabels.join(", ") || "none"}`
+      );
+      extraction = safe.extraction;
+      flocks = safe.flocks;
+    } else {
+      const safe = await extractDailyProductionSafely(
+        photoBase64,
+        photoMediaType,
+        precheckLabels.length
+      );
+      extraction = safe.extraction;
+      flocks = safe.flocks;
+    }
   } catch (err) {
     // Photo is already stored even though extraction failed — matches the
     // spec's rule 1 (store the photo regardless of downstream outcome).
