@@ -125,22 +125,23 @@ function FlockCard({
             onChange={(e) => setBirds(e.target.value)}
           />
         </label>
-        <label className="field">
-          <span>
-            HD %{" "}
-            <span className="hint">
-              {calcHd !== null ? `(calculated: ${calcHd}%)` : "(as on paper)"}
-            </span>
-          </span>
-          <input
-            type="number"
-            min="0"
-            step="0.01"
-            name={`hd_percent_${id}`}
-            defaultValue={seed("hd_percent", slot.saved?.hd_percent_written ?? null)}
-          />
-        </label>
+        <div className="field">
+          <span>HD % (calculated)</span>
+          <div className="hd-calc">{calcHd !== null ? `${calcHd}%` : "—"}</div>
+        </div>
       </div>
+      <label className="field">
+        <span>
+          Supervisor&apos;s written % <span className="hint">(optional — the register often truncates this)</span>
+        </span>
+        <input
+          type="number"
+          min="0"
+          step="0.01"
+          name={`hd_percent_${id}`}
+          defaultValue={seed("hd_percent", slot.saved?.hd_percent_written ?? null)}
+        />
+      </label>
       {slot.saved?.hd_percent_note && (
         <p className="muted" style={{ margin: 0 }}>
           {slot.saved.hd_percent_note}
