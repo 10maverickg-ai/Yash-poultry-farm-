@@ -8,8 +8,10 @@ import {
   extractDailyProductionSafely,
   ExtractionRejected,
   type ExtractedFlockRow,
+  type ExtractionResult,
 } from "@/lib/extraction/dailyProduction";
 import { extractDailyProductionV2Safely } from "@/lib/extraction/readerV2";
+import { SharpUnavailableError } from "@/lib/extraction/readerV2/sharpLoader";
 import { getReferenceExamples } from "@/lib/extraction/references";
 import { reextractFlaggedFlocks, impliedFields, type FlockRecheckRequest } from "@/lib/extraction/reextract";
 import type { RecheckableField } from "@/lib/extraction/dailyProduction";
@@ -177,7 +179,7 @@ export async function uploadAndExtractDailyProduction(
 
   const photoMediaType = file.type || "image/jpeg";
   let photoBase64: string;
-  let extraction;
+  let extraction: ExtractionResult;
   let flocks: ExtractedFlockRow[];
   try {
     const photoBuffer = Buffer.from(await file.arrayBuffer());
@@ -190,26 +192,41 @@ export async function uploadAndExtractDailyProduction(
     // throw the SAME ExtractionRejected for a runaway-count failure and
     // land on the SAME { extraction, flocks } shape below, so nothing
     // past this point needs to know which reader ran.
-    if (process.env.READER_V2_ENABLED === "true") {
-      const safe = await extractDailyProductionV2Safely(
-        photoBuffer,
-        photoMediaType,
-        precheckLabels.length
-      );
-      console.log(
-        `[upload] readerV2: ${safe.retryRoundsRun} checksum retry round(s); retried flock(s): ${safe.retriedLabels.join(", ") || "none"}`
-      );
-      extraction = safe.extraction;
-      flocks = safe.flocks;
-    } else {
+    const readerResult = await (async (): Promise<{ extraction: ExtractionResult; flocks: ExtractedFlockRow[] }> => {
+      if (process.env.READER_V2_ENABLED === "true") {
+        try {
+          const safe = await extractDailyProductionV2Safely(
+            photoBuffer,
+            photoMediaType,
+            precheckLabels.length
+          );
+          console.log(
+            `[upload] readerV2: ${safe.retryRoundsRun} checksum retry round(s); retried flock(s): ${safe.retriedLabels.join(", ") || "none"}`
+          );
+          return { extraction: safe.extraction, flocks: safe.flocks };
+        } catch (err) {
+          // Owner report, 2026-10-19: sharp (readerV2's own region-cropping)
+          // failed to load on a Vercel preview with a native dlopen error —
+          // a real upload must NEVER 500 just because the reader switch is
+          // on and this one dependency couldn't load in this deployment.
+          // Fall back to the proven old reader instead; this is the only
+          // error extractDailyProductionV2Safely can throw that's safe to
+          // silently retry with a different reader — anything else (a real
+          // extraction failure) should surface normally, not be masked by a
+          // second, different attempt.
+          if (!(err instanceof SharpUnavailableError)) throw err;
+          console.error(`[upload] readerV2 unavailable (${err.message}) — falling back to the old reader`);
+        }
+      }
       const safe = await extractDailyProductionSafely(
         photoBase64,
         photoMediaType,
         precheckLabels.length
       );
-      extraction = safe.extraction;
-      flocks = safe.flocks;
-    }
+      return { extraction: safe.extraction, flocks: safe.flocks };
+    })();
+    extraction = readerResult.extraction;
+    flocks = readerResult.flocks;
   } catch (err) {
     // Photo is already stored even though extraction failed — matches the
     // spec's rule 1 (store the photo regardless of downstream outcome).

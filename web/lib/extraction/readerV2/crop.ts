@@ -1,5 +1,5 @@
-import sharp from "sharp";
 import type { NormalizedBox, OrientationAndRegions, RegionKind } from "./types";
+import { loadSharp } from "./sharpLoader";
 
 // Reader rebuild, the pure-image half of stage 1→2 (owner's "V4 build
 // prompt", Phase 1): takes the ORIGINAL photo plus the orientation/region
@@ -51,6 +51,7 @@ export async function rotateAndCropRegions(
   imageBuffer: Buffer,
   layout: OrientationAndRegions
 ): Promise<CroppedRegion[]> {
+  const sharp = await loadSharp();
   // An explicit angle (even 0) overrides sharp's EXIF auto-orientation —
   // deliberate: the page-layout call already read the real orientation off
   // the pixels, so a stale/absent EXIF tag must never second-guess it.
@@ -86,6 +87,7 @@ export async function recropForRetry(
   box: NormalizedBox,
   targetLongEdgePx = 1200
 ): Promise<RetryCrop> {
+  const sharp = await loadSharp();
   const regionBuffer = Buffer.from(regionBase64, "base64");
   const meta = await sharp(regionBuffer).metadata();
   const imageWidth = meta.width ?? 0;
