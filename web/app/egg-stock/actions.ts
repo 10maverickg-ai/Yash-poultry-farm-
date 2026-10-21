@@ -6,6 +6,7 @@ import { withTransaction } from "@/lib/db";
 import { ACTIVE_FARM } from "@/lib/farm";
 import { ENTRY_CATEGORIES, EGG_STOCK_SECTIONS, type EggStockSection } from "@/lib/eggstock-types";
 import { reconcileManualEdit } from "@/lib/extraction/pipeline";
+import { syncSaleForEntry } from "@/lib/salesSync";
 import {
   type ActionState,
   errorMessage,
@@ -13,19 +14,6 @@ import {
   optInt,
   optStr,
 } from "@/lib/forms";
-
-// "Name(-)" / "Name(+)" -> "Name": the buyer is the label minus its +/-
-// marker (the sign already lives in amount_eggs).
-function buyerFromLabel(label: string): string {
-  return label.replace(/\(\s*[+-]\s*\)\s*$/, "").trim() || label;
-}
-
-// Phase 2 stopgap inference (spec: AI classifies in Phase 3). Farm Fresh is
-// the main QC channel; every other named buyer is a wholesaler. The owner can
-// change it on the sale's edit screen.
-function inferTransactionType(label: string): string {
-  return /farm\s*fresh/i.test(label) ? "sale_farmfresh" : "sale_wholesaler";
-}
 
 // Same backstop as pipeline.ts's assertAutoCorrectionNotesConsistent (and
 // for the same 2026-10-12 reason — a manual save must never leave a note
@@ -280,9 +268,10 @@ export async function saveEggStock(
           );
         }
 
-        // --- sales sync per surviving entry (category = 'sale' only, same
-        // pre-existing behavior; local_sale/labour_take never generate a
-        // sales row) --------------------------------------------------
+        // --- sales sync per surviving entry (owner request, 2026-10-19:
+        // 'sale' AND 'local_sale' both generate a sales row now — see
+        // salesSync.ts's own header comment for why local_sale never did
+        // before, even here) -----------------------------------------
         const { rows: current } = await client.query(
           `SELECT id, label_as_written, category, amount_eggs, linked_sale_id
              FROM daily_egg_stock_entries
@@ -291,28 +280,19 @@ export async function saveEggStock(
           [summaryId]
         );
         for (const entry of current) {
-          if (entry.category === "sale") {
-            const buyer = buyerFromLabel(entry.label_as_written);
-            const qty = Math.abs(entry.amount_eggs);
-            if (entry.linked_sale_id) {
-              await client.query(
-                `UPDATE sales SET date = $2, buyer_or_recipient = $3, eggs_quantity = $4 WHERE id = $1`,
-                [entry.linked_sale_id, date, buyer, qty]
-              );
-            } else {
-              const { rows: saleRows } = await client.query(
-                `INSERT INTO sales (date, farm_code, source_ledger_entry_id,
-                                    transaction_type, buyer_or_recipient, eggs_quantity)
-                 VALUES ($1, $2, $3, $4, $5, $6)
-                 RETURNING id`,
-                [date, ACTIVE_FARM, entry.id, inferTransactionType(entry.label_as_written), buyer, qty]
-              );
-              await client.query(`UPDATE daily_egg_stock_entries SET linked_sale_id = $2 WHERE id = $1`, [entry.id, saleRows[0].id]);
-            }
-          } else if (entry.linked_sale_id) {
-            await client.query(`UPDATE daily_egg_stock_entries SET linked_sale_id = NULL WHERE id = $1`, [entry.id]);
-            await client.query(`DELETE FROM sales WHERE id = $1`, [entry.linked_sale_id]);
-          }
+          await syncSaleForEntry(
+            client,
+            {
+              id: entry.id,
+              category: entry.category,
+              labelAsWritten: entry.label_as_written,
+              amountEggsSigned: entry.amount_eggs,
+              linkedSaleId: entry.linked_sale_id,
+            },
+            date,
+            section,
+            ACTIVE_FARM
+          );
         }
 
         // --- system-owned running balances + flag rules ---------------------

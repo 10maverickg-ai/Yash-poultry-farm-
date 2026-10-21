@@ -1,6 +1,7 @@
 import type { PoolClient } from "pg";
 import type { ResolvedEggLedgerSection } from "./eggLedgerResolve";
 import type { ResolvedFeedBox } from "./feedBoxResolve";
+import { syncSaleForEntry } from "../salesSync";
 
 // Persistence for the egg ledger / feed box auto-extraction path (owner
 // request, 2026-10-19) — parallels writeDailyProduction.ts's role: the
@@ -90,7 +91,7 @@ export async function writeEggLedgerSection(
   const summaryId: number = rows[0].id;
 
   const { rows: existingEntries } = await client.query(
-    `SELECT id, sequence_order FROM daily_egg_stock_entries WHERE egg_stock_summary_id = $1 ORDER BY sequence_order`,
+    `SELECT id, sequence_order, linked_sale_id FROM daily_egg_stock_entries WHERE egg_stock_summary_id = $1 ORDER BY sequence_order`,
     [summaryId]
   );
 
@@ -104,7 +105,9 @@ export async function writeEggLedgerSection(
     const amountSigned = -d.amountEggs;
     const amountOriginalSigned = d.amountEggsOriginal !== null ? -d.amountEggsOriginal : null;
     const old = existingEntries.find((e) => e.sequence_order === seq);
+    let entryId: number;
     if (old) {
+      entryId = old.id;
       await client.query(
         `UPDATE daily_egg_stock_entries
             SET label_as_written = $2, category = $3, amount_eggs = $4,
@@ -113,14 +116,34 @@ export async function writeEggLedgerSection(
         [old.id, d.labelAsWritten, d.categoryGuess, amountSigned, amountOriginalSigned, d.amountEggsOriginal !== null ? resolved.autoCorrectionNote : null]
       );
     } else {
-      await client.query(
+      const { rows: inserted } = await client.query(
         `INSERT INTO daily_egg_stock_entries
              (egg_stock_summary_id, sequence_order, label_as_written, category,
               amount_eggs, amount_eggs_original, auto_correction_note)
-         VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+         VALUES ($1,$2,$3,$4,$5,$6,$7)
+         RETURNING id`,
         [summaryId, seq, d.labelAsWritten, d.categoryGuess, amountSigned, amountOriginalSigned, d.amountEggsOriginal !== null ? resolved.autoCorrectionNote : null]
       );
+      entryId = inserted[0].id;
     }
+
+    // Owner request, 2026-10-19: "keep new sales rows auto-created from
+    // future ledger lines" — this is the real photo-upload path (what
+    // every real upload actually uses), which never created a sales row
+    // at all before this. See salesSync.ts's own header comment.
+    await syncSaleForEntry(
+      client,
+      {
+        id: entryId,
+        category: d.categoryGuess,
+        labelAsWritten: d.labelAsWritten,
+        amountEggsSigned: amountSigned,
+        linkedSaleId: old?.linked_sale_id ?? null,
+      },
+      date,
+      resolved.section,
+      farmCode
+    );
   }
   const doomed = existingEntries.filter((e) => e.sequence_order > resolved.deductions.length);
   if (doomed.length > 0) {
