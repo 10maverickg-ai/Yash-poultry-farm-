@@ -174,16 +174,23 @@ export default async function ReaderBenchmarkDatePage({
         explains itself immediately; a bad NUMBER on an otherwise-correct crop is a different kind of
         problem.
       </p>
+      {result.debugImages.unavailableNote && (
+        <p className="card muted">{result.debugImages.unavailableNote}</p>
+      )}
       <div className="card">
         <p className="muted" style={{ margin: 0 }}>
           Whole page, boxes drawn (color = region kind):
         </p>
-        {/* eslint-disable-next-line @next/next/no-img-element -- base64 debug image, never a static asset */}
-        <img
-          src={`data:image/jpeg;base64,${result.debugImages.fullPageWithBoxes}`}
-          alt="Upright page with detected region boxes"
-          style={{ maxWidth: "100%", height: "auto", border: "1px solid var(--line)", borderRadius: 8 }}
-        />
+        {result.debugImages.fullPageWithBoxes ? (
+          // eslint-disable-next-line @next/next/no-img-element -- base64 debug image, never a static asset
+          <img
+            src={`data:image/jpeg;base64,${result.debugImages.fullPageWithBoxes}`}
+            alt="Upright page with detected region boxes"
+            style={{ maxWidth: "100%", height: "auto", border: "1px solid var(--line)", borderRadius: 8 }}
+          />
+        ) : (
+          <p className="muted">debug picture unavailable</p>
+        )}
       </div>
       <div className="table-wrap" style={{ padding: "0.8rem" }}>
         <div style={{ display: "flex", flexWrap: "wrap", gap: "0.8rem" }}>
@@ -197,12 +204,16 @@ export default async function ReaderBenchmarkDatePage({
                   </span>
                 )}
               </p>
-              {/* eslint-disable-next-line @next/next/no-img-element -- base64 debug image, never a static asset */}
-              <img
-                src={`data:image/jpeg;base64,${c.base64}`}
-                alt={`Crop sent for ${c.kind}`}
-                style={{ maxWidth: "100%", height: "auto", border: "1px solid var(--line)", borderRadius: 8 }}
-              />
+              {c.base64 ? (
+                // eslint-disable-next-line @next/next/no-img-element -- base64 debug image, never a static asset
+                <img
+                  src={`data:image/jpeg;base64,${c.base64}`}
+                  alt={`Crop sent for ${c.kind}`}
+                  style={{ maxWidth: "100%", height: "auto", border: "1px solid var(--line)", borderRadius: 8 }}
+                />
+              ) : (
+                <p className="muted">debug picture unavailable</p>
+              )}
             </div>
           ))}
         </div>

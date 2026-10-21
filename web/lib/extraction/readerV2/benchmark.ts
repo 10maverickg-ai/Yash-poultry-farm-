@@ -286,7 +286,11 @@ export interface OldReaderComparison {
 // from.
 export interface DebugCropImage {
   kind: string;
-  base64: string;
+  // Owner request, 2026-10-21: a debug image is a diagnostic extra, never
+  // load-bearing — if sharp fails to produce it for any reason, this is
+  // null (and the page shows "debug picture unavailable") rather than
+  // failing the whole benchmark run.
+  base64: string | null;
   // True if this is the MIN_TABLE_AREA_FRACTION fallback — i.e. what's
   // shown here is the whole page, sent in place of a detected box that
   // looked too small to trust (see readerV2/index.ts).
@@ -294,8 +298,9 @@ export interface DebugCropImage {
 }
 
 export interface DebugImages {
-  fullPageWithBoxes: string; // base64 jpeg, boxes + labels drawn
+  fullPageWithBoxes: string | null; // base64 jpeg, boxes + labels drawn; null if generation failed
   crops: DebugCropImage[];
+  unavailableNote: string | null; // set when any debug image failed to generate
 }
 
 // ===================== Overall result =====================
@@ -855,13 +860,32 @@ export async function runBenchmarkForDate(
   }
 
   // ---- Debug images (owner request, 2026-10-19) ----
-  const fullPageWithBoxes = (await drawRegionBoxes(fullPage.base64, layout.regions)).base64;
+  // These are diagnostic extras, never load-bearing for the benchmark's
+  // actual accuracy numbers — a failure here (owner report, 2026-10-21:
+  // a real large photo once threw during this step) must degrade to a
+  // "debug picture unavailable" note, never fail the whole page.
+  let fullPageWithBoxes: string | null = null;
+  let debugImagesUnavailableNote: string | null = null;
+  try {
+    fullPageWithBoxes = (await drawRegionBoxes(fullPage.base64, layout.regions)).base64;
+  } catch (err) {
+    debugImagesUnavailableNote = `Full-page debug image unavailable: ${err instanceof Error ? err.message : String(err)}`;
+  }
   const debugCrops: DebugCropImage[] = await Promise.all(
-    crops.map(async (c) => ({
-      kind: c.kind,
-      base64: await downscaleForDisplay(c.base64),
-      isWholePageFallback: tableBlocks.fellBackToFullPage.includes(c.kind),
-    }))
+    crops.map(async (c) => {
+      try {
+        return {
+          kind: c.kind,
+          base64: await downscaleForDisplay(c.base64),
+          isWholePageFallback: tableBlocks.fellBackToFullPage.includes(c.kind),
+        };
+      } catch (err) {
+        if (!debugImagesUnavailableNote) {
+          debugImagesUnavailableNote = `Some crop debug images unavailable: ${err instanceof Error ? err.message : String(err)}`;
+        }
+        return { kind: c.kind, base64: null, isWholePageFallback: tableBlocks.fellBackToFullPage.includes(c.kind) };
+      }
+    })
   );
 
   const emptyFieldSummary = { comparable: 0, correct: 0 };
@@ -914,7 +938,7 @@ export async function runBenchmarkForDate(
     feedBoxRetryRounds,
     chickRows,
     oldReader,
-    debugImages: { fullPageWithBoxes, crops: debugCrops },
+    debugImages: { fullPageWithBoxes, crops: debugCrops, unavailableNote: debugImagesUnavailableNote },
   };
 }
 
