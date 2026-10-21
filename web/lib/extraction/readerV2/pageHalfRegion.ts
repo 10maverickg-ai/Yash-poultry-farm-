@@ -11,25 +11,25 @@ import type { ExtractedChickRows } from "./chickRowsRegion";
 // deterministic, non-LLM split), at that half's own full resolution,
 // asking for EVERYTHING actually visible on it in one shot: the flock
 // table (if one is here) plus its subtotal, the egg ledger (if one is
-// here), the feed box(es) (left half only — see below), and the chick
-// rows (if they're here). No bounding boxes for any of these items
+// here), the feed box(es) (if any are here), and the chick rows (if they're
+// here). No bounding boxes for any of these items
 // themselves; the only box asked for is each flock's own row_box, kept
 // for exactly one purpose — a later checksum-guided retry can zoom into
 // that one row (crop.ts's recropForRetry) without re-reading the whole
 // half.
 //
-// Which side normally holds what (owner reports, 2026-10-19 and
-// 2026-10-21 — a stable fact about THIS register's physical layout, not a
-// hard-coded flock label or count): the LEFT page carries one or two feed
-// bag boxes at the TOP, the shorter ("continuation") flock table, and that
-// table's own ("small") egg ledger below it. The RIGHT page carries the
-// longer ("main") flock table with labels in the column next to the
-// spine, that table's subtotal, the ("big") egg ledger below it, and the
-// chick rows. Each half's own prompt states this as what to EXPECT, but
-// every call still reads labels, row counts, and box counts directly off
-// the page — if the real layout differs on a given day, report exactly
-// what's there; never force an item into existence or onto the wrong side
-// just because this is the usual pattern.
+// Revised 2026-10-21 (owner report — Aug 8 run: the page was upside down
+// inside the pipeline, so the "left = feed boxes, right = flock table"
+// expectation baked into these prompts made every half report nothing):
+// nothing here assumes which side holds what any more. Each call is told
+// to IDENTIFY what is on the half it was given — flock table, feed
+// box(es), egg ledger, chick rows — and return exactly that; callers map
+// results by CONTENT (contentMapping.ts), never by side. A thin sliver of
+// the neighbouring page can appear along the edge facing the spine (the
+// split deliberately overlaps ~4%), and the prompt says to ignore it.
+// Each call also reads the date written at the top of the page, if it is
+// on this half, at full resolution (orientation is now read from a
+// low-resolution copy and no longer returns the date).
 
 export type HalfSide = "left" | "right";
 
@@ -83,11 +83,12 @@ export interface HalfFeedBox extends ExtractedFeedBoxRegion {
 export interface PageHalfExtraction {
   table: HalfTable | null;
   ledger: ExtractedEggLedgerRegion | null;
-  // Always [] when the schema for this side doesn't ask for feed boxes at
-  // all (the right half — see this file's header comment).
   feedBoxes: HalfFeedBox[];
   chickRows: ExtractedChickRows | null;
   half_notes: string | null;
+  // Date written at the top of the page, if THIS half shows it.
+  page_date: string | null;
+  page_date_confidence: number;
 }
 
 const CONFIDENCE_PROP = { type: "number" as const, description: "0.0-1.0" };
@@ -320,33 +321,33 @@ const CHICK_ROWS_SCHEMA = {
   ],
 };
 
-function buildTool(side: HalfSide) {
-  const properties: Record<string, unknown> = {
-    half_notes: {
-      type: ["string", "null"],
-      description: "Anything worth the owner knowing about this half as a whole that doesn't fit one of the items below, or null.",
-    },
-    table: TABLE_SCHEMA,
-    ledger: LEDGER_SCHEMA,
-    chick_rows: CHICK_ROWS_SCHEMA,
-  };
-  const required = ["half_notes", "table", "ledger", "chick_rows"];
-  if (side === "left") {
-    properties.feed_boxes = {
-      type: "array",
-      description: "One or two feed bag boxes, normally found at the TOP of the left half. Omit entirely (empty array) if none are visible.",
-      maxItems: 2,
-      items: FEED_BOX_ITEM_SCHEMA,
-    };
-    required.push("feed_boxes");
-  }
+function buildTool() {
   return {
     name: "record_half_page_extraction",
-    description: `Records everything actually visible on the ${side.toUpperCase()} half of this photographed register page.`,
+    description: "Records everything actually visible on this half of a photographed register spread.",
     input_schema: {
       type: "object" as const,
-      properties,
-      required,
+      properties: {
+        half_notes: {
+          type: ["string", "null"],
+          description: "Anything worth the owner knowing about this half as a whole that doesn't fit one of the items below, or null.",
+        },
+        page_date: {
+          type: ["string", "null"],
+          description: "The date written at the top of the page, as YYYY-MM-DD, if it is visible on THIS half. Null if this half doesn't show a date or it is illegible.",
+        },
+        page_date_confidence: { type: "number", description: "0.0-1.0" },
+        table: TABLE_SCHEMA,
+        ledger: LEDGER_SCHEMA,
+        chick_rows: CHICK_ROWS_SCHEMA,
+        feed_boxes: {
+          type: "array",
+          description: "Every feed bag box visible on this half (there may be none, one, or two). Empty array if none.",
+          maxItems: 2,
+          items: FEED_BOX_ITEM_SCHEMA,
+        },
+      },
+      required: ["half_notes", "page_date", "page_date_confidence", "table", "ledger", "chick_rows", "feed_boxes"],
     },
   };
 }
@@ -369,27 +370,24 @@ Deduction lines: each has a label and a quantity. Read the label EXACTLY as writ
 
 Eggs on this farm are ALWAYS counted in whole trays of 30 — every real figure in this ledger is a multiple of 30. If a number you're about to write isn't a multiple of 30, look again before finalizing it — it's very likely a misread digit. Do NOT look for a sale price anywhere in this ledger.`;
 
-const FEED_BOX_INSTRUCTIONS = `FEED BAG BOX(ES): there may be one or two, normally at the TOP of this half. Each one reads top to bottom: "OB =" (opening balance in bags), "(+)" (bags received from the mill that day), a written total line (OB + the "(+)" figure, as written — do not calculate it), a "(-)" line (the CLOSING balance currently in stock — this is written as a figure to be SUBTRACTED from the total, do not treat it as the consumption figure itself), then the consumption figure itself (total minus the "(-)" line, as written), then "F =" (bags still at the feed mill) and "S =" (bags already moved to the shed) underneath. Bags are NOT trays-of-30 — do not apply that rule here. Read which group each box covers (coverage) from the box's own label.`;
+const FEED_BOX_INSTRUCTIONS = `FEED BAG BOX(ES): there may be one or two on this half. Each one reads top to bottom: "OB =" (opening balance in bags), "(+)" (bags received from the mill that day), a written total line (OB + the "(+)" figure, as written — do not calculate it), a "(-)" line (the CLOSING balance currently in stock — this is written as a figure to be SUBTRACTED from the total, do not treat it as the consumption figure itself), then the consumption figure itself (total minus the "(-)" line, as written), then "F =" (bags still at the feed mill) and "S =" (bags already moved to the shed) underneath. Bags are NOT trays-of-30 — do not apply that rule here. Read which group each box covers (coverage) from the box's own label.`;
 
 const CHICK_INSTRUCTIONS = `CHICK ROWS (if visible on this half): a small block, usually listing one or more "N Chick" rows (e.g. "1 Chick", "2 Chick") each with its own daily mortality/deaths figure. Occasionally a third row appears for chicks sourced from Anil farm.`;
 
 function promptFor(side: HalfSide): string {
-  const expectation =
-    side === "left"
-      ? `On this farm's register, the LEFT page normally holds, top to bottom: one or two feed bag boxes, a flock table (usually the SHORTER of the two tables, e.g. BAB-8/9/10), and that table's own egg-stock ledger below its subtotal.`
-      : `On this farm's register, the RIGHT page normally holds, top to bottom: a flock table with labels in the column NEXT TO THE SPINE (usually the LONGER of the two tables, BAB-1 onward), that table's own subtotal row, the egg-stock ledger below it, and the chick rows near the bottom.`;
+  return `You are reading the ${side.toUpperCase()} HALF of a photographed Daily Production register spread — the photo has been turned upright and split at the page's spine (the vertical fold between the two paper pages). A thin sliver of the NEIGHBOURING page may show along the edge that faces the spine; ignore it.
 
-  const sections = [TABLE_INSTRUCTIONS, LEDGER_INSTRUCTIONS];
-  if (side === "left") sections.push(FEED_BOX_INSTRUCTIONS);
-  sections.push(CHICK_INSTRUCTIONS);
-
-  return `You are reading the ${side.toUpperCase()} HALF of a photographed Daily Production register page — the two-page spread has already been split at the page's spine (the vertical fold between the two paper pages), and you are being shown ONLY the ${side} page, at full resolution.
-
-${expectation} Read exactly what is actually visible on THIS half — if the real layout genuinely differs today, report exactly what you see.
+Your first job is to IDENTIFY what is on this half. Any of these may be present, in any combination, and the other half may hold different ones — do not assume what belongs on which side:
+  - a flock table (rows labelled BAB-<number>, columns Mort / Feed / I / II / Total / Bal Bird / %) with its subtotal row,
+  - an egg stock ledger (OB, (+), a total line, deduction lines, a closing balance),
+  - one or two feed bag boxes (OB = / (+) / (-) / F = / S =),
+  - the chick rows ("1 Chick", "2 Chick"),
+  - the date written at the top of the page.
+Then read each one you found, exactly as written. Report what is actually here — if an item isn't on this half, return null (or an empty list for feed boxes); never force one into existence, and never assume flock labels, row counts, or box counts — read them directly off this image.
 
 ${GOLDEN_RULE}
 
-${sections.join("\n\n")}
+${[TABLE_INSTRUCTIONS, LEDGER_INSTRUCTIONS, FEED_BOX_INSTRUCTIONS, CHICK_INSTRUCTIONS].join("\n\n")}
 
 Call record_half_page_extraction with your findings.`;
 }
@@ -409,7 +407,7 @@ export async function extractPageHalf(
     {
       model: EXTRACTION_MODEL,
       max_tokens: 6000,
-      tools: [buildTool(side)],
+      tools: [buildTool()],
       tool_choice: { type: "tool", name: "record_half_page_extraction" },
       messages: [
         {
@@ -440,6 +438,8 @@ export async function extractPageHalf(
     ledger?: unknown;
     chick_rows?: unknown;
     feed_boxes?: unknown;
+    page_date?: unknown;
+    page_date_confidence?: unknown;
   };
 
   const table = parseTable(input.table);
@@ -453,6 +453,8 @@ export async function extractPageHalf(
     feedBoxes,
     chickRows,
     half_notes: typeof input.half_notes === "string" ? input.half_notes : null,
+    page_date: typeof input.page_date === "string" ? input.page_date : null,
+    page_date_confidence: typeof input.page_date_confidence === "number" ? input.page_date_confidence : 0,
   };
 }
 

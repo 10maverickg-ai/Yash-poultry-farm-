@@ -2,10 +2,10 @@ import { ExtractionRejected, type ExtractedFlockRow, type ExtractionResult } fro
 import { dedupeByNormalizedLabel } from "../flockMatch";
 import { checkPageChecksums, type Section, type SectionFlock, type SectionSubtotal } from "../pageChecksum";
 import { autoOrientPhoto } from "./autoOrient";
-import { detectPageOrientation } from "./pageOrientation";
-import { rotateUpright, recropForRetry } from "./crop";
-import { splitPageIntoHalves } from "./pageSplit";
-import { extractPageHalf, type HalfSide, type PageHalfExtraction } from "./pageHalfRegion";
+import { recropForRetry } from "./crop";
+import { type HalfSide, type PageHalfExtraction } from "./pageHalfRegion";
+import { readPageHalves, UNREADABLE_MESSAGE } from "./halfPipeline";
+import { assignTableSections, pickDate } from "./contentMapping";
 import { extractDailyProductionRegion } from "./dailyProductionRegion";
 import type { NormalizedBox } from "./types";
 
@@ -31,15 +31,6 @@ import type { NormalizedBox } from "./types";
 // owner approves it.
 
 const MAX_RETRY_ROUNDS = 3;
-
-// Which physical half of the page carries which table role — a stable
-// fact about THIS register's layout, confirmed by the owner twice
-// (2026-10-19's master prompt, and the 2026-10-21 Aug 3 debug report: "the
-// feed boxes are on the TOP of the LEFT page... right page: flock table
-// with labels in the column next to the spine"). This is a page-geometry
-// fact, never a flock label or count — every label, row, and box is still
-// read directly off each half, never hard-coded.
-const SIDE_TO_SECTION: Record<HalfSide, Section> = { left: "continuation", right: "main" };
 
 interface WorkingFlock extends ExtractedFlockRow {
   rowBox: NormalizedBox; // relative to the HALF image named by `side`
@@ -147,10 +138,14 @@ export async function mergeTableBlocksFromHalves(halves: HalfPageSource[]): Prom
   const subtotals: Record<Section, SectionSubtotal | null> = { main: null, continuation: null };
   const regionNotes: string[] = [];
   const imageBySide = new Map<HalfSide, { base64: string; mediaType: "image/jpeg" }>();
+  // Owner request, 2026-10-21: roles are decided by what each table
+  // CONTAINS (assignTableSections), never by which half it came from.
+  const sectionBySide = assignTableSections(halves);
 
   for (const half of halves) {
     imageBySide.set(half.side, { base64: half.imageBase64, mediaType: half.mediaType });
-    const section = SIDE_TO_SECTION[half.side];
+    const section = sectionBySide.get(half.side);
+    if (!section) continue;
     const table = half.extraction.table;
     if (!table) continue;
     if (table.region_notes) regionNotes.push(table.region_notes);
@@ -218,40 +213,43 @@ export async function extractDailyProductionV2(
   photoBuffer: Buffer,
   photoMediaType: string
 ): Promise<ReaderV2Result> {
+  void photoMediaType; // the pipeline re-encodes everything it sends as JPEG
   // Owner report, 2026-10-19: done ONCE, before anything else sees the
   // photo, so every subsequent step agrees on orientation — see
-  // autoOrient.ts's own header comment. sharp preserves the original
-  // container format here (no explicit .jpeg()/.png() call), so
-  // photoMediaType still correctly describes these bytes.
+  // autoOrient.ts's own header comment.
   const oriented = await autoOrientPhoto(photoBuffer);
-  const orientation = await detectPageOrientation(oriented.toString("base64"), photoMediaType);
-  const fullPage = await rotateUpright(oriented, orientation.rotationDegrees);
-  const split = await splitPageIntoHalves(Buffer.from(fullPage.base64, "base64"));
 
-  const [leftExtraction, rightExtraction] = await Promise.all([
-    extractPageHalf(split.left.base64, split.left.mediaType, "left"),
-    extractPageHalf(split.right.base64, split.right.mediaType, "right"),
-  ]);
+  // Orientation (low-res vision call) -> upright -> split -> read both
+  // halves -> self-check (retry 180° if a half is empty). See
+  // halfPipeline.ts.
+  const read = await readPageHalves(oriented);
+  console.log(
+    `[readerV2] rotation ${read.orientation.rotationDegrees}° (text tops point ${read.orientation.textTopPointsTo ?? "?"}); attempts: ${read.attempts
+      .map((a) => `${a.rotationApplied}° => left ${a.leftItems} / right ${a.rightItems} items`)
+      .join("; ")}${read.notes.length ? ` | ${read.notes.join(" ")}` : ""}`
+  );
 
-  if (!leftExtraction.table && !rightExtraction.table) {
-    throw new Error("Neither half of this photo's page found a flock table.");
-  }
+  // Owner request, 2026-10-21: an unreadable photo is reported as such —
+  // never turned into empty fields that look like a reading.
+  if (read.unreadable) throw new ExtractionRejected(UNREADABLE_MESSAGE);
 
+  const { chosen } = read;
   const halves: HalfPageSource[] = [
-    { side: "left", extraction: leftExtraction, imageBase64: split.left.base64, mediaType: "image/jpeg" },
-    { side: "right", extraction: rightExtraction, imageBase64: split.right.base64, mediaType: "image/jpeg" },
+    { side: "left", extraction: chosen.left, imageBase64: chosen.split.left.base64, mediaType: "image/jpeg" },
+    { side: "right", extraction: chosen.right, imageBase64: chosen.split.right.base64, mediaType: "image/jpeg" },
   ];
 
   const { flocks, subtotals, regionNotes, retryRoundsRun, retriedLabels } = await mergeTableBlocksFromHalves(halves);
-  const sectionsFound = [leftExtraction.table, rightExtraction.table].filter((t) => t !== null).length;
+  const sectionsFound = [chosen.left.table, chosen.right.table].filter((t) => t !== null && t.flocks.length > 0).length;
+  const pageDate = pickDate(halves);
 
   const extraction: ExtractionResult = {
-    date: orientation.date,
-    date_confidence: orientation.dateConfidence,
+    date: pageDate.date,
+    date_confidence: pageDate.confidence,
     flocks,
     section_subtotals: [subtotals.main, subtotals.continuation].filter(isSectionSubtotal),
     page_notes:
-      [orientation.pageNotes, leftExtraction.half_notes, rightExtraction.half_notes, ...regionNotes]
+      [read.orientation.pageNotes, chosen.left.half_notes, chosen.right.half_notes, ...regionNotes]
         .filter((n): n is string => !!n)
         .join(" ") || null,
     sections_found: sectionsFound,

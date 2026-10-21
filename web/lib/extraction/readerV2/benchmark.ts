@@ -7,11 +7,18 @@ import { BAL_BIRD_TOLERANCE, type Section, type SectionSubtotal } from "../pageC
 import { calcHd } from "../digitEvidence";
 import type { EggStockSection } from "../../eggstock-types";
 import { autoOrientPhoto } from "./autoOrient";
-import { detectPageOrientation } from "./pageOrientation";
-import { rotateUpright } from "./crop";
-import { splitPageIntoHalves } from "./pageSplit";
+import { readPageHalves, UNREADABLE_MESSAGE, type AttemptSummary } from "./halfPipeline";
+import type { LeftPageContent, Rotation, TextTop } from "./pageOrientation";
 import { mergeTableBlocksFromHalves, type HalfPageSource } from "./index";
-import { extractPageHalf, type HalfSide } from "./pageHalfRegion";
+import type { HalfSide } from "./pageHalfRegion";
+import {
+  assignTableSections,
+  assignLedgerSections,
+  collectFeedBoxes,
+  pickChickRows,
+  pickDate,
+  type HalfResult,
+} from "./contentMapping";
 import { extractEggLedgerRegion } from "./ledgerRegion";
 import { extractFeedBoxRegion, type FeedBoxGroupLabel } from "./feedBoxRegion";
 import { checkEggLedgerArithmetic, checkFeedBoxArithmetic } from "./ledgerFeedChecksum";
@@ -300,9 +307,24 @@ export interface DebugRetryImage {
   base64: string | null;
 }
 
+// Owner request, 2026-10-21: "store the rotation chosen in the debug
+// output" — what the orientation call said, what was actually applied,
+// and whether the empty-half self-check had to turn the photo around.
+export interface RotationDebug {
+  textTopPointsTo: TextTop | null;
+  modelRotationDegrees: Rotation | null;
+  leftPageContentSaid: LeftPageContent;
+  derivedRotationDegrees: Rotation;
+  appliedRotationDegrees: Rotation;
+  retriedWith180: boolean;
+  attempts: AttemptSummary[];
+  notes: string[];
+}
+
 export interface DebugImages {
   fullPageWithSpine: string | null; // base64 jpeg, spine line drawn; null if generation failed
   spineX: number;
+  overlapPx: number;
   spineConfidence: "detected" | "fallback_midpoint";
   halves: DebugHalfImage[];
   retries: DebugRetryImage[];
@@ -349,6 +371,10 @@ export interface BenchmarkResult {
 
   oldReader: OldReaderComparison;
   debugImages: DebugImages;
+  rotation: RotationDebug;
+  // Non-null when both halves stayed empty even after the 180° retry — the
+  // photo should be retaken; every table below is then empty by design.
+  unreadable: string | null;
 }
 
 // Shared between the new reader's own detailed comparison and the old
@@ -553,15 +579,15 @@ export async function runBenchmarkForDate(
   // autoOrient.ts.
   const photoBuffer = await autoOrientPhoto(rawPhotoBuffer);
 
-  const orientation = await detectPageOrientation(photoBuffer.toString("base64"), contentType);
-  const fullPage = await rotateUpright(photoBuffer, orientation.rotationDegrees);
-  const split = await splitPageIntoHalves(Buffer.from(fullPage.base64, "base64"));
-
-  const [leftExtraction, rightExtraction] = await Promise.all([
-    extractPageHalf(split.left.base64, split.left.mediaType, "left"),
-    extractPageHalf(split.right.base64, split.right.mediaType, "right"),
-  ]);
-  const extractionBySide: Record<HalfSide, typeof leftExtraction> = { left: leftExtraction, right: rightExtraction };
+  // Orientation (low-res vision call) -> upright -> split -> read both
+  // halves -> self-check (retry 180° if a half is empty) — the same shared
+  // front half the real upload path uses (halfPipeline.ts).
+  const read = await readPageHalves(photoBuffer);
+  const { orientation, chosen } = read;
+  const fullPage = chosen.fullPage;
+  const split = chosen.split;
+  const leftExtraction = chosen.left;
+  const rightExtraction = chosen.right;
   const imageBySide: Record<HalfSide, { base64: string; mediaType: "image/jpeg" }> = {
     left: { base64: split.left.base64, mediaType: split.left.mediaType },
     right: { base64: split.right.base64, mediaType: split.right.mediaType },
@@ -571,6 +597,11 @@ export async function runBenchmarkForDate(
     { side: "left", extraction: leftExtraction, imageBase64: split.left.base64, mediaType: "image/jpeg" },
     { side: "right", extraction: rightExtraction, imageBase64: split.right.base64, mediaType: "image/jpeg" },
   ];
+  const halfResults: HalfResult[] = halves.map((h) => ({ side: h.side, extraction: h.extraction }));
+  const tableSectionBySide = assignTableSections(halfResults);
+  const ledgerBySection = assignLedgerSections(halfResults, tableSectionBySide);
+  const feedBoxesFound = collectFeedBoxes(halfResults);
+  const pageDate = pickDate(halfResults);
   const tableBlocks = await mergeTableBlocksFromHalves(halves);
   const activeLabels = await getActiveLabels(pool, farmCode, date);
 
@@ -665,7 +696,6 @@ export async function runBenchmarkForDate(
     }
   }
 
-  const SECTION_TO_SIDE: Record<EggStockSection, HalfSide> = { small: "left", big: "right" };
   const ledgers: LedgerComparison[] = [];
   const ledgerRetryRounds = {} as Record<EggStockSection, number>;
   const oldLedgerComparisons: Record<LedgerField, FieldComparison>[] = [];
@@ -702,8 +732,12 @@ export async function runBenchmarkForDate(
       closing_balance_eggs: fieldComparison(dbLedger.closing_balance_eggs, oldLedgerRaw?.closing_balance_eggs ?? null),
     });
 
-    const side = SECTION_TO_SIDE[section];
-    let v2Ledger = extractionBySide[side].ledger;
+    // Owner request, 2026-10-21: mapped by CONTENT — the ledger under the
+    // main table is the big one, under the continuation table the small
+    // one, whichever half either sits on (contentMapping.ts).
+    const mapped = ledgerBySection.get(section);
+    const side: HalfSide = mapped?.side ?? "left";
+    let v2Ledger = mapped?.ledger ?? null;
     if (!v2Ledger) {
       ledgers.push({
         section,
@@ -714,7 +748,7 @@ export async function runBenchmarkForDate(
           closing_balance_eggs: fieldComparison(dbLedger.closing_balance_eggs, null),
         },
         deductions: [],
-        note: `The reader didn't find a ${section === "big" ? "big" : "small"} egg ledger on the ${side} half of this photo.`,
+        note: `The reader didn't find a ${section === "big" ? "big" : "small"} egg ledger on either half of this photo.`,
         stillFailingChecks: [],
         crossDayNote,
       });
@@ -799,11 +833,9 @@ export async function runBenchmarkForDate(
     if (groupLabel === "ALL") return boxes.length === 1 ? boxes[0] : null;
     return boxes.find((b) => b.flock_group === groupLabel) ?? null;
   }
-  // Feed boxes are read only from the LEFT half's schema (see
-  // pageHalfRegion.ts's header comment: this register's convention has
-  // both boxes physically on the left page, regardless of which table
-  // each one's flocks belong to).
-  const v2FeedBoxes = leftExtraction.feedBoxes;
+  // Owner request, 2026-10-21: feed boxes are collected from BOTH halves
+  // and matched by the group each box says it covers — never by side.
+  const v2FeedBoxes = feedBoxesFound.map((f) => f.box);
   for (const dbFeed of feedDbRows) {
     const groupLabel = dbFeed.flock_group as FeedBoxGroupLabel;
 
@@ -835,12 +867,13 @@ export async function runBenchmarkForDate(
       feedBoxes.push({
         groupLabel,
         fields: emptyFields(),
-        note: `The reader didn't find a feed box matching "${groupLabel}" on the left half of this photo.`,
+        note: `The reader didn't find a feed box matching "${groupLabel}" on either half of this photo.`,
         stillFailingChecks: [],
       });
       continue;
     }
 
+    const feedSide: HalfSide = feedBoxesFound.find((f) => f.box === matching)?.side ?? "left";
     let v2Feed = matching;
     let feedRetries = 0;
     let finalFeedFindings = checkFeedBoxArithmetic(v2Feed);
@@ -848,12 +881,12 @@ export async function runBenchmarkForDate(
       if (finalFeedFindings.length === 0) break;
       const hint =
         finalFeedFindings.map((f) => f.message).join("; ") +
-        `. You're looking at the WHOLE left half of the page, not just one feed box — focus only on the box covering ${groupLabel}.`;
-      v2Feed = { ...(await extractFeedBoxRegion(imageBySide.left.base64, imageBySide.left.mediaType, groupLabel, { confusionHint: hint })), coverage: groupLabel };
+        `. You're looking at the WHOLE ${feedSide} half of the page, not just one feed box — focus only on the box covering ${groupLabel}.`;
+      v2Feed = { ...(await extractFeedBoxRegion(imageBySide[feedSide].base64, imageBySide[feedSide].mediaType, groupLabel, { confusionHint: hint })), coverage: groupLabel };
       finalFeedFindings = checkFeedBoxArithmetic(v2Feed);
       retryDebugImages.push({
         label: `${groupLabel} feed box retry round ${feedRetries + 1}`,
-        base64: await safeDownscale(imageBySide.left.base64),
+        base64: await safeDownscale(imageBySide[feedSide].base64),
       });
     }
     feedBoxRetryRounds[groupLabel] = feedRetries;
@@ -889,10 +922,8 @@ export async function runBenchmarkForDate(
     [farmCode, date]
   );
   let chickRows: ChickRowsResult;
-  // Chick rows are expected on the RIGHT half by this register's layout,
-  // but fall back to the left half's own report in case a day's layout
-  // genuinely differs — never force a wrong side.
-  const v2Chick = rightExtraction.chickRows ?? leftExtraction.chickRows;
+  // Chick rows are taken from whichever half actually returned them.
+  const v2Chick = pickChickRows(halfResults);
   if (chickDbRows.length === 0) {
     chickRows = { rows: [], unmatchedExtracted: [], note: "No saved chick-row data for this date." };
   } else if (!v2Chick) {
@@ -979,9 +1010,9 @@ export async function runBenchmarkForDate(
     date,
     photoDateUsed,
     photoUrl,
-    v2DateRead: orientation.date,
-    dateMismatch: orientation.date !== null && orientation.date !== date,
-    v2PageNotes: [orientation.pageNotes, ...tableBlocks.regionNotes].filter((n): n is string => !!n).join(" ") || null,
+    v2DateRead: pageDate.date,
+    dateMismatch: pageDate.date !== null && pageDate.date !== date,
+    v2PageNotes: [orientation.pageNotes, ...read.notes, ...tableBlocks.regionNotes].filter((n): n is string => !!n).join(" ") || null,
     retryRoundsRun: tableBlocks.retryRoundsRun,
     retriedLabels: tableBlocks.retriedLabels,
     rows,
@@ -1002,11 +1033,23 @@ export async function runBenchmarkForDate(
     debugImages: {
       fullPageWithSpine,
       spineX: split.spineX,
+      overlapPx: split.overlapPx,
       spineConfidence: split.spineConfidence,
       halves: debugHalves,
       retries: retryDebugImages,
       unavailableNote: debugImagesUnavailableNote,
     },
+    rotation: {
+      textTopPointsTo: orientation.textTopPointsTo,
+      modelRotationDegrees: orientation.modelRotationDegrees,
+      leftPageContentSaid: orientation.leftPageContent,
+      derivedRotationDegrees: orientation.rotationDegrees,
+      appliedRotationDegrees: chosen.rotationApplied,
+      retriedWith180: read.retriedWith180,
+      attempts: read.attempts,
+      notes: read.notes,
+    },
+    unreadable: read.unreadable ? UNREADABLE_MESSAGE : null,
   };
 }
 

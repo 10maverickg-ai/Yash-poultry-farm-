@@ -11,7 +11,7 @@
 // fallback actually triggers rather than mis-firing on noise.
 
 import sharp from "sharp";
-import { splitPageIntoHalves } from "../lib/extraction/readerV2/pageSplit";
+import { splitPageIntoHalves, findSpineColumn } from "../lib/extraction/readerV2/pageSplit";
 
 let pass = 0;
 let fail = 0;
@@ -67,10 +67,17 @@ async function run() {
       Math.abs(result.spineX - spineX) <= 20,
       result.spineX
     );
-    check("4032x3024: left+right widths sum to the full width", result.left.width + result.right.width === width, {
-      left: result.left.width,
-      right: result.right.width,
-    });
+    check(
+      "4032x3024: halves overlap by ~4% of the width on each side of the split (nothing is cut)",
+      result.overlapPx === Math.round(width * 0.04) &&
+        result.left.width === result.spineX + result.overlapPx &&
+        result.right.width === width - (result.spineX - result.overlapPx),
+      { overlap: result.overlapPx, left: result.left.width, right: result.right.width }
+    );
+    check(
+      "4032x3024: the two halves together cover the whole page (left+right >= width)",
+      result.left.width + result.right.width >= width
+    );
     check("4032x3024: both halves keep the full height", result.left.height === height && result.right.height === height);
   }
 
@@ -121,7 +128,59 @@ async function run() {
     );
   }
 
-  // 5) Degenerate input (zero dimensions) must throw a clear error, not a
+  // 5) Crease vs. broad shadow (owner report: the line landed ~70px right
+  // of the real fold). A narrow dark crease at x=1900 PLUS a broad,
+  // asymmetric page-curl shadow that darkens toward the crease from the
+  // right and ends abruptly ~140px past it. The split must sit on the
+  // narrow crease, not be dragged toward the shadow.
+  {
+    const width = 4032;
+    const height = 3024;
+    const creaseX = 1900;
+    const shadowBands: string[] = [];
+    // gradient: 0 -> ~28% darkening across 240px to the right of the crease
+    for (let i = 0; i < 24; i++) {
+      const x = creaseX + 7 + i * 10;
+      const alpha = (0.28 * (24 - i)) / 24;
+      shadowBands.push(`<rect x="${x}" y="0" width="10" height="${height}" fill="#000" fill-opacity="${alpha.toFixed(3)}"/>`);
+    }
+    const svg = `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
+      <rect width="100%" height="100%" fill="#f2f0e9"/>
+      ${shadowBands.join("\n")}
+      <rect x="${creaseX - 6}" y="0" width="12" height="${height}" fill="#262626"/>
+    </svg>`;
+    const buf = await sharp(Buffer.from(svg)).jpeg({ quality: 92 }).toBuffer();
+    const result = await splitPageIntoHalves(buf);
+    check("crease+shadow: crease detected", result.spineConfidence === "detected", result.spineConfidence);
+    check(
+      `crease+shadow: split (${result.spineX}) is within 15px of the narrow crease (${creaseX}), not dragged toward the shadow`,
+      Math.abs(result.spineX - creaseX) <= 15,
+      result.spineX
+    );
+  }
+
+  // 6) A dark column OUTSIDE the central 35-65% window (e.g. a page edge
+  // or table border) must not be mistaken for the crease.
+  {
+    const width = 4000;
+    const profile = new Float64Array(width).fill(230);
+    for (let x = 700; x < 740; x++) profile[x] = 20; // far-left dark band (outside the window)
+    const r = findSpineColumn(profile);
+    check("dark band outside the central window is ignored (falls back to midpoint)", !r.detected && r.spineX === 2000, r);
+  }
+
+  // 7) Pure profile test: narrow deep crease beats a wide shallower curl
+  // inside the window.
+  {
+    const width = 4000;
+    const profile = new Float64Array(width).fill(230);
+    for (let x = 1700; x < 1900; x++) profile[x] = 175; // wide curl
+    for (let x = 2000; x < 2012; x++) profile[x] = 60; // narrow crease, centre 2005
+    const r = findSpineColumn(profile);
+    check("narrow dark crease beats a broad shallower shadow", r.detected && Math.abs(r.spineX - 2005) <= 12, r);
+  }
+
+  // 8) Degenerate input (zero dimensions) must throw a clear error, not a
   // cryptic sharp exception.
   {
     let threw = false;

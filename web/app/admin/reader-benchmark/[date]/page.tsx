@@ -139,6 +139,14 @@ export default async function ReaderBenchmarkDatePage({
         <Link href={backHref}>&larr; Back to date list</Link>
       </p>
 
+      {result.unreadable && (
+        <div className="error-banner">
+          <strong>Photo unreadable — ask for a retake.</strong> {result.unreadable} Every table below is
+          empty on purpose: nothing was recognised on either page, so no reading is shown rather than
+          empty fields that look like one.
+        </div>
+      )}
+
       {result.dateMismatch && (
         <div className="error-banner">
           <strong>
@@ -180,11 +188,38 @@ export default async function ReaderBenchmarkDatePage({
             <span> (re-asked about: {result.retriedLabels.join(", ")})</span>
           )}
         </p>
+        <p>
+          Rotation applied: <strong>{result.rotation.appliedRotationDegrees}° clockwise</strong>
+          {result.rotation.retriedWith180 && (
+            <span className="badge badge-flagged" style={{ marginLeft: 6 }}>
+              self-check turned it 180° and retried
+            </span>
+          )}
+          <br />
+          <span className="muted">
+            Orientation call: writing tops point {result.rotation.textTopPointsTo ?? "(no answer)"} =&gt;{" "}
+            {result.rotation.derivedRotationDegrees}°; its own rotation answer was{" "}
+            {result.rotation.modelRotationDegrees ?? "(none)"}°; it said the left page (once upright) is:{" "}
+            {result.rotation.leftPageContentSaid}.
+          </span>
+        </p>
+        {result.rotation.attempts.length > 0 && (
+          <ul className="muted" style={{ margin: "0 0 0.5rem", paddingLeft: "1.2rem" }}>
+            {result.rotation.attempts.map((a, i) => (
+              <li key={i}>
+                Attempt {i + 1} at {a.rotationApplied}°: left half {a.leftItems} item(s), right half{" "}
+                {a.rightItems} item(s)
+                {a.emptyHalves.length > 0 ? ` — empty: ${a.emptyHalves.join(", ")}` : ""}
+              </li>
+            ))}
+          </ul>
+        )}
+        {result.rotation.notes.length > 0 && <p className="muted">{result.rotation.notes.join(" ")}</p>}
         <p className="muted" style={{ margin: 0 }}>
           Page split: {result.debugImages.spineConfidence === "detected"
-            ? `spine detected at pixel column ${result.debugImages.spineX}`
-            : `no clear spine found — split down the exact middle instead (column ${result.debugImages.spineX})`}
-          .
+            ? `crease detected at pixel column ${result.debugImages.spineX}`
+            : `no clear crease found — split down the exact middle instead (column ${result.debugImages.spineX})`}
+          ; each half reaches {result.debugImages.overlapPx}px past that line toward the other page.
         </p>
         {result.v2PageNotes && <p className="muted">Page notes: {result.v2PageNotes}</p>}
       </div>
