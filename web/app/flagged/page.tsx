@@ -14,27 +14,69 @@ import {
   deletePageIssue,
   markLedgerIssueReviewed,
   deleteLedgerIssue,
-  resolveMovementAsTransfer,
-  resolveMovementAsAnilFarm,
-  resolveMovementAsSale,
-  resolveMovementAsPurchased,
-  resolveMovementAsCull,
-  resolveMovementAsCountAdjustment,
 } from "./actions";
 import { FlaggedProductionSection } from "@/components/FlaggedProductionSection";
+import { FlagReviewByDay } from "@/components/FlagReviewByDay";
+import { MovementAnswers } from "@/components/MovementAnswers";
+import { loadFlagReview } from "@/lib/flagReview";
 
 export const dynamic = "force-dynamic";
 
 export default async function FlaggedPage({
   searchParams,
 }: {
-  searchParams: Promise<{ from?: string; to?: string }>;
+  searchParams: Promise<{ from?: string; to?: string; view?: string }>;
 }) {
   const sp = await searchParams;
   const dateFilter: DateFilter = {
     from: /^\d{4}-\d{2}-\d{2}$/.test(sp.from ?? "") ? sp.from : undefined,
     to: /^\d{4}-\d{2}-\d{2}$/.test(sp.to ?? "") ? sp.to : undefined,
   };
+
+  const view = sp.view === "type" ? "type" : "day";
+  const tabs = (
+    <div className="fr-tabs" role="tablist" aria-label="Flag views">
+      <Link href="/flagged" className={view === "day" ? "btn" : "btn btn-secondary"} role="tab" aria-selected={view === "day"}>
+        By day
+      </Link>
+      <Link href="/flagged?view=type" className={view === "type" ? "btn" : "btn btn-secondary"} role="tab" aria-selected={view === "type"}>
+        By type
+      </Link>
+    </div>
+  );
+
+  if (view === "day") {
+    const { days, otherOpen } = await loadFlagReview(dateFilter);
+    return (
+      <>
+        <h1>Flagged records</h1>
+        {tabs}
+        <form method="get" className="card date-filter-form">
+          <div className="date-filter-fields">
+            <label className="field date-filter-field">
+              <span>From</span>
+              <input type="date" name="from" defaultValue={dateFilter.from ?? ""} aria-label="From date" />
+            </label>
+            <label className="field date-filter-field">
+              <span>To</span>
+              <input type="date" name="to" defaultValue={dateFilter.to ?? ""} aria-label="To date" />
+            </label>
+          </div>
+          <div className="date-filter-actions">
+            <button type="submit" className="btn-secondary">
+              Filter
+            </button>
+            {(dateFilter.from || dateFilter.to) && (
+              <Link href="/flagged" className="btn-secondary">
+                Clear filter
+              </Link>
+            )}
+          </div>
+        </form>
+        <FlagReviewByDay days={days} otherOpen={otherOpen} />
+      </>
+    );
+  }
 
   const [items, unresolved, flocks, pageIssues, ledgerIssues, openMovements] = await Promise.all([
     listFlagged(dateFilter),
@@ -51,6 +93,7 @@ export default async function FlaggedPage({
   return (
     <>
       <h1>Flagged records</h1>
+      {tabs}
       <p className="muted">
         Records that failed a validation rule and haven&apos;t been handled.
         Fix a data error on its entry screen (re-saving re-checks and clears
@@ -210,74 +253,11 @@ export default async function FlaggedPage({
                   explains{m.register_note ? ` — ${m.register_note}` : ""}.
                 </div>
                 <p className="muted" style={{ margin: 0 }}>What actually happened?</p>
-                <div className="actions-bar" style={{ flexWrap: "wrap" }}>
-                  <form
-                    action={resolveMovementAsTransfer.bind(null, m.id)}
-                    className="actions-bar"
-                    style={{ marginBottom: 0 }}
-                  >
-                    <select name="counterpartFlockId" required defaultValue="" aria-label="Which flock">
-                      <option value="" disabled>
-                        Moved to/from…
-                      </option>
-                      {otherFlocks.map((f) => (
-                        <option key={f.flock_internal_id} value={f.flock_internal_id}>
-                          {f.display_label}
-                        </option>
-                      ))}
-                    </select>
-                    <button type="submit" className="btn">
-                      Another flock
-                    </button>
-                  </form>
-
-                  <form action={resolveMovementAsAnilFarm.bind(null, m.id)}>
-                    <button type="submit" className="btn">
-                      Anil farm
-                    </button>
-                  </form>
-
-                  {isOutflow ? (
-                    <>
-                      <form
-                        action={resolveMovementAsSale.bind(null, m.id)}
-                        className="actions-bar"
-                        style={{ marginBottom: 0 }}
-                      >
-                        <input
-                          type="number"
-                          name="pricePerBird"
-                          placeholder="₹ per bird"
-                          min="0"
-                          step="0.01"
-                          aria-label="Price per bird"
-                          style={{ width: "9rem" }}
-                        />
-                        <button type="submit" className="btn">
-                          Sold
-                        </button>
-                      </form>
-
-                      <form action={resolveMovementAsCull.bind(null, m.id)}>
-                        <button type="submit" className="btn">
-                          Culled
-                        </button>
-                      </form>
-                    </>
-                  ) : (
-                    <form action={resolveMovementAsPurchased.bind(null, m.id)}>
-                      <button type="submit" className="btn">
-                        Purchased
-                      </button>
-                    </form>
-                  )}
-
-                  <form action={resolveMovementAsCountAdjustment.bind(null, m.id)}>
-                    <button type="submit" className="btn-secondary">
-                      Count is correct, nothing moved
-                    </button>
-                  </form>
-                </div>
+                <MovementAnswers
+                  id={m.id}
+                  birdsChange={m.birds_change}
+                  others={otherFlocks.map((f) => ({ id: f.flock_internal_id, label: f.display_label }))}
+                />
               </div>
             );
           })}

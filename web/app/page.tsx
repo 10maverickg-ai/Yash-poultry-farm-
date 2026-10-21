@@ -63,6 +63,12 @@ export default function Home() {
           <h3>Records</h3>
           <p className="muted">Read-only view of everything entered</p>
         </Link>
+        <Link href="/analytics" className="card">
+          <h3>Analytics</h3>
+          <p className="muted">
+            Farm today, flocks vs BV300 standard, alerts, month totals
+          </p>
+        </Link>
         <Link href="/flagged" className="card">
           <h3>Flagged records</h3>
           <p className="muted">
