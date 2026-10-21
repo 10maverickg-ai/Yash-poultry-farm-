@@ -2484,3 +2484,39 @@ plain `SELECT`s.
   register's actual units; re-check when real Feed Stock pages are entered in Phase 2.
 - **Egg Stock Ledger variable-line structure** — to be validated against a full week of
   real entries during Phase 2, per the brief.
+
+## Analytics board + by-day flag review (2026-10-21)
+
+Built from the data already in Supabase; no Anthropic calls, no schema change,
+no RLS change, reader code untouched, `READER_V2_ENABLED` not set.
+`claude/v4-master-prompt.md` and `claude/v4-analytics-decisions.md` were not
+reachable from this session (not in the repo or any branch), so the rules
+below come from the owner's task message; anything those docs would add or
+change is NOT reflected here.
+
+- **Engine** (`web/lib/analytics/engine.ts`) is pure functions over plain rows,
+  so the same code runs in the page and in `web/scripts/analytics-check.mts`
+  against exported copies of the real rows (17 negative self-tests included).
+- **Identity:** flocks are joined by `flock_internal_id` only. The register
+  label (`display_label_as_written`) is shown as "the label that day", with a
+  "placed Mon YYYY" tag so BAB-5 in August (d6b2…) and BAB-5 in September
+  (0d0b…) are never confused. `flocks.display_label` is stale (it still shows
+  the pre-27-Aug BAB-8/BAB-10 swap and none of the September shifts), so it is
+  not used for display.
+- **Moulting is inferred, not recorded** (no table/column holds it): feed ≤ 25%
+  of the flock's own prior 7-day average, and HD still under 80% of its
+  pre-withdrawal HD. On the real data this marks only BAB-5's August flock,
+  17 Aug → 26 Sep. One function (`moultOn`) to swap when moults are recorded.
+- **Choices the brief left open** (all constants in `RULES`): card colour is
+  the 7-day HD as a share of the BV300 standard for the flock's age (green ≥
+  90%, amber 80–90%, red < 80%); "mortality creeping" = last 7 days ≥ 1.5× the
+  14 before and ≥ +1 death/day; "trending below" = HD fell ≥ 2 points week on
+  week and is > 3 under standard; egg stock days = closing eggs (all ledger
+  sections) ÷ 7-day average eggs laid; feed days = closing bags ÷ 7-day average
+  box consumption.
+- **Reviewing:** "Reviewed" on an alert and "Right as read" on /flagged both set
+  the existing `reviewed_by_owner` on the record (production row, feed box,
+  egg-ledger summary or line). The one derived check (an egg-ledger opening
+  that differs from the previous day's closing) is not stored as a flag; it is
+  computed when the screen loads and answered through the summary row's
+  `reviewed_by_owner`.
