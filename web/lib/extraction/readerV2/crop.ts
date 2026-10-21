@@ -1,39 +1,22 @@
-import type { NormalizedBox, OrientationAndRegions, RegionKind } from "./types";
+import type { NormalizedBox } from "./types";
 import { loadSharp } from "./sharpLoader";
 
-// Reader rebuild, the pure-image half of stage 1→2 (owner's "V4 build
-// prompt", Phase 1): takes the ORIGINAL photo plus the orientation/region
-// call's answer (orientationAndRegions.ts) and turns it into one upright,
-// full-resolution JPEG crop per detected region. No API call here at all —
-// this is why it's the one part of the reader rebuild this sandbox can
-// actually exercise end to end (see
-// scripts/regression-reader-v2-crop.ts).
-
-export interface CroppedRegion {
-  kind: RegionKind;
-  base64: string;
-  mediaType: "image/jpeg";
-  width: number;
-  height: number;
-}
+// Reader rebuild, the pure-image half of the pipeline (owner's "V4 build
+// prompt", Phase 1; revised 2026-10-21 — see pageSplit.ts's header comment
+// for why model-drawn region boxes were removed as the primary crop
+// method). Two jobs left here: rotate the original photo to upright
+// (rotateUpright, feeding pageSplit.ts's deterministic spine split), and
+// zoom into one small, PRECISELY KNOWN box for a checksum-guided retry
+// (recropForRetry) — e.g. a flock's own row_box, reported by the first-pass
+// half-page call relative to that half image. No API call in this file at
+// all, which is why it's one of the few parts of the reader rebuild this
+// sandbox can exercise end to end (see scripts/regression-reader-v2-crop.ts).
 
 export interface FullPageImage {
   base64: string;
   mediaType: "image/jpeg";
   width: number;
   height: number;
-}
-
-export interface RotateAndCropResult {
-  crops: CroppedRegion[];
-  // The whole UPRIGHT (post-orientation) page, at full resolution — same
-  // coordinate space every crop and every region box is relative to.
-  // Exists for two reasons (owner request, 2026-10-19): (1) a fallback
-  // source when a detected region's own box looks too small/untrustworthy
-  // (see readerV2/index.ts's MIN_TABLE_AREA_FRACTION), and (2) so the
-  // benchmark page can draw the detected boxes on top of it and show the
-  // owner exactly what the model was shown.
-  fullPage: FullPageImage;
 }
 
 export interface RetryCrop {
@@ -66,70 +49,49 @@ function clamp(
   return { left, top, width, height };
 }
 
-export async function rotateAndCropRegions(
+// Rotates the ORIGINAL (already EXIF-corrected, via autoOrient.ts) photo to
+// upright using the orientation call's own rotation answer, and returns
+// the whole upright page at full resolution — the single image
+// pageSplit.ts's deterministic spine-finding and both half-page extraction
+// calls are built from.
+export async function rotateUpright(
   imageBuffer: Buffer,
-  layout: OrientationAndRegions
-): Promise<RotateAndCropResult> {
+  rotationDegrees: 0 | 90 | 180 | 270
+): Promise<FullPageImage> {
   const sharp = await loadSharp();
-  // Owner report, 2026-10-19 (Aug 8 benchmark — garbled labels, wrong
-  // date, "only one flock block visible"): callers are expected to have
-  // already run the buffer through autoOrient.ts before it ever reaches
-  // the detection call OR here, so both see the exact same pixels. The
-  // leading, argument-less .rotate() below is defense in depth, not the
-  // primary fix — it re-applies (or, if already applied, harmlessly
-  // no-ops on) the EXIF correction immediately before the explicit
-  // rotationDegrees rotation, so this function can never silently misread
-  // a stale orientation tag even if some future caller forgets the
-  // upstream step.
-  const rotatedBuffer = await sharp(imageBuffer).rotate().rotate(layout.rotationDegrees).toBuffer();
-  const rotatedMeta = await sharp(rotatedBuffer).metadata();
-  const imageWidth = rotatedMeta.width ?? 0;
-  const imageHeight = rotatedMeta.height ?? 0;
-
-  const crops: CroppedRegion[] = [];
-  for (const region of layout.regions) {
-    const { left, top, width, height } = clamp(region.box, imageWidth, imageHeight);
-    const cropped = await sharp(rotatedBuffer)
-      .extract({ left, top, width, height })
-      .jpeg({ quality: 92 })
-      .toBuffer();
-    crops.push({
-      kind: region.kind,
-      base64: cropped.toString("base64"),
-      mediaType: "image/jpeg",
-      width,
-      height,
-    });
-  }
-
-  const fullPageBuffer = await sharp(rotatedBuffer).jpeg({ quality: 90 }).toBuffer();
-  const fullPage: FullPageImage = {
-    base64: fullPageBuffer.toString("base64"),
+  // Defense in depth (unchanged reasoning from the previous version of
+  // this function): a leading, argument-less .rotate() re-applies (or, if
+  // already applied, harmlessly no-ops) any EXIF correction immediately
+  // before the explicit rotation, so this can never silently misread a
+  // stale orientation tag even if some future caller forgets the upstream
+  // autoOrientPhoto step.
+  const rotatedBuffer = await sharp(imageBuffer).rotate().rotate(rotationDegrees).jpeg({ quality: 92 }).toBuffer();
+  const meta = await sharp(rotatedBuffer).metadata();
+  return {
+    base64: rotatedBuffer.toString("base64"),
     mediaType: "image/jpeg",
-    width: imageWidth,
-    height: imageHeight,
+    width: meta.width ?? 0,
+    height: meta.height ?? 0,
   };
-
-  return { crops, fullPage };
 }
 
-// Checksum-driven retry: zoom into one flock's own row box (reported
-// relative to the region crop it came from, not the original photo) and
-// upscale it so the model is looking at a far larger, sharper version of
-// just that figure — never a blind re-ask of the whole section.
+// Checksum-driven retry: zoom into one small, precisely known box (e.g. a
+// flock's own row_box, reported relative to the half-page image it came
+// from) and upscale it so the model is looking at a far larger, sharper
+// version of just that figure — never a blind re-ask of the whole half.
 export async function recropForRetry(
-  regionBase64: string,
+  sourceBase64: string,
   box: NormalizedBox,
   targetLongEdgePx = 1200
 ): Promise<RetryCrop> {
   const sharp = await loadSharp();
-  const regionBuffer = Buffer.from(regionBase64, "base64");
-  const meta = await sharp(regionBuffer).metadata();
+  const sourceBuffer = Buffer.from(sourceBase64, "base64");
+  const meta = await sharp(sourceBuffer).metadata();
   const imageWidth = meta.width ?? 0;
   const imageHeight = meta.height ?? 0;
   const { left, top, width, height } = clamp(box, imageWidth, imageHeight);
 
-  const cropped = await sharp(regionBuffer).extract({ left, top, width, height }).toBuffer();
+  const cropped = await sharp(sourceBuffer).extract({ left, top, width, height }).toBuffer();
   const longEdge = Math.max(width, height);
   const scale = longEdge > 0 ? targetLongEdgePx / longEdge : 1;
   const outWidth = Math.max(1, Math.round(width * scale));

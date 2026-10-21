@@ -7,26 +7,30 @@ import { BAL_BIRD_TOLERANCE, type Section, type SectionSubtotal } from "../pageC
 import { calcHd } from "../digitEvidence";
 import type { EggStockSection } from "../../eggstock-types";
 import { autoOrientPhoto } from "./autoOrient";
-import { detectOrientationAndRegions } from "./orientationAndRegions";
-import { rotateAndCropRegions, type CroppedRegion } from "./crop";
-import { extractTableBlocksFromCrops } from "./index";
+import { detectPageOrientation } from "./pageOrientation";
+import { rotateUpright } from "./crop";
+import { splitPageIntoHalves } from "./pageSplit";
+import { mergeTableBlocksFromHalves, type HalfPageSource } from "./index";
+import { extractPageHalf, type HalfSide } from "./pageHalfRegion";
 import { extractEggLedgerRegion } from "./ledgerRegion";
 import { extractFeedBoxRegion, type FeedBoxGroupLabel } from "./feedBoxRegion";
-import { extractChickRowsRegion } from "./chickRowsRegion";
 import { checkEggLedgerArithmetic, checkFeedBoxArithmetic } from "./ledgerFeedChecksum";
-import { drawRegionBoxes, downscaleForDisplay } from "./debugImage";
+import { drawSpineLine, downscaleForDisplay } from "./debugImage";
 
-// Reader rebuild benchmark (owner's "V4 build prompt", Phase 1): runs the
-// NEW region-cropped reader against a photo this app already has stored
-// (or one uploaded just for this purpose — see listBenchmarkDates), and
-// compares its reads against whatever is currently SAVED — the owner's
-// own trusted record, not a separate "ground truth" table — across every
-// region kind the page-layout call can detect: the flock tables (plus
-// their subtotal rows), the egg ledger(s), the feed box(es), the chick
-// rows, and each flock's margin note. This is deliberately read-only: it
-// never writes anything, and every extraction call here runs completely
-// independent of the READER_V2_ENABLED switch that gates real uploads —
-// running this benchmark can never affect what a real upload saves.
+// Reader rebuild benchmark (owner's "V4 build prompt", Phase 1; revised
+// 2026-10-21 after the Aug 3 photo filed under Aug 8 showed every
+// model-drawn region box wrong — see pageSplit.ts's header comment). Runs
+// the NEW deterministic-split reader against a photo this app already has
+// stored (or one uploaded just for this purpose — see listBenchmarkDates),
+// and compares its reads against whatever is currently SAVED — the
+// owner's own trusted record, not a separate "ground truth" table —
+// across every item kind a half-page call can find: the flock tables
+// (plus their subtotal rows), the egg ledger(s), the feed box(es), the
+// chick rows, and each flock's margin note. This is deliberately
+// read-only: it never writes anything, and every extraction call here
+// runs completely independent of the READER_V2_ENABLED switch that gates
+// real uploads — running this benchmark can never affect what a real
+// upload saves.
 //
 // Comparison is against the CURRENT saved values (post pipeline.ts
 // correction / post hand-entry review), not the *_original columns —
@@ -36,10 +40,10 @@ import { drawRegionBoxes, downscaleForDisplay } from "./debugImage";
 // already-uncertain row reads differently from one against an
 // everybody-agrees-this-is-right row.
 //
-// The chick-rows reader (chickRowsRegion.ts) has no prior art anywhere in
-// this app — chick_daily_mortality has always been filled in by hand.
-// Its results are reported the same way as everything else, but it's
-// worth remembering this one part is genuinely new and unproven, not an
+// The chick-rows reader has no prior art anywhere in this app —
+// chick_daily_mortality has always been filled in by hand. Its results
+// are reported the same way as everything else, but it's worth
+// remembering this one part is genuinely new and unproven, not an
 // existing prompt just asked of a smaller crop.
 
 export interface BenchmarkDateSummary {
@@ -278,41 +282,52 @@ export interface OldReaderComparison {
 
 // ===================== Debug images =====================
 
-// Owner request, 2026-10-19 (Aug 8 benchmark): every crop actually sent to
-// a vision call, plus the whole upright page with the detected boxes
-// drawn on it, so a bad region box is visible at a glance instead of
-// inferred from garbled output. All downscaled for display only — the
-// model itself always gets the full-resolution version these are derived
-// from.
-export interface DebugCropImage {
-  kind: string;
-  // Owner request, 2026-10-21: a debug image is a diagnostic extra, never
-  // load-bearing — if sharp fails to produce it for any reason, this is
-  // null (and the page shows "debug picture unavailable") rather than
-  // failing the whole benchmark run.
+// Owner request, 2026-10-21: "keep the debug page showing exactly what
+// each call received" — now that there are no more model-drawn region
+// boxes, this is: the whole upright page with the detected spine line
+// drawn on it (so the split itself can be sanity-checked at a glance),
+// the LEFT half exactly as sent to its extraction call, the RIGHT half
+// exactly as sent to ITS call, and any crop sent for a checksum-guided
+// retry. All downscaled for display only — the model itself always gets
+// the full-resolution version these are derived from.
+export interface DebugHalfImage {
+  side: HalfSide;
   base64: string | null;
-  // True if this is the MIN_TABLE_AREA_FRACTION fallback — i.e. what's
-  // shown here is the whole page, sent in place of a detected box that
-  // looked too small to trust (see readerV2/index.ts).
-  isWholePageFallback: boolean;
+}
+
+export interface DebugRetryImage {
+  label: string; // e.g. "BAB-4 (flock row retry)" or "small ledger retry"
+  base64: string | null;
 }
 
 export interface DebugImages {
-  fullPageWithBoxes: string | null; // base64 jpeg, boxes + labels drawn; null if generation failed
-  crops: DebugCropImage[];
+  fullPageWithSpine: string | null; // base64 jpeg, spine line drawn; null if generation failed
+  spineX: number;
+  spineConfidence: "detected" | "fallback_midpoint";
+  halves: DebugHalfImage[];
+  retries: DebugRetryImage[];
   unavailableNote: string | null; // set when any debug image failed to generate
 }
 
 // ===================== Overall result =====================
 
 export interface BenchmarkResult {
+  // The date whose SAVED daily_production rows are being used as ground
+  // truth (the route's own date).
   date: string;
+  // The date whose STORED PHOTO was actually read — normally the same as
+  // `date`, but can differ when comparing a misfiled photo against the
+  // date it actually reads (see runBenchmarkForDate's photoDateOverride).
+  photoDateUsed: string;
   photoUrl: string;
   v2DateRead: string | null;
+  // True when the photo's own read date disagrees with `date` (the ground
+  // truth being compared against) — the benchmark page shows this as a
+  // red banner with a button to compare against the read date instead.
+  dateMismatch: boolean;
   v2PageNotes: string | null;
   retryRoundsRun: number;
   retriedLabels: string[];
-  fellBackToFullPage: string[];
   rows: FlockComparison[];
   unmatchedExtractedLabels: string[];
   missingFromExtraction: string[];
@@ -335,16 +350,6 @@ export interface BenchmarkResult {
   oldReader: OldReaderComparison;
   debugImages: DebugImages;
 }
-
-const EGG_LEDGER_REGION_KINDS: Record<string, EggStockSection> = {
-  big_egg_ledger: "big",
-  small_egg_ledger: "small",
-};
-const FEED_BOX_REGION_KINDS: Record<string, FeedBoxGroupLabel> = {
-  feed_box_single: "ALL",
-  feed_box_main: "BAB-1-7",
-  feed_box_continuation: "BAB-8-10",
-};
 
 // Shared between the new reader's own detailed comparison and the old
 // reader's side-by-side summary — same matching, same fields, same
@@ -478,12 +483,22 @@ function sectionSubtotalsFromArray(arr: SectionSubtotal[]): Record<Section, Sect
 // Owner request, 2026-10-19: the egg ledger and feed box now get the same
 // checksum-guided retry the flock tables already had — up to this many
 // rounds of "re-ask with a hint describing what didn't add up" before
-// accepting whatever the last attempt produced.
+// accepting whatever the last attempt produced. Revised 2026-10-21: the
+// retry re-sends the WHOLE half-page image (the only image this stage has
+// — see this file's own notes below), not a further sub-crop; with no
+// real photo available to calibrate a tighter fixed-proportion crop
+// against, resending the whole half can never miss the target, at the
+// cost of a less-zoomed retry than a flock row-box retry gets.
 const MAX_LEDGER_FEED_RETRIES = 2;
 
 export async function runBenchmarkForDate(
   date: string,
-  farmCode: string = ACTIVE_FARM
+  farmCode: string = ACTIVE_FARM,
+  // Owner request, 2026-10-21: "offer a button to compare against the read
+  // date instead" of the date a photo was mistakenly filed under. When
+  // set, the STORED PHOTO is pulled from this date, but every comparison
+  // still runs against `date`'s own saved rows.
+  photoDateOverride?: string
 ): Promise<BenchmarkResult> {
   const { rows: dbRowsRaw } = await pool.query(
     `SELECT display_label_as_written, flock_internal_id, mortality, feed_bags, eggs_total,
@@ -497,39 +512,66 @@ export async function runBenchmarkForDate(
     throw new Error(`No saved daily_production rows for ${date} — nothing to benchmark against.`);
   }
 
-  let photoUrl = dbRows.find((r) => r.source_photo_url)?.source_photo_url ?? null;
-  if (!photoUrl) {
+  const photoDateUsed = photoDateOverride ?? date;
+
+  async function findPhotoUrlFor(lookupDate: string): Promise<string | null> {
+    if (lookupDate === date) {
+      const own = dbRows.find((r) => r.source_photo_url)?.source_photo_url ?? null;
+      if (own) return own;
+    } else {
+      const { rows: otherRows } = await pool.query(
+        `SELECT source_photo_url FROM daily_production
+          WHERE farm_code = $1 AND date = $2 AND deleted_at IS NULL AND source_photo_url IS NOT NULL
+          LIMIT 1`,
+        [farmCode, lookupDate]
+      );
+      if (otherRows[0]?.source_photo_url) return otherRows[0].source_photo_url as string;
+    }
     const { rows: benchmarkPhotoRows } = await pool.query(
       `SELECT photo_url FROM reader_benchmark_photos WHERE farm_code = $1 AND date = $2`,
-      [farmCode, date]
+      [farmCode, lookupDate]
     );
-    photoUrl = (benchmarkPhotoRows[0]?.photo_url as string | undefined) ?? null;
+    return (benchmarkPhotoRows[0]?.photo_url as string | undefined) ?? null;
   }
+
+  const photoUrl = await findPhotoUrlFor(photoDateUsed);
   if (!photoUrl) {
     throw new Error(
-      `${date} has no stored photo — use "Add a photo for the benchmark" on the list page first.`
+      `${photoDateUsed} has no stored photo — use "Add a photo for the benchmark" on the list page first.`
     );
   }
 
   const photoResponse = await fetch(photoUrl);
   if (!photoResponse.ok) {
-    throw new Error(`Couldn't download the stored photo for ${date} (HTTP ${photoResponse.status}).`);
+    throw new Error(`Couldn't download the stored photo for ${photoDateUsed} (HTTP ${photoResponse.status}).`);
   }
   const rawPhotoBuffer = Buffer.from(await photoResponse.arrayBuffer());
   const contentType = photoResponse.headers.get("content-type") || "image/jpeg";
 
-  // Owner report, 2026-10-19 (Aug 8 benchmark): done ONCE, before anything
-  // else sees the photo, so the detection call and the actual crop always
-  // agree on orientation — see autoOrient.ts.
+  // Owner report, 2026-10-19: done ONCE, before anything else sees the
+  // photo, so every subsequent step agrees on orientation — see
+  // autoOrient.ts.
   const photoBuffer = await autoOrientPhoto(rawPhotoBuffer);
 
-  // One orientation/region call, one set of crops — reused by every region
-  // kind below, so this never pays for a second whole-page vision call.
-  const layout = await detectOrientationAndRegions(photoBuffer.toString("base64"), contentType);
-  const { crops, fullPage } = await rotateAndCropRegions(photoBuffer, layout);
-  const cropByKind = new Map<string, CroppedRegion>(crops.map((c) => [c.kind, c]));
+  const orientation = await detectPageOrientation(photoBuffer.toString("base64"), contentType);
+  const fullPage = await rotateUpright(photoBuffer, orientation.rotationDegrees);
+  const split = await splitPageIntoHalves(Buffer.from(fullPage.base64, "base64"));
 
-  const tableBlocks = await extractTableBlocksFromCrops(cropByKind, fullPage);
+  const [leftExtraction, rightExtraction] = await Promise.all([
+    extractPageHalf(split.left.base64, split.left.mediaType, "left"),
+    extractPageHalf(split.right.base64, split.right.mediaType, "right"),
+  ]);
+  const extractionBySide: Record<HalfSide, typeof leftExtraction> = { left: leftExtraction, right: rightExtraction };
+  const imageBySide: Record<HalfSide, { base64: string; mediaType: "image/jpeg" }> = {
+    left: { base64: split.left.base64, mediaType: split.left.mediaType },
+    right: { base64: split.right.base64, mediaType: split.right.mediaType },
+  };
+
+  const halves: HalfPageSource[] = [
+    { side: "left", extraction: leftExtraction, imageBase64: split.left.base64, mediaType: "image/jpeg" },
+    { side: "right", extraction: rightExtraction, imageBase64: split.right.base64, mediaType: "image/jpeg" },
+  ];
+  const tableBlocks = await mergeTableBlocksFromHalves(halves);
   const activeLabels = await getActiveLabels(pool, farmCode, date);
 
   // Ground truth for margin notes: every real movement this farm recorded
@@ -623,9 +665,12 @@ export async function runBenchmarkForDate(
     }
   }
 
+  const SECTION_TO_SIDE: Record<EggStockSection, HalfSide> = { small: "left", big: "right" };
   const ledgers: LedgerComparison[] = [];
   const ledgerRetryRounds = {} as Record<EggStockSection, number>;
   const oldLedgerComparisons: Record<LedgerField, FieldComparison>[] = [];
+  const retryDebugImages: DebugRetryImage[] = [];
+
   for (const dbLedger of ledgerDbRows) {
     const section = dbLedger.section as EggStockSection;
 
@@ -657,9 +702,9 @@ export async function runBenchmarkForDate(
       closing_balance_eggs: fieldComparison(dbLedger.closing_balance_eggs, oldLedgerRaw?.closing_balance_eggs ?? null),
     });
 
-    const regionKind = Object.entries(EGG_LEDGER_REGION_KINDS).find(([, s]) => s === section)?.[0];
-    const crop = regionKind ? cropByKind.get(regionKind) : undefined;
-    if (!crop) {
+    const side = SECTION_TO_SIDE[section];
+    let v2Ledger = extractionBySide[side].ledger;
+    if (!v2Ledger) {
       ledgers.push({
         section,
         fields: {
@@ -669,21 +714,26 @@ export async function runBenchmarkForDate(
           closing_balance_eggs: fieldComparison(dbLedger.closing_balance_eggs, null),
         },
         deductions: [],
-        note: `The reader didn't detect a ${section} egg ledger region on this photo.`,
+        note: `The reader didn't find a ${section === "big" ? "big" : "small"} egg ledger on the ${side} half of this photo.`,
         stillFailingChecks: [],
         crossDayNote,
       });
       continue;
     }
 
-    let v2Ledger = await extractEggLedgerRegion(crop.base64, crop.mediaType, section);
     let ledgerRetries = 0;
     let finalFindings = checkEggLedgerArithmetic(v2Ledger);
     for (; ledgerRetries < MAX_LEDGER_FEED_RETRIES; ledgerRetries++) {
       if (finalFindings.length === 0) break;
-      const hint = finalFindings.map((f) => f.message).join("; ") + ".";
-      v2Ledger = await extractEggLedgerRegion(crop.base64, crop.mediaType, section, { confusionHint: hint });
+      const hint =
+        finalFindings.map((f) => f.message).join("; ") +
+        `. You're looking at the WHOLE ${side} half of the page, not just the ledger — focus only on the ${section === "big" ? "big" : "small"} egg-stock ledger.`;
+      v2Ledger = await extractEggLedgerRegion(imageBySide[side].base64, imageBySide[side].mediaType, section, { confusionHint: hint });
       finalFindings = checkEggLedgerArithmetic(v2Ledger);
+      retryDebugImages.push({
+        label: `${section} ledger retry round ${ledgerRetries + 1}`,
+        base64: await safeDownscale(imageBySide[side].base64),
+      });
     }
     ledgerRetryRounds[section] = ledgerRetries;
     const expectedDeductions = ledgerDeductionsBySummaryId.get(dbLedger.id) ?? [];
@@ -749,6 +799,11 @@ export async function runBenchmarkForDate(
     if (groupLabel === "ALL") return boxes.length === 1 ? boxes[0] : null;
     return boxes.find((b) => b.flock_group === groupLabel) ?? null;
   }
+  // Feed boxes are read only from the LEFT half's schema (see
+  // pageHalfRegion.ts's header comment: this register's convention has
+  // both boxes physically on the left page, regardless of which table
+  // each one's flocks belong to).
+  const v2FeedBoxes = leftExtraction.feedBoxes;
   for (const dbFeed of feedDbRows) {
     const groupLabel = dbFeed.flock_group as FeedBoxGroupLabel;
 
@@ -763,8 +818,10 @@ export async function runBenchmarkForDate(
       shed_inventory_bags: fieldComparison(dbFeed.shed_inventory_bags, oldFeedRaw?.shed_inventory_bags ?? null),
     });
 
-    const regionKind = Object.entries(FEED_BOX_REGION_KINDS).find(([, g]) => g === groupLabel)?.[0];
-    const crop = regionKind ? cropByKind.get(regionKind) : undefined;
+    const matching =
+      groupLabel === "ALL"
+        ? v2FeedBoxes.length === 1 ? v2FeedBoxes[0] : null
+        : v2FeedBoxes.find((b) => b.coverage === groupLabel) ?? null;
     const emptyFields = (): Record<FeedBoxField, FieldComparison> => ({
       opening_balance_bags: fieldComparison(dbFeed.opening_balance_bags, null),
       produced_bags: fieldComparison(dbFeed.produced_bags, null),
@@ -774,24 +831,30 @@ export async function runBenchmarkForDate(
       mill_inventory_bags: fieldComparison(dbFeed.mill_inventory_bags, null),
       shed_inventory_bags: fieldComparison(dbFeed.shed_inventory_bags, null),
     });
-    if (!crop) {
+    if (!matching) {
       feedBoxes.push({
         groupLabel,
         fields: emptyFields(),
-        note: `The reader didn't detect a feed box region matching "${groupLabel}" on this photo.`,
+        note: `The reader didn't find a feed box matching "${groupLabel}" on the left half of this photo.`,
         stillFailingChecks: [],
       });
       continue;
     }
 
-    let v2Feed = await extractFeedBoxRegion(crop.base64, crop.mediaType, groupLabel);
+    let v2Feed = matching;
     let feedRetries = 0;
     let finalFeedFindings = checkFeedBoxArithmetic(v2Feed);
     for (; feedRetries < MAX_LEDGER_FEED_RETRIES; feedRetries++) {
       if (finalFeedFindings.length === 0) break;
-      const hint = finalFeedFindings.map((f) => f.message).join("; ") + ".";
-      v2Feed = await extractFeedBoxRegion(crop.base64, crop.mediaType, groupLabel, { confusionHint: hint });
+      const hint =
+        finalFeedFindings.map((f) => f.message).join("; ") +
+        `. You're looking at the WHOLE left half of the page, not just one feed box — focus only on the box covering ${groupLabel}.`;
+      v2Feed = { ...(await extractFeedBoxRegion(imageBySide.left.base64, imageBySide.left.mediaType, groupLabel, { confusionHint: hint })), coverage: groupLabel };
       finalFeedFindings = checkFeedBoxArithmetic(v2Feed);
+      retryDebugImages.push({
+        label: `${groupLabel} feed box retry round ${feedRetries + 1}`,
+        base64: await safeDownscale(imageBySide.left.base64),
+      });
     }
     feedBoxRetryRounds[groupLabel] = feedRetries;
     feedBoxes.push({
@@ -826,17 +889,19 @@ export async function runBenchmarkForDate(
     [farmCode, date]
   );
   let chickRows: ChickRowsResult;
-  const chickCrop = cropByKind.get("chick_rows");
+  // Chick rows are expected on the RIGHT half by this register's layout,
+  // but fall back to the left half's own report in case a day's layout
+  // genuinely differs — never force a wrong side.
+  const v2Chick = rightExtraction.chickRows ?? leftExtraction.chickRows;
   if (chickDbRows.length === 0) {
     chickRows = { rows: [], unmatchedExtracted: [], note: "No saved chick-row data for this date." };
-  } else if (!chickCrop) {
+  } else if (!v2Chick) {
     chickRows = {
       rows: chickDbRows.map((r) => ({ label: r.label_as_written, expectedDeaths: r.deaths, actualDeaths: null, match: false })),
       unmatchedExtracted: [],
-      note: "The reader didn't detect a chick-rows region on this photo.",
+      note: "The reader didn't find a chick-rows block on either half of this photo.",
     };
   } else {
-    const v2Chick = await extractChickRowsRegion(chickCrop.base64, chickCrop.mediaType);
     const usedActual = new Set<number>();
     const chickComparisons: ChickRowComparison[] = chickDbRows.map((dbRow) => {
       const dbToken = firstNumberToken(dbRow.label_as_written);
@@ -859,31 +924,26 @@ export async function runBenchmarkForDate(
     chickRows = { rows: chickComparisons, unmatchedExtracted, note: v2Chick.region_notes };
   }
 
-  // ---- Debug images (owner request, 2026-10-19) ----
+  // ---- Debug images (owner request, 2026-10-19, revised 2026-10-21) ----
   // These are diagnostic extras, never load-bearing for the benchmark's
-  // actual accuracy numbers — a failure here (owner report, 2026-10-21:
-  // a real large photo once threw during this step) must degrade to a
-  // "debug picture unavailable" note, never fail the whole page.
-  let fullPageWithBoxes: string | null = null;
+  // actual accuracy numbers — any failure here degrades to "debug picture
+  // unavailable" rather than failing the whole page.
+  let fullPageWithSpine: string | null = null;
   let debugImagesUnavailableNote: string | null = null;
   try {
-    fullPageWithBoxes = (await drawRegionBoxes(fullPage.base64, layout.regions)).base64;
+    fullPageWithSpine = (await drawSpineLine(fullPage.base64, split.spineX)).base64;
   } catch (err) {
     debugImagesUnavailableNote = `Full-page debug image unavailable: ${err instanceof Error ? err.message : String(err)}`;
   }
-  const debugCrops: DebugCropImage[] = await Promise.all(
-    crops.map(async (c) => {
+  const debugHalves: DebugHalfImage[] = await Promise.all(
+    (["left", "right"] as const).map(async (side) => {
       try {
-        return {
-          kind: c.kind,
-          base64: await downscaleForDisplay(c.base64),
-          isWholePageFallback: tableBlocks.fellBackToFullPage.includes(c.kind),
-        };
+        return { side, base64: await downscaleForDisplay(imageBySide[side].base64) };
       } catch (err) {
         if (!debugImagesUnavailableNote) {
-          debugImagesUnavailableNote = `Some crop debug images unavailable: ${err instanceof Error ? err.message : String(err)}`;
+          debugImagesUnavailableNote = `Some half-page debug images unavailable: ${err instanceof Error ? err.message : String(err)}`;
         }
-        return { kind: c.kind, base64: null, isWholePageFallback: tableBlocks.fellBackToFullPage.includes(c.kind) };
+        return { side, base64: null };
       }
     })
   );
@@ -917,12 +977,13 @@ export async function runBenchmarkForDate(
 
   return {
     date,
+    photoDateUsed,
     photoUrl,
-    v2DateRead: layout.date,
-    v2PageNotes: tableBlocks.regionNotes.join(" ") || null,
+    v2DateRead: orientation.date,
+    dateMismatch: orientation.date !== null && orientation.date !== date,
+    v2PageNotes: [orientation.pageNotes, ...tableBlocks.regionNotes].filter((n): n is string => !!n).join(" ") || null,
     retryRoundsRun: tableBlocks.retryRoundsRun,
     retriedLabels: tableBlocks.retriedLabels,
-    fellBackToFullPage: tableBlocks.fellBackToFullPage,
     rows,
     unmatchedExtractedLabels,
     missingFromExtraction,
@@ -938,8 +999,23 @@ export async function runBenchmarkForDate(
     feedBoxRetryRounds,
     chickRows,
     oldReader,
-    debugImages: { fullPageWithBoxes, crops: debugCrops, unavailableNote: debugImagesUnavailableNote },
+    debugImages: {
+      fullPageWithSpine,
+      spineX: split.spineX,
+      spineConfidence: split.spineConfidence,
+      halves: debugHalves,
+      retries: retryDebugImages,
+      unavailableNote: debugImagesUnavailableNote,
+    },
   };
+}
+
+async function safeDownscale(base64: string): Promise<string | null> {
+  try {
+    return await downscaleForDisplay(base64);
+  } catch {
+    return null;
+  }
 }
 
 export { COMPARED_FIELDS, FIELD_LABELS, SUBTOTAL_FIELDS, LEDGER_FIELDS, FEED_BOX_FIELDS };

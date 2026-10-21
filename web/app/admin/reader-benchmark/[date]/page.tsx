@@ -100,7 +100,7 @@ export default async function ReaderBenchmarkDatePage({
   searchParams,
 }: {
   params: Promise<{ date: string }>;
-  searchParams: Promise<{ key?: string }>;
+  searchParams: Promise<{ key?: string; photoDate?: string }>;
 }) {
   const { date } = await params;
   const sp = await searchParams;
@@ -118,7 +118,7 @@ export default async function ReaderBenchmarkDatePage({
 
   let result: BenchmarkResult;
   try {
-    result = await runBenchmarkForDate(date);
+    result = await runBenchmarkForDate(date, undefined, sp.photoDate);
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
     return (
@@ -139,17 +139,40 @@ export default async function ReaderBenchmarkDatePage({
         <Link href={backHref}>&larr; Back to date list</Link>
       </p>
 
+      {result.dateMismatch && (
+        <div className="error-banner">
+          <strong>
+            This photo looks like {result.v2DateRead}, not {date}.
+          </strong>{" "}
+          {result.photoDateUsed === date ? (
+            <>
+              It&apos;s currently filed under {date}, but the reader thinks it&apos;s actually from{" "}
+              {result.v2DateRead}.{" "}
+              {result.v2DateRead && (
+                <Link
+                  className="btn"
+                  href={`/admin/reader-benchmark/${result.v2DateRead}?key=${encodeURIComponent(sp.key ?? "")}&photoDate=${encodeURIComponent(date)}`}
+                >
+                  Compare against {result.v2DateRead} instead
+                </Link>
+              )}
+            </>
+          ) : (
+            <>This run is already comparing the photo filed under {result.photoDateUsed} against {date}&apos;s saved data, and the reader still reads a different date from the photo — double check both dates by eye.</>
+          )}
+        </div>
+      )}
+
       <div className="card">
         <p>
           Photo: <a href={result.photoUrl} target="_blank" rel="noreferrer">view</a>
+          {result.photoDateUsed !== date && (
+            <span className="muted"> (filed under {result.photoDateUsed}, compared here against {date}&apos;s saved data)</span>
+          )}
         </p>
         <p>
           New reader read the date as{" "}
-          <strong>{result.v2DateRead ?? "(illegible)"}</strong>
-          {result.v2DateRead !== date && (
-            <span className="muted"> — this page is saved under {date}</span>
-          )}
-          .
+          <strong>{result.v2DateRead ?? "(illegible)"}</strong>.
         </p>
         <p>
           Checksum-guided retry rounds run (flock tables): <strong>{result.retryRoundsRun}</strong>
@@ -157,35 +180,34 @@ export default async function ReaderBenchmarkDatePage({
             <span> (re-asked about: {result.retriedLabels.join(", ")})</span>
           )}
         </p>
-        {result.fellBackToFullPage.length > 0 && (
-          <p>
-            <strong>Fell back to reading the whole page</strong> for:{" "}
-            {result.fellBackToFullPage.join(", ")} — the detected region for this/these looked too small
-            to trust (see the debug images below).
-          </p>
-        )}
+        <p className="muted" style={{ margin: 0 }}>
+          Page split: {result.debugImages.spineConfidence === "detected"
+            ? `spine detected at pixel column ${result.debugImages.spineX}`
+            : `no clear spine found — split down the exact middle instead (column ${result.debugImages.spineX})`}
+          .
+        </p>
         {result.v2PageNotes && <p className="muted">Page notes: {result.v2PageNotes}</p>}
       </div>
 
       <h2>What the model actually saw</h2>
       <p className="muted">
-        The whole upright page with every detected region box drawn on it, and every individual crop sent
-        to its own vision call. If a reading looks wrong, check here first — a bad box or a sideways crop
-        explains itself immediately; a bad NUMBER on an otherwise-correct crop is a different kind of
-        problem.
+        The whole upright page with the detected spine line drawn on it, and each half exactly as sent to
+        its own vision call, plus any crop sent for a checksum-guided retry. If a reading looks wrong,
+        check here first — a wrong split or an unexpectedly empty half explains itself immediately; a bad
+        NUMBER on an otherwise-correct half is a different kind of problem.
       </p>
       {result.debugImages.unavailableNote && (
         <p className="card muted">{result.debugImages.unavailableNote}</p>
       )}
       <div className="card">
         <p className="muted" style={{ margin: 0 }}>
-          Whole page, boxes drawn (color = region kind):
+          Whole page, spine line drawn:
         </p>
-        {result.debugImages.fullPageWithBoxes ? (
+        {result.debugImages.fullPageWithSpine ? (
           // eslint-disable-next-line @next/next/no-img-element -- base64 debug image, never a static asset
           <img
-            src={`data:image/jpeg;base64,${result.debugImages.fullPageWithBoxes}`}
-            alt="Upright page with detected region boxes"
+            src={`data:image/jpeg;base64,${result.debugImages.fullPageWithSpine}`}
+            alt="Upright page with detected spine line"
             style={{ maxWidth: "100%", height: "auto", border: "1px solid var(--line)", borderRadius: 8 }}
           />
         ) : (
@@ -194,21 +216,16 @@ export default async function ReaderBenchmarkDatePage({
       </div>
       <div className="table-wrap" style={{ padding: "0.8rem" }}>
         <div style={{ display: "flex", flexWrap: "wrap", gap: "0.8rem" }}>
-          {result.debugImages.crops.map((c) => (
-            <div key={c.kind} style={{ maxWidth: 320 }}>
+          {result.debugImages.halves.map((h) => (
+            <div key={h.side} style={{ maxWidth: 420 }}>
               <p className="muted" style={{ margin: "0 0 0.3rem" }}>
-                {c.kind}
-                {c.isWholePageFallback && (
-                  <span className="badge badge-flagged" style={{ marginLeft: 6 }}>
-                    whole-page fallback
-                  </span>
-                )}
+                {h.side} half (sent to its own vision call)
               </p>
-              {c.base64 ? (
+              {h.base64 ? (
                 // eslint-disable-next-line @next/next/no-img-element -- base64 debug image, never a static asset
                 <img
-                  src={`data:image/jpeg;base64,${c.base64}`}
-                  alt={`Crop sent for ${c.kind}`}
+                  src={`data:image/jpeg;base64,${h.base64}`}
+                  alt={`${h.side} half sent to the reader`}
                   style={{ maxWidth: "100%", height: "auto", border: "1px solid var(--line)", borderRadius: 8 }}
                 />
               ) : (
@@ -218,6 +235,31 @@ export default async function ReaderBenchmarkDatePage({
           ))}
         </div>
       </div>
+      {result.debugImages.retries.length > 0 && (
+        <div className="table-wrap" style={{ padding: "0.8rem" }}>
+          <p className="muted" style={{ margin: "0 0 0.3rem" }}>
+            Checksum-guided retries (ledger/feed box) — same half-page image resent with a hint about what
+            didn&apos;t add up:
+          </p>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "0.8rem" }}>
+            {result.debugImages.retries.map((r, i) => (
+              <div key={i} style={{ maxWidth: 420 }}>
+                <p className="muted" style={{ margin: "0 0 0.3rem" }}>{r.label}</p>
+                {r.base64 ? (
+                  // eslint-disable-next-line @next/next/no-img-element -- base64 debug image, never a static asset
+                  <img
+                    src={`data:image/jpeg;base64,${r.base64}`}
+                    alt={r.label}
+                    style={{ maxWidth: "100%", height: "auto", border: "1px solid var(--line)", borderRadius: 8 }}
+                  />
+                ) : (
+                  <p className="muted">debug picture unavailable</p>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <h2>New reader vs. old reader (same photo, same ground truth)</h2>
       {result.oldReader.error ? (

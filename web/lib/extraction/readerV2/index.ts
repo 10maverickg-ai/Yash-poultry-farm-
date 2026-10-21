@@ -2,21 +2,28 @@ import { ExtractionRejected, type ExtractedFlockRow, type ExtractionResult } fro
 import { dedupeByNormalizedLabel } from "../flockMatch";
 import { checkPageChecksums, type Section, type SectionFlock, type SectionSubtotal } from "../pageChecksum";
 import { autoOrientPhoto } from "./autoOrient";
-import { detectOrientationAndRegions } from "./orientationAndRegions";
-import { rotateAndCropRegions, recropForRetry, type CroppedRegion, type FullPageImage } from "./crop";
-import { extractDailyProductionRegion, type RegionFlockRow } from "./dailyProductionRegion";
+import { detectPageOrientation } from "./pageOrientation";
+import { rotateUpright, recropForRetry } from "./crop";
+import { splitPageIntoHalves } from "./pageSplit";
+import { extractPageHalf, type HalfSide, type PageHalfExtraction } from "./pageHalfRegion";
+import { extractDailyProductionRegion } from "./dailyProductionRegion";
 import type { NormalizedBox } from "./types";
 
-// Reader rebuild orchestrator — Daily Production side only (the first
-// increment; the egg ledger/feed box and chick-rows crops are follow-up
-// work, not wired in here yet). Produces the EXACT SAME `ExtractionResult`
-// shape app/upload/actions.ts already knows how to save through
-// pipeline.ts, writeDailyProduction.ts, etc. — none of that downstream code
-// changes. Only HOW the extraction happens is different: orientation +
-// region detection, then one full-resolution vision call per cropped flock
-// table (+ its own subtotal), then up to 3 rounds of checksum-guided,
-// zoomed-crop retries on whichever specific flock a page checksum
-// implicates — never a blind re-ask of the whole page.
+// Reader rebuild orchestrator — Daily Production side only (the egg
+// ledger/feed box/chick-rows extraction this same half-page call also
+// returns is a benchmark-only extension so far; see benchmark.ts). Revised
+// 2026-10-21 (owner report — Aug 3 photo filed under Aug 8, every
+// model-drawn region box wrong): the page-layout call no longer guesses
+// bounding boxes at all. Instead the photo is rotated upright, split at
+// its physical spine into two full-resolution halves by pageSplit.ts
+// (pure image math, no model guessing), and each half is read in full by
+// ONE call (pageHalfRegion.ts). Checksum-guided retries still zoom into a
+// single flock's own row — just from the half image now, not a
+// region crop.
+//
+// Produces the EXACT SAME `ExtractionResult` shape app/upload/actions.ts
+// already knows how to save through pipeline.ts, writeDailyProduction.ts,
+// etc. — none of that downstream code changes.
 //
 // Gated entirely behind READER_V2_ENABLED (app/upload/actions.ts) — the
 // existing single-call reader (dailyProduction.ts) stays the production
@@ -25,14 +32,45 @@ import type { NormalizedBox } from "./types";
 
 const MAX_RETRY_ROUNDS = 3;
 
-const TABLE_REGION_KINDS = [
-  ["main_table_block", "main"],
-  ["continuation_table_block", "continuation"],
-] as const satisfies readonly [string, Section][];
+// Which physical half of the page carries which table role — a stable
+// fact about THIS register's layout, confirmed by the owner twice
+// (2026-10-19's master prompt, and the 2026-10-21 Aug 3 debug report: "the
+// feed boxes are on the TOP of the LEFT page... right page: flock table
+// with labels in the column next to the spine"). This is a page-geometry
+// fact, never a flock label or count — every label, row, and box is still
+// read directly off each half, never hard-coded.
+const SIDE_TO_SECTION: Record<HalfSide, Section> = { left: "continuation", right: "main" };
 
 interface WorkingFlock extends ExtractedFlockRow {
-  rowBox: NormalizedBox;
+  rowBox: NormalizedBox; // relative to the HALF image named by `side`
   ambiguousDigits: string | null;
+  side: HalfSide;
+}
+
+// Structural shape shared by both HalfFlockRow (pageHalfRegion.ts, the
+// first pass) and RegionFlockRow (dailyProductionRegion.ts, the retry
+// call) — intentionally identical field-for-field, so a retry's result
+// converts the same way the first pass's did, with no cast needed.
+interface FlockLikeRow {
+  display_label_as_written: string;
+  mortality: number | null;
+  feed_bags: number | null;
+  eggs_total: number | null;
+  eggs_ii: number | null;
+  bird_population: number | null;
+  bird_population_readings: (number | null)[];
+  hd_percent: number | null;
+  margin_note: string | null;
+  confidence: {
+    display_label: number;
+    mortality: number;
+    feed_bags: number;
+    eggs_total: number;
+    bird_population: number;
+    hd_percent: number;
+  };
+  ambiguous_digits: string | null;
+  row_box: NormalizedBox;
 }
 
 export interface ReaderV2Result {
@@ -45,7 +83,7 @@ export interface ReaderV2Result {
   retriedLabels: string[];
 }
 
-function regionFlockToWorking(f: RegionFlockRow, section: Section): WorkingFlock {
+function halfFlockToWorking(f: FlockLikeRow, section: Section, side: HalfSide): WorkingFlock {
   return {
     display_label_as_written: f.display_label_as_written,
     section,
@@ -60,6 +98,7 @@ function regionFlockToWorking(f: RegionFlockRow, section: Section): WorkingFlock
     confidence: f.confidence,
     rowBox: f.row_box,
     ambiguousDigits: f.ambiguous_digits,
+    side,
   };
 }
 
@@ -81,75 +120,42 @@ function isSectionSubtotal(s: SectionSubtotal | null): s is SectionSubtotal {
 
 const CONFUSION_PAIRS_TEXT = "3↔8, 1↔7, 1↔4, 9↔0, 5↔6, 2↔7, 9↔4";
 
-// Owner report, 2026-10-19 (Aug 8 benchmark): a table-block region whose
-// detected box covers only a sliver of the page is a sign the detection
-// call misjudged it, not a real, tightly-cropped table — a genuine flock
-// table block (up to 10 rows plus its subtotal) always occupies a
-// substantial share of its half of the page. Below this fraction of the
-// full upright page's area, the crop is treated as untrustworthy and the
-// WHOLE page is sent to that table's own extraction call instead — never
-// silently kept and misread.
-const MIN_TABLE_AREA_FRACTION = 0.08;
-
 export interface TableBlocksResult {
   flocks: ExtractedFlockRow[];
   subtotals: Record<Section, SectionSubtotal | null>;
   regionNotes: string[];
   retryRoundsRun: number;
   retriedLabels: string[];
-  // Which table kinds fell back to the whole page because their own
-  // detected box looked too small — surfaced so the benchmark page (and
-  // Vercel logs) can show this without guessing.
-  fellBackToFullPage: string[];
 }
 
-interface UsedCrop {
-  base64: string;
+export interface HalfPageSource {
+  side: HalfSide;
+  extraction: PageHalfExtraction;
+  // The half-page image itself, kept only so a checksum-guided retry can
+  // zoom into one flock's own row_box without re-fetching anything.
+  imageBase64: string;
   mediaType: "image/jpeg";
 }
 
-// The core of the Daily-Production side of the reader rebuild — every
-// flock-table crop present, read, then checksum-guided-retried — factored
-// out of extractDailyProductionV2 below so the benchmark page's own
-// full-page orchestration (lib/extraction/readerV2/benchmark.ts) can reuse
-// it against crops it already has, rather than paying for a second
-// orientation/region-detection call just to get back to this same step.
-export async function extractTableBlocksFromCrops(
-  cropByKind: Map<string, CroppedRegion>,
-  fullPage: FullPageImage
-): Promise<TableBlocksResult> {
+// The flock-table merge + checksum-guided retry logic, shared between the
+// real upload path (extractDailyProductionV2 below) and the benchmark
+// page, which runs its own two half-page extractions and just wants the
+// same merge+retry behavior applied to them (so it never pays for a
+// second pair of half-page vision calls just to get back to this step).
+export async function mergeTableBlocksFromHalves(halves: HalfPageSource[]): Promise<TableBlocksResult> {
   let flocks: WorkingFlock[] = [];
   const subtotals: Record<Section, SectionSubtotal | null> = { main: null, continuation: null };
   const regionNotes: string[] = [];
-  const fellBackToFullPage: string[] = [];
-  // Whichever image was ACTUALLY sent to the model for each table kind —
-  // the small region crop normally, or the whole page when that crop
-  // looked too small to trust. A retry below MUST zoom from the same
-  // image a flock's own row_box was reported relative to, never the
-  // original (possibly bad) crop if a fallback happened.
-  const usedCropByKind = new Map<string, UsedCrop>();
+  const imageBySide = new Map<HalfSide, { base64: string; mediaType: "image/jpeg" }>();
 
-  for (const [kind, section] of TABLE_REGION_KINDS) {
-    const crop = cropByKind.get(kind);
-    if (!crop) continue; // this page genuinely has no continuation table — never forced
-
-    const areaFraction = fullPage.width > 0 && fullPage.height > 0
-      ? (crop.width / fullPage.width) * (crop.height / fullPage.height)
-      : 1;
-    let used: UsedCrop = crop;
-    if (areaFraction < MIN_TABLE_AREA_FRACTION) {
-      fellBackToFullPage.push(kind);
-      regionNotes.push(
-        `${kind}'s detected region covered only ${Math.round(areaFraction * 100)}% of the page — too small to trust, so this table was read from the whole page instead.`
-      );
-      used = fullPage;
-    }
-    usedCropByKind.set(kind, used);
-
-    const result = await extractDailyProductionRegion(used.base64, used.mediaType, section);
-    if (result.region_notes) regionNotes.push(result.region_notes);
-    if (result.subtotal) subtotals[section] = result.subtotal;
-    flocks = flocks.concat(result.flocks.map((f) => regionFlockToWorking(f, section)));
+  for (const half of halves) {
+    imageBySide.set(half.side, { base64: half.imageBase64, mediaType: half.mediaType });
+    const section = SIDE_TO_SECTION[half.side];
+    const table = half.extraction.table;
+    if (!table) continue;
+    if (table.region_notes) regionNotes.push(table.region_notes);
+    if (table.subtotal) subtotals[section] = { section, ...table.subtotal };
+    flocks = flocks.concat(table.flocks.map((f) => halfFlockToWorking(f, section, half.side)));
   }
 
   const retriedLabels: string[] = [];
@@ -169,11 +175,14 @@ export async function extractTableBlocksFromCrops(
       const idx = flocks.findIndex((f) => f.display_label_as_written === label);
       if (idx === -1) continue;
       const flock = flocks[idx];
-      const kind = flock.section === "main" ? "main_table_block" : "continuation_table_block";
-      const used = usedCropByKind.get(kind);
-      if (!used) continue;
+      const image = imageBySide.get(flock.side);
+      if (!image) continue;
 
-      const zoomed = await recropForRetry(used.base64, flock.rowBox, 1400);
+      // Same mechanism as before this rewrite: zoom into exactly this
+      // flock's own row (never a blind re-ask of the whole half), reusing
+      // the proven single-row extraction prompt — a tight, zoomed crop is
+      // exactly the shape that prompt already expects.
+      const zoomed = await recropForRetry(image.base64, flock.rowBox, 1400);
       const hint = `${finding.field} for ${label}: ${finding.message}. Likely digit confusions in this handwriting: ${CONFUSION_PAIRS_TEXT}.`;
       const retryResult = await extractDailyProductionRegion(zoomed.base64, zoomed.mediaType, flock.section, {
         confusionHint: hint,
@@ -181,7 +190,7 @@ export async function extractTableBlocksFromCrops(
       const retried = retryResult.flocks.find((f) => f.display_label_as_written === label) ?? retryResult.flocks[0];
       if (!retried) continue;
 
-      const updated = regionFlockToWorking(retried, flock.section);
+      const updated = halfFlockToWorking(retried, flock.section, flock.side);
       // Only accept the retry's answer if it actually changed something —
       // an identical re-read isn't a new candidate, and re-looping on it
       // for 3 rounds burns retries for nothing.
@@ -195,48 +204,56 @@ export async function extractTableBlocksFromCrops(
     if (!madeAnyChange) break; // nothing new to try — stop instead of burning remaining rounds
   }
 
-  const extractedFlocks: ExtractedFlockRow[] = flocks.map(({ rowBox, ambiguousDigits, ...rest }) => {
+  const extractedFlocks: ExtractedFlockRow[] = flocks.map(({ rowBox, ambiguousDigits, side, ...rest }) => {
     void rowBox;
     void ambiguousDigits;
+    void side;
     return rest;
   });
 
-  return { flocks: extractedFlocks, subtotals, regionNotes, retryRoundsRun, retriedLabels, fellBackToFullPage };
+  return { flocks: extractedFlocks, subtotals, regionNotes, retryRoundsRun, retriedLabels };
 }
 
 export async function extractDailyProductionV2(
   photoBuffer: Buffer,
   photoMediaType: string
 ): Promise<ReaderV2Result> {
-  // Owner report, 2026-10-19 (Aug 8 benchmark): done ONCE, before anything
-  // else sees the photo, so the detection call and the actual crop always
-  // agree on orientation — see autoOrient.ts's own header comment for the
-  // full reasoning. sharp preserves the original container format here
-  // (no explicit .jpeg()/.png() call), so photoMediaType still correctly
-  // describes these bytes.
+  // Owner report, 2026-10-19: done ONCE, before anything else sees the
+  // photo, so every subsequent step agrees on orientation — see
+  // autoOrient.ts's own header comment. sharp preserves the original
+  // container format here (no explicit .jpeg()/.png() call), so
+  // photoMediaType still correctly describes these bytes.
   const oriented = await autoOrientPhoto(photoBuffer);
+  const orientation = await detectPageOrientation(oriented.toString("base64"), photoMediaType);
+  const fullPage = await rotateUpright(oriented, orientation.rotationDegrees);
+  const split = await splitPageIntoHalves(Buffer.from(fullPage.base64, "base64"));
 
-  const photoBase64 = oriented.toString("base64");
-  const layout = await detectOrientationAndRegions(photoBase64, photoMediaType);
+  const [leftExtraction, rightExtraction] = await Promise.all([
+    extractPageHalf(split.left.base64, split.left.mediaType, "left"),
+    extractPageHalf(split.right.base64, split.right.mediaType, "right"),
+  ]);
 
-  const tableRegionKinds = new Set<string>(TABLE_REGION_KINDS.map(([kind]) => kind));
-  if (!layout.regions.some((r) => tableRegionKinds.has(r.kind))) {
-    throw new Error("The page-layout call didn't find any flock table on this photo.");
+  if (!leftExtraction.table && !rightExtraction.table) {
+    throw new Error("Neither half of this photo's page found a flock table.");
   }
 
-  const { crops, fullPage } = await rotateAndCropRegions(oriented, layout);
-  const cropByKind = new Map<string, CroppedRegion>(crops.map((c) => [c.kind, c]));
+  const halves: HalfPageSource[] = [
+    { side: "left", extraction: leftExtraction, imageBase64: split.left.base64, mediaType: "image/jpeg" },
+    { side: "right", extraction: rightExtraction, imageBase64: split.right.base64, mediaType: "image/jpeg" },
+  ];
 
-  const { flocks, subtotals, regionNotes, retryRoundsRun, retriedLabels } =
-    await extractTableBlocksFromCrops(cropByKind, fullPage);
-  const sectionsFound = TABLE_REGION_KINDS.filter(([kind]) => cropByKind.has(kind)).length;
+  const { flocks, subtotals, regionNotes, retryRoundsRun, retriedLabels } = await mergeTableBlocksFromHalves(halves);
+  const sectionsFound = [leftExtraction.table, rightExtraction.table].filter((t) => t !== null).length;
 
   const extraction: ExtractionResult = {
-    date: layout.date,
-    date_confidence: layout.dateConfidence,
+    date: orientation.date,
+    date_confidence: orientation.dateConfidence,
     flocks,
     section_subtotals: [subtotals.main, subtotals.continuation].filter(isSectionSubtotal),
-    page_notes: [layout.pageNotes, ...regionNotes].filter((n): n is string => !!n).join(" ") || null,
+    page_notes:
+      [orientation.pageNotes, leftExtraction.half_notes, rightExtraction.half_notes, ...regionNotes]
+        .filter((n): n is string => !!n)
+        .join(" ") || null,
     sections_found: sectionsFound,
   };
 
@@ -250,7 +267,7 @@ export async function extractDailyProductionV2(
 // for this farm. Reuses the SAME ExtractionRejected class the old reader
 // throws, so app/upload/actions.ts's existing catch (never attempts to
 // save a rejected extraction) handles both readers identically. Unlike the
-// old reader, there's no separate "stricter retry" here — each region call
+// old reader, there's no separate "stricter retry" here — each half call
 // already caps at 15 flocks on its own, and the checksum-guided retry loop
 // above already re-asks about specific rows; a second whole-page attempt
 // would not address a runaway-count failure differently.

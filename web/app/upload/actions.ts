@@ -205,8 +205,9 @@ export async function uploadAndExtractDailyProduction(
           );
           return { extraction: safe.extraction, flocks: safe.flocks };
         } catch (err) {
-          // Owner report, 2026-10-19: sharp (readerV2's own region-cropping)
-          // failed to load on a Vercel preview with a native dlopen error —
+          // Owner report, 2026-10-19: sharp (readerV2's own image rotation
+          // and page-splitting) failed to load on a Vercel preview with a
+          // native dlopen error —
           // a real upload must NEVER 500 just because the reader switch is
           // on and this one dependency couldn't load in this deployment.
           // Fall back to the proven old reader instead; this is the only
