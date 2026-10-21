@@ -1,0 +1,557 @@
+{
+ "_about": "Read-only export of SAVED (owner-verified) values from the Supabase project via the read-only connector, 2026-10-21. Used by the offline benchmark runner instead of DATABASE_URL.",
+ "dates": [
+  "2026-08-03",
+  "2026-08-08"
+ ],
+ "photos": {
+  "2026-08-03": "https://yqdszmnpixmlxrjwckre.supabase.co/storage/v1/object/public/register-photos/production/2026-08-03/1790590741712-39aaa8d7.jpg",
+  "2026-08-08": "https://yqdszmnpixmlxrjwckre.supabase.co/storage/v1/object/public/register-photos/benchmark/2026-08-08/1792563745689-5bad1e57.jpg"
+ },
+ "production": [
+  {
+   "date": "2026-08-03",
+   "display_label_as_written": "BAB-1",
+   "flock_internal_id": "37c6025d-fafd-455f-bfc9-24adcaadf522",
+   "mortality": 6,
+   "feed_bags": 17,
+   "eggs_total": 6150,
+   "bird_population": 8582,
+   "hd_percent_written": 71.6,
+   "flagged": false,
+   "flag_reason": null
+  },
+  {
+   "date": "2026-08-03",
+   "display_label_as_written": "BAB-2",
+   "flock_internal_id": "1aa49f29-795e-4983-864a-16265a5cfa21",
+   "mortality": 6,
+   "feed_bags": 29,
+   "eggs_total": 11640,
+   "bird_population": 15584,
+   "hd_percent_written": 74.6,
+   "flagged": false,
+   "flag_reason": null
+  },
+  {
+   "date": "2026-08-03",
+   "display_label_as_written": "BAB-3",
+   "flock_internal_id": "6143e3aa-3578-44ae-9b9b-0a4b7089bca2",
+   "mortality": 3,
+   "feed_bags": 15,
+   "eggs_total": 5160,
+   "bird_population": 6394,
+   "hd_percent_written": 80.7,
+   "flagged": false,
+   "flag_reason": null
+  },
+  {
+   "date": "2026-08-03",
+   "display_label_as_written": "BAB-4",
+   "flock_internal_id": "8f89e196-ddb5-4749-85fc-62c94941d234",
+   "mortality": 5,
+   "feed_bags": 14,
+   "eggs_total": 6000,
+   "bird_population": 7402,
+   "hd_percent_written": 81.1,
+   "flagged": false,
+   "flag_reason": null
+  },
+  {
+   "date": "2026-08-03",
+   "display_label_as_written": "BAB-5",
+   "flock_internal_id": "d6b2f7b4-6821-4e6a-8e22-3709f6944eb2",
+   "mortality": 4,
+   "feed_bags": 22,
+   "eggs_total": 9240,
+   "bird_population": 10921,
+   "hd_percent_written": 84.6,
+   "flagged": false,
+   "flag_reason": null
+  },
+  {
+   "date": "2026-08-03",
+   "display_label_as_written": "BAB-6",
+   "flock_internal_id": "5cccebde-31c1-43b0-936c-11feac54b986",
+   "mortality": 4,
+   "feed_bags": 20,
+   "eggs_total": 7200,
+   "bird_population": 9696,
+   "hd_percent_written": 74.2,
+   "flagged": false,
+   "flag_reason": null
+  },
+  {
+   "date": "2026-08-03",
+   "display_label_as_written": "BAB-7",
+   "flock_internal_id": "0d0bedaf-f96a-49fa-ac15-d711483d700f",
+   "mortality": 3,
+   "feed_bags": 25,
+   "eggs_total": 10680,
+   "bird_population": 12629,
+   "hd_percent_written": 84.5,
+   "flagged": false,
+   "flag_reason": null
+  },
+  {
+   "date": "2026-08-03",
+   "display_label_as_written": "BAB-8",
+   "flock_internal_id": "884acd2a-9f56-427e-aefe-ef62cd333552",
+   "mortality": 10,
+   "feed_bags": 23,
+   "eggs_total": 6960,
+   "bird_population": 9787,
+   "hd_percent_written": 71.1,
+   "flagged": false,
+   "flag_reason": null
+  },
+  {
+   "date": "2026-08-03",
+   "display_label_as_written": "BAB-9",
+   "flock_internal_id": "a5ad04ae-0b5b-4a7b-aa55-4f334394c625",
+   "mortality": 4,
+   "feed_bags": 10,
+   "eggs_total": 3150,
+   "bird_population": 4414,
+   "hd_percent_written": 71.3,
+   "flagged": false,
+   "flag_reason": null
+  },
+  {
+   "date": "2026-08-03",
+   "display_label_as_written": "BAB-10",
+   "flock_internal_id": "dbeedf0e-76e4-4986-ab0a-2051f459a022",
+   "mortality": 1,
+   "feed_bags": 15,
+   "eggs_total": 4380,
+   "bird_population": 6326,
+   "hd_percent_written": 69.2,
+   "flagged": false,
+   "flag_reason": null
+  },
+  {
+   "date": "2026-08-08",
+   "display_label_as_written": "BAB-1",
+   "flock_internal_id": "37c6025d-fafd-455f-bfc9-24adcaadf522",
+   "mortality": 6,
+   "feed_bags": 20,
+   "eggs_total": 5730,
+   "bird_population": 8559,
+   "hd_percent_written": 67.1,
+   "flagged": false,
+   "flag_reason": null
+  },
+  {
+   "date": "2026-08-08",
+   "display_label_as_written": "BAB-2",
+   "flock_internal_id": "1aa49f29-795e-4983-864a-16265a5cfa21",
+   "mortality": 6,
+   "feed_bags": 32,
+   "eggs_total": 11370,
+   "bird_population": 15551,
+   "hd_percent_written": 73.1,
+   "flagged": false,
+   "flag_reason": null
+  },
+  {
+   "date": "2026-08-08",
+   "display_label_as_written": "BAB-3",
+   "flock_internal_id": "6143e3aa-3578-44ae-9b9b-0a4b7089bca2",
+   "mortality": 1,
+   "feed_bags": 15,
+   "eggs_total": 5100,
+   "bird_population": 6382,
+   "hd_percent_written": 80.1,
+   "flagged": false,
+   "flag_reason": null
+  },
+  {
+   "date": "2026-08-08",
+   "display_label_as_written": "BAB-4",
+   "flock_internal_id": "8f89e196-ddb5-4749-85fc-62c94941d234",
+   "mortality": 3,
+   "feed_bags": 15,
+   "eggs_total": 5730,
+   "bird_population": 7387,
+   "hd_percent_written": 77.5,
+   "flagged": false,
+   "flag_reason": null
+  },
+  {
+   "date": "2026-08-08",
+   "display_label_as_written": "BAB-5",
+   "flock_internal_id": "d6b2f7b4-6821-4e6a-8e22-3709f6944eb2",
+   "mortality": 3,
+   "feed_bags": 24,
+   "eggs_total": 8310,
+   "bird_population": 10416,
+   "hd_percent_written": 79.7,
+   "flagged": false,
+   "flag_reason": null
+  },
+  {
+   "date": "2026-08-08",
+   "display_label_as_written": "BAB-6",
+   "flock_internal_id": "5cccebde-31c1-43b0-936c-11feac54b986",
+   "mortality": 4,
+   "feed_bags": 25,
+   "eggs_total": 7440,
+   "bird_population": 10156,
+   "hd_percent_written": 73.2,
+   "flagged": false,
+   "flag_reason": null
+  },
+  {
+   "date": "2026-08-08",
+   "display_label_as_written": "BAB-7",
+   "flock_internal_id": "0d0bedaf-f96a-49fa-ac15-d711483d700f",
+   "mortality": 5,
+   "feed_bags": 30,
+   "eggs_total": 10380,
+   "bird_population": 12604,
+   "hd_percent_written": 82.3,
+   "flagged": false,
+   "flag_reason": null
+  },
+  {
+   "date": "2026-08-08",
+   "display_label_as_written": "BAB-8",
+   "flock_internal_id": "884acd2a-9f56-427e-aefe-ef62cd333552",
+   "mortality": 17,
+   "feed_bags": 24,
+   "eggs_total": 6750,
+   "bird_population": 9742,
+   "hd_percent_written": 69.2,
+   "flagged": false,
+   "flag_reason": null
+  },
+  {
+   "date": "2026-08-08",
+   "display_label_as_written": "BAB-9",
+   "flock_internal_id": "a5ad04ae-0b5b-4a7b-aa55-4f334394c625",
+   "mortality": 0,
+   "feed_bags": 10,
+   "eggs_total": 3210,
+   "bird_population": 4408,
+   "hd_percent_written": 72.8,
+   "flagged": false,
+   "flag_reason": null
+  },
+  {
+   "date": "2026-08-08",
+   "display_label_as_written": "BAB-10",
+   "flock_internal_id": "dbeedf0e-76e4-4986-ab0a-2051f459a022",
+   "mortality": 1,
+   "feed_bags": 15,
+   "eggs_total": 4320,
+   "bird_population": 6316,
+   "hd_percent_written": 68.3,
+   "flagged": false,
+   "flag_reason": null
+  }
+ ],
+ "ledgers": [
+  {
+   "date": "2026-08-03",
+   "section": "big",
+   "opening_balance_eggs": 185550,
+   "total_eggs_produced": 56070,
+   "total_line_eggs": 241620,
+   "closing_balance_eggs": 23340,
+   "deductions": [
+    {
+     "seq": 1,
+     "label": "Sale",
+     "amount": -216300
+    },
+    {
+     "seq": 2,
+     "label": "Breakage",
+     "amount": -1980
+    }
+   ]
+  },
+  {
+   "date": "2026-08-03",
+   "section": "small",
+   "opening_balance_eggs": 1290,
+   "total_eggs_produced": 14490,
+   "total_line_eggs": 15780,
+   "closing_balance_eggs": 15780,
+   "deductions": []
+  },
+  {
+   "date": "2026-08-08",
+   "section": "big",
+   "opening_balance_eggs": 242640,
+   "total_eggs_produced": 54060,
+   "total_line_eggs": 296700,
+   "closing_balance_eggs": 163590,
+   "deductions": [
+    {
+     "seq": 1,
+     "label": "Sale",
+     "amount": -132510
+    },
+    {
+     "seq": 2,
+     "label": "Breakage",
+     "amount": -600
+    }
+   ]
+  },
+  {
+   "date": "2026-08-08",
+   "section": "small",
+   "opening_balance_eggs": 31530,
+   "total_eggs_produced": 14280,
+   "total_line_eggs": 45810,
+   "closing_balance_eggs": 45720,
+   "deductions": [
+    {
+     "seq": 1,
+     "label": "Local",
+     "amount": -90
+    }
+   ]
+  }
+ ],
+ "feed": [
+  {
+   "date": "2026-08-03",
+   "flock_group": "BAB-1-7",
+   "opening_balance_bags": 109,
+   "produced_bags": 132,
+   "total_bags": 241,
+   "closing_balance_bags": 99,
+   "consumed_bags": 142,
+   "mill_inventory_bags": 65,
+   "shed_inventory_bags": 34
+  },
+  {
+   "date": "2026-08-03",
+   "flock_group": "BAB-8-10",
+   "opening_balance_bags": 62,
+   "produced_bags": 44,
+   "total_bags": 106,
+   "closing_balance_bags": 58,
+   "consumed_bags": 48,
+   "mill_inventory_bags": 41,
+   "shed_inventory_bags": 17
+  },
+  {
+   "date": "2026-08-08",
+   "flock_group": "BAB-1-7",
+   "opening_balance_bags": 146,
+   "produced_bags": 132,
+   "total_bags": 278,
+   "closing_balance_bags": 117,
+   "consumed_bags": 161,
+   "mill_inventory_bags": 79,
+   "shed_inventory_bags": 38
+  },
+  {
+   "date": "2026-08-08",
+   "flock_group": "BAB-8-10",
+   "opening_balance_bags": 71,
+   "produced_bags": 44,
+   "total_bags": 115,
+   "closing_balance_bags": 66,
+   "consumed_bags": 49,
+   "mill_inventory_bags": 58,
+   "shed_inventory_bags": 8
+  }
+ ],
+ "chick": [],
+ "movements": [],
+ "labels": [
+  {
+   "display_label": "BAB-1",
+   "flock_internal_id": "37c6025d-fafd-455f-bfc9-24adcaadf522"
+  },
+  {
+   "display_label": "BAB-10",
+   "flock_internal_id": "dbeedf0e-76e4-4986-ab0a-2051f459a022"
+  },
+  {
+   "display_label": "BAB-2",
+   "flock_internal_id": "1aa49f29-795e-4983-864a-16265a5cfa21"
+  },
+  {
+   "display_label": "BAB-3",
+   "flock_internal_id": "6143e3aa-3578-44ae-9b9b-0a4b7089bca2"
+  },
+  {
+   "display_label": "BAB-4",
+   "flock_internal_id": "8f89e196-ddb5-4749-85fc-62c94941d234"
+  },
+  {
+   "display_label": "BAB-5",
+   "flock_internal_id": "d6b2f7b4-6821-4e6a-8e22-3709f6944eb2"
+  },
+  {
+   "display_label": "BAB-6",
+   "flock_internal_id": "5cccebde-31c1-43b0-936c-11feac54b986"
+  },
+  {
+   "display_label": "BAB-7",
+   "flock_internal_id": "0d0bedaf-f96a-49fa-ac15-d711483d700f"
+  },
+  {
+   "display_label": "BAB-8",
+   "flock_internal_id": "884acd2a-9f56-427e-aefe-ef62cd333552"
+  },
+  {
+   "display_label": "BAB-9",
+   "flock_internal_id": "a5ad04ae-0b5b-4a7b-aa55-4f334394c625"
+  }
+ ],
+ "context": {
+  "production": [
+   {
+    "date": "2026-08-02",
+    "label": "BAB-1",
+    "bird_population": 8588
+   },
+   {
+    "date": "2026-08-02",
+    "label": "BAB-2",
+    "bird_population": 15590
+   },
+   {
+    "date": "2026-08-02",
+    "label": "BAB-3",
+    "bird_population": 6397
+   },
+   {
+    "date": "2026-08-02",
+    "label": "BAB-4",
+    "bird_population": 7407
+   },
+   {
+    "date": "2026-08-02",
+    "label": "BAB-5",
+    "bird_population": 10925
+   },
+   {
+    "date": "2026-08-02",
+    "label": "BAB-6",
+    "bird_population": 9700
+   },
+   {
+    "date": "2026-08-02",
+    "label": "BAB-7",
+    "bird_population": 12632
+   },
+   {
+    "date": "2026-08-02",
+    "label": "BAB-8",
+    "bird_population": 9797
+   },
+   {
+    "date": "2026-08-02",
+    "label": "BAB-9",
+    "bird_population": 4418
+   },
+   {
+    "date": "2026-08-02",
+    "label": "BAB-10",
+    "bird_population": 6327
+   },
+   {
+    "date": "2026-08-07",
+    "label": "BAB-1",
+    "bird_population": 8565
+   },
+   {
+    "date": "2026-08-07",
+    "label": "BAB-2",
+    "bird_population": 15557
+   },
+   {
+    "date": "2026-08-07",
+    "label": "BAB-3",
+    "bird_population": 6383
+   },
+   {
+    "date": "2026-08-07",
+    "label": "BAB-4",
+    "bird_population": 7390
+   },
+   {
+    "date": "2026-08-07",
+    "label": "BAB-5",
+    "bird_population": 10419
+   },
+   {
+    "date": "2026-08-07",
+    "label": "BAB-6",
+    "bird_population": 10160
+   },
+   {
+    "date": "2026-08-07",
+    "label": "BAB-7",
+    "bird_population": 12609
+   },
+   {
+    "date": "2026-08-07",
+    "label": "BAB-8",
+    "bird_population": 9759
+   },
+   {
+    "date": "2026-08-07",
+    "label": "BAB-9",
+    "bird_population": 4408
+   },
+   {
+    "date": "2026-08-07",
+    "label": "BAB-10",
+    "bird_population": 6317
+   }
+  ],
+  "ledger_closing": [
+   {
+    "date": "2026-08-02",
+    "section": "big",
+    "closing_balance_eggs": 185550
+   },
+   {
+    "date": "2026-08-02",
+    "section": "small",
+    "closing_balance_eggs": 1290
+   },
+   {
+    "date": "2026-08-07",
+    "section": "big",
+    "closing_balance_eggs": 242640
+   },
+   {
+    "date": "2026-08-07",
+    "section": "small",
+    "closing_balance_eggs": 31530
+   }
+  ],
+  "feed_closing": [
+   {
+    "date": "2026-08-02",
+    "flock_group": "BAB-1-7",
+    "closing_balance_bags": 109
+   },
+   {
+    "date": "2026-08-02",
+    "flock_group": "BAB-8-10",
+    "closing_balance_bags": 62
+   },
+   {
+    "date": "2026-08-07",
+    "flock_group": "BAB-1-7",
+    "closing_balance_bags": 146
+   },
+   {
+    "date": "2026-08-07",
+    "flock_group": "BAB-8-10",
+    "closing_balance_bags": 71
+   }
+  ]
+ }
+}

@@ -202,12 +202,12 @@ const LEDGER_SCHEMA = {
           type: ["string", "null"],
           description: "Anything worth the owner knowing about this ledger specifically, or null.",
         },
-        opening_balance_eggs: { type: ["number", "null"], description: "The ledger's 'OB' figure — the opening balance." },
-        total_eggs_produced: { type: ["number", "null"], description: "The ledger's '(+)' production figure for the day — NOT the total line below it." },
+        opening_balance_eggs: { type: ["number", "null"], description: "The number written next to the ledger's \"(+)\" sign — on this register that number IS the opening balance (there is usually no \"OB\" label on the egg ledger)." },
+        total_eggs_produced: { type: ["number", "null"], description: "The day's produced figure = the SUBTOTAL row's 'Total' (egg count) figure directly above the ledger (the same figure as the table's subtotal). It is not written inside the ledger itself; read it from the subtotal row." },
         total_line_eggs: { type: ["number", "null"], description: "The ledger's own written 'total' line (opening + production, as written — do not calculate it yourself, read exactly what's written)." },
         deductions: {
           type: "array",
-          description: "Every deduction line below the total, top to bottom, in order. A day may have none, one, or several. Omit entirely (empty array) if there are none.",
+          description: "Every deduction line — each one written with a \"(−)\" sign and a label — below the total, top to bottom. A bare unlabelled number between two deductions is a RUNNING REMAINDER (total minus the deductions so far), never a deduction. A day may have none, one, or several; use an empty array if there are none.",
           items: {
             type: "object",
             properties: {
@@ -358,19 +358,23 @@ Never force an item into existence just because it is usually here — if a tabl
 
 const TABLE_INSTRUCTIONS = `FLOCK TABLE (if one is on this half): columns "Mort, Feed | I | II | Total | Bal Bird | %". Each flock block may span one or two written lines (see bird_population_readings). Eggs is written in exactly TWO places per flock — "II" and "Total" — read them independently; the "I" column is always a dash, never a number.
 
-SUBTOTAL ROW: directly beneath the last flock, if visible. A genuine subtotal row always has a Bal Bird figure AND a "%" figure alongside its eggs figure — the same shape as a flock's own row. A stock-ledger line below it (running totals, "(+) N", tray counts) has just one bare number and nothing else; never read that as the subtotal.
+SUBTOTAL ROW: directly beneath the last flock, if visible. It has no flock label; its Mort and Feed cells are the sums for the section (e.g. "31 | 142"), followed by the egg Total, the Bal Bird sum and the section's %. A genuine subtotal row always has a Bal Bird figure AND a "%" figure alongside its eggs figure — the same shape as a flock's own row. A stock-ledger line below it (running totals, "(+) N", tray counts) has just one bare number and nothing else; never read that as the subtotal.
 
 For EVERY flock, also report row_box — that flock's own row location WITHIN THIS HALF IMAGE, normalized 0.0-1.0. And ambiguous_digits — ONLY when a digit genuinely looked uncertain, describe the specific confusion (e.g. "3 or 8").
 
 Digit confusions to watch for in this handwriting specifically: 3 vs 8, 1 vs 7, 1 vs 4, 9 vs 0, 5 vs 6, 2 vs 7, 9 vs 4. Eggs on this farm are always whole trays of 30 — if a total isn't a multiple of 30, look again before finalizing it.`;
 
-const LEDGER_INSTRUCTIONS = `EGG STOCK LEDGER (if one is on this half): reads top to bottom — an opening balance ("OB"), a "(+)" production figure, a written TOTAL line (do not calculate this — read exactly what's written, even if it looks like it doesn't add up), then a VARIABLE number of deduction lines (a day may have none, one, or several), then a closing balance, then the closing figure in trays (closing ÷ 30 — do NOT read this tray count into closing_balance_eggs, it's a different, smaller number).
+const LEDGER_INSTRUCTIONS = `EGG STOCK LEDGER (if one is on this half): there is one directly under each flock table's subtotal row (the big one under the BAB-1..7 table, a small one under the BAB-8..10 table). Quirk of this register — read it exactly like this:
+  1. The number written next to the "(+)" sign IS THE OPENING BALANCE (opening_balance_eggs). There is normally no "OB" label.
+  2. "Produced" is the day's SUBTOTAL: the "Total" (egg count) figure of the flock table's subtotal row directly above the ledger. Report that figure as total_eggs_produced.
+  3. The written TOTAL line below "(+)" is opening + produced (read exactly what's written, never calculate it).
+  4. Then the deduction lines, each a "(−)" with a label (e.g. Sale, Breakage, Local, Lab). A bare unlabelled number between deductions is the running remainder after the deductions so far — skip it, it is not a deduction.
+  5. Then the closing balance (= total minus every deduction), then a smaller tray count (closing ÷ 30) — never read the tray count as the closing balance.
+The small ledger follows the same pattern but usually has no deduction or only a tiny one (e.g. 90 eggs), so its closing equals or is just below its total.
 
-Deduction lines: each has a label and a quantity. Read the label EXACTLY as written. The quantity is always written as a positive number even though it's a deduction.
+Eggs on this farm are ALWAYS counted in whole trays of 30 — every real figure in the ledger is a multiple of 30. If a number you're about to write isn't, look again before finalizing it — it's very likely a misread digit. Do NOT look for a sale price anywhere in this ledger.`;
 
-Eggs on this farm are ALWAYS counted in whole trays of 30 — every real figure in this ledger is a multiple of 30. If a number you're about to write isn't a multiple of 30, look again before finalizing it — it's very likely a misread digit. Do NOT look for a sale price anywhere in this ledger.`;
-
-const FEED_BOX_INSTRUCTIONS = `FEED BAG BOX(ES): there may be one or two on this half. Each one reads top to bottom: "OB =" (opening balance in bags), "(+)" (bags received from the mill that day), a written total line (OB + the "(+)" figure, as written — do not calculate it), a "(-)" line (the CLOSING balance currently in stock — this is written as a figure to be SUBTRACTED from the total, do not treat it as the consumption figure itself), then the consumption figure itself (total minus the "(-)" line, as written), then "F =" (bags still at the feed mill) and "S =" (bags already moved to the shed) underneath. Bags are NOT trays-of-30 — do not apply that rule here. Read which group each box covers (coverage) from the box's own label.`;
+const FEED_BOX_INSTRUCTIONS = `FEED BAG BOXES: two hand-drawn boxes sit SIDE BY SIDE near the top of the page that also carries the shorter (BAB-8..10) flock table — the left box covers BAB-1..7 and the right box covers BAB-8..10 (identify each by what it contains; the labels are often missing). Each box is ONE column that reads top to bottom: "OB =" (opening balance in bags), "(+)" (bags received from the mill that day), a written total line (OB + the "(+)" figure, as written — do not calculate it), a "(-)" line (the CLOSING balance in stock — written as a figure to be SUBTRACTED from the total, not the consumption), then the consumption figure itself (total minus the "(-)" line, as written), and — lower down, after some blank lines, still in the same column — "F =" (bags still at the feed mill), "S =" (bags already moved to the shed) and their sum (= the closing balance). The F/S lines belong to the SAME box as the OB/(+) lines above them in that column: never report them as a separate box. Report each box once, left to right. The consumption figure must equal the sum of the Feed column of the flocks that box covers — use that to sanity-check what you read. Bags are NOT trays-of-30 — do not apply that rule here.`;
 
 const CHICK_INSTRUCTIONS = `CHICK ROWS (if visible on this half): a small block, usually listing one or more "N Chick" rows (e.g. "1 Chick", "2 Chick") each with its own daily mortality/deaths figure. Occasionally a third row appears for chicks sourced from Anil farm.`;
 

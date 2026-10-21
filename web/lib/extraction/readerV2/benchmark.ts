@@ -2,26 +2,32 @@ import { pool } from "../../db";
 import { ACTIVE_FARM } from "../../farm";
 import { extractDailyProductionSafely, type ExtractedFlockRow } from "../dailyProduction";
 import { extractLedgerAndFeed, type LedgerFeedExtractionResult } from "../ledgerFeedExtraction";
-import { getActiveLabels, matchFlockLabel, type ActiveLabel } from "../flockMatch";
+import { matchFlockLabel, type ActiveLabel } from "../flockMatch";
 import { BAL_BIRD_TOLERANCE, type Section, type SectionSubtotal } from "../pageChecksum";
 import { calcHd } from "../digitEvidence";
 import type { EggStockSection } from "../../eggstock-types";
 import { autoOrientPhoto } from "./autoOrient";
-import { readPageHalves, UNREADABLE_MESSAGE, type AttemptSummary } from "./halfPipeline";
+import { readPageHalves, UNREADABLE_MESSAGE, type AttemptSummary, type PipelineDeps } from "./halfPipeline";
 import type { LeftPageContent, Rotation, TextTop } from "./pageOrientation";
-import { mergeTableBlocksFromHalves, type HalfPageSource } from "./index";
 import type { HalfSide } from "./pageHalfRegion";
+import { pickChickRows, pickDate, type HalfResult } from "./contentMapping";
+import type { ExtractedEggLedgerRegion } from "./ledgerRegion";
+import type { ExtractedFeedBoxRegion, FeedBoxGroupLabel } from "./feedBoxRegion";
 import {
-  assignTableSections,
-  assignLedgerSections,
-  collectFeedBoxes,
-  pickChickRows,
-  pickDate,
-  type HalfResult,
-} from "./contentMapping";
-import { extractEggLedgerRegion } from "./ledgerRegion";
-import { extractFeedBoxRegion, type FeedBoxGroupLabel } from "./feedBoxRegion";
-import { checkEggLedgerArithmetic, checkFeedBoxArithmetic } from "./ledgerFeedChecksum";
+  buildRawPage,
+  runCorrectionStages,
+  type CellOutcome,
+  type CorrectionDeps,
+  type CorrectionReport,
+  type FeedBoxEntry,
+} from "./corrections";
+import {
+  dbSavedData,
+  type DbProductionRow,
+  type SavedDataSource,
+  type SavedFeedRow,
+  type SavedLedgerRow,
+} from "./savedData";
 import { drawSpineLine, downscaleForDisplay } from "./debugImage";
 
 // Reader rebuild benchmark (owner's "V4 build prompt", Phase 1; revised
@@ -96,6 +102,28 @@ export interface FieldComparison {
   expected: number | null;
   actual: number | null;
   match: boolean;
+  // What the reader's RAW output (before the correction stages) read for
+  // this same cell — present on the corrected result only.
+  raw?: { actual: number | null; match: boolean };
+}
+
+export interface Tally {
+  comparable: number;
+  correct: number;
+}
+
+// Everything scored for one variant of the reader's output (raw, or
+// after the correction stages). `overall` counts every compared cell —
+// flock fields, subtotal fields, ledger fields, ledger deductions and
+// feed-box fields — but not margin notes (reported on their own).
+export interface ScoreSummary {
+  flocks: Record<ComparedField, Tally>;
+  marginNotes: Tally;
+  subtotals: Record<SubtotalField, Tally>;
+  ledgers: Record<LedgerField, Tally>;
+  deductions: Tally;
+  feedBoxes: Record<FeedBoxField, Tally>;
+  overall: Tally;
 }
 
 function fieldComparison(expected: number | null, actual: number | null, tolerance = 0): FieldComparison {
@@ -135,22 +163,6 @@ const FIELD_LABELS: Record<ComparedField, string> = {
   bird_population: "Bal Bird",
   hd_percent: "%",
 };
-
-interface DbProductionRow {
-  display_label_as_written: string;
-  flock_internal_id: string;
-  mortality: number | null;
-  feed_bags: number | null;
-  eggs_total: number | null;
-  bird_population: number | null;
-  // numeric(5,2) — node-postgres returns this as a string, never a number,
-  // since no custom type parser is registered for it (lib/db.ts only
-  // parses DATE). Must go through Number() before any comparison.
-  hd_percent_written: string | null;
-  flagged: boolean;
-  flag_reason: string | null;
-  source_photo_url: string | null;
-}
 
 function dbValueFor(row: DbProductionRow, field: ComparedField): number | null {
   if (field === "hd_percent") return numOrNull(row.hd_percent_written);
@@ -337,6 +349,9 @@ export interface BenchmarkResult {
   // The date whose SAVED daily_production rows are being used as ground
   // truth (the route's own date).
   date: string;
+  // Shown at the top of the benchmark as "Comparing against saved data of
+  // <date>" (owner request, 2026-10-21).
+  savedDataDate: string;
   // The date whose STORED PHOTO was actually read — normally the same as
   // `date`, but can differ when comparing a misfiled photo against the
   // date it actually reads (see runBenchmarkForDate's photoDateOverride).
@@ -370,6 +385,16 @@ export interface BenchmarkResult {
   chickRows: ChickRowsResult;
 
   oldReader: OldReaderComparison;
+  // Owner request, 2026-10-21: score BOTH the raw reader output and the
+  // output after the correction stages. The tables above show the
+  // corrected result (with each cell's raw reading attached as `raw`).
+  rawScores: ScoreSummary;
+  correctedScores: ScoreSummary;
+  correction: CorrectionReport;
+  // Cells still wrong after correction that were NOT flagged needs-review —
+  // the list the "loop until every cell is correct or flagged" rule drives
+  // to empty.
+  unflaggedWrong: string[];
   debugImages: DebugImages;
   rotation: RotationDebug;
   // Non-null when both halves stayed empty even after the 180° retry — the
@@ -506,16 +531,134 @@ function sectionSubtotalsFromArray(arr: SectionSubtotal[]): Record<Section, Sect
   };
 }
 
-// Owner request, 2026-10-19: the egg ledger and feed box now get the same
-// checksum-guided retry the flock tables already had — up to this many
-// rounds of "re-ask with a hint describing what didn't add up" before
-// accepting whatever the last attempt produced. Revised 2026-10-21: the
-// retry re-sends the WHOLE half-page image (the only image this stage has
-// — see this file's own notes below), not a further sub-crop; with no
-// real photo available to calibrate a tighter fixed-proportion crop
-// against, resending the whole half can never miss the target, at the
-// cost of a less-zoomed retry than a flock row-box retry gets.
-const MAX_LEDGER_FEED_RETRIES = 2;
+export interface BenchmarkOptions {
+  // Where the SAVED values come from. Defaults to the live database; the
+  // offline runner passes a JSON export instead (savedData.ts).
+  source?: SavedDataSource;
+  // Use this photo instead of downloading the saved photo URL.
+  photoBuffer?: Buffer;
+  photoContentType?: string;
+  // The old-reader side-by-side costs two more vision calls per photo.
+  skipOldReader?: boolean;
+  pipelineDeps?: PipelineDeps;
+  correctionDeps?: CorrectionDeps;
+}
+
+interface LedgerCells {
+  fields: Record<LedgerField, FieldComparison>;
+  deductions: DeductionComparison[];
+}
+
+function compareLedger(db: SavedLedgerRow, v2: ExtractedEggLedgerRegion | null): LedgerCells {
+  const fields = {
+    opening_balance_eggs: fieldComparison(db.opening_balance_eggs, v2?.opening_balance_eggs ?? null),
+    total_eggs_produced: fieldComparison(db.total_eggs_produced, v2?.total_eggs_produced ?? null),
+    total_line_eggs: fieldComparison(db.total_line_eggs, v2?.total_line_eggs ?? null),
+    closing_balance_eggs: fieldComparison(db.closing_balance_eggs, v2?.closing_balance_eggs ?? null),
+  };
+  const actualDeductions = v2?.deductions ?? [];
+  const maxLen = Math.max(db.deductions.length, actualDeductions.length);
+  const deductions: DeductionComparison[] = [];
+  for (let i = 0; i < maxLen; i++) {
+    const exp = db.deductions[i];
+    const act = actualDeductions[i];
+    const expAmount = exp ? Math.abs(exp.amount_eggs) : null; // stored signed (negative); magnitude is what's comparable
+    const actAmount = act ? act.amount_eggs : null;
+    deductions.push({
+      position: i + 1,
+      expectedLabel: exp?.label_as_written ?? null,
+      expectedAmount: expAmount,
+      actualLabel: act?.label_as_written ?? null,
+      actualAmount: actAmount,
+      match: expAmount !== null && actAmount !== null && expAmount === actAmount,
+    });
+  }
+  return { fields, deductions };
+}
+
+function compareFeed(db: SavedFeedRow, v2: ExtractedFeedBoxRegion | null): Record<FeedBoxField, FieldComparison> {
+  return {
+    opening_balance_bags: fieldComparison(db.opening_balance_bags, v2?.opening_balance_bags ?? null),
+    produced_bags: fieldComparison(db.produced_bags, v2?.produced_bags ?? null),
+    total_bags: fieldComparison(db.total_bags, v2?.total_bags ?? null),
+    closing_balance_bags: fieldComparison(db.closing_balance_bags, v2?.closing_balance_bags ?? null),
+    consumed_bags: fieldComparison(db.consumed_bags, v2?.consumed_bags ?? null),
+    mill_inventory_bags: fieldComparison(db.mill_inventory_bags, v2?.mill_inventory_bags ?? null),
+    shed_inventory_bags: fieldComparison(db.shed_inventory_bags, v2?.shed_inventory_bags ?? null),
+  };
+}
+
+function findFeedEntry(entries: FeedBoxEntry[], group: FeedBoxGroupLabel): FeedBoxEntry | null {
+  if (group === "ALL") return entries.length === 1 ? entries[0] : null;
+  return entries.find((e) => e.group === group) ?? null;
+}
+
+function tally<K extends string>(keys: readonly K[], items: Record<K, FieldComparison>[]): Record<K, Tally> {
+  const out = {} as Record<K, Tally>;
+  for (const k of keys) {
+    const comparable = items.filter((i) => i[k].expected !== null || i[k].actual !== null);
+    out[k] = { comparable: comparable.length, correct: comparable.filter((i) => i[k].match).length };
+  }
+  return out;
+}
+
+function sumTallies(...ts: Tally[]): Tally {
+  return ts.reduce((a, t) => ({ comparable: a.comparable + t.comparable, correct: a.correct + t.correct }), { comparable: 0, correct: 0 });
+}
+
+function buildScore(
+  flock: ReturnType<typeof compareFlockTables>,
+  ledgers: LedgerCells[],
+  feeds: Record<FeedBoxField, FieldComparison>[]
+): ScoreSummary {
+  const deductionItems = ledgers.flatMap((l) => l.deductions);
+  const deductions: Tally = { comparable: deductionItems.length, correct: deductionItems.filter((d) => d.match).length };
+  const ledgerTally = tally(LEDGER_FIELDS, ledgers.map((l) => l.fields));
+  const feedTally = tally(FEED_BOX_FIELDS, feeds);
+  return {
+    flocks: flock.summary,
+    marginNotes: flock.marginNoteSummary,
+    subtotals: flock.subtotalSummary,
+    ledgers: ledgerTally,
+    deductions,
+    feedBoxes: feedTally,
+    overall: sumTallies(
+      ...Object.values(flock.summary),
+      ...Object.values(flock.subtotalSummary),
+      ...Object.values(ledgerTally),
+      deductions,
+      ...Object.values(feedTally)
+    ),
+  };
+}
+
+// Which compared cells were flagged "needs review" by the correction stage.
+function flaggedCells(outcomes: CellOutcome[], flocks: { display_label_as_written: string; section: Section }[]) {
+  const keys = new Set<string>();
+  for (const o of outcomes) {
+    if (o.status !== "needs_review") continue;
+    if (o.item.endsWith(" table") && o.field.startsWith("sum:")) {
+      const section = o.item.startsWith("main") ? "main" : "continuation";
+      const key = o.field.slice(4);
+      if (key === "*") for (const f of SUBTOTAL_FIELDS) keys.add(`sub:${section}|${f}`);
+      const flockField: Record<string, ComparedField> = { eggs: "eggs_total", mortality: "mortality", feed_bags: "feed_bags" };
+      const subField: Record<string, SubtotalField> = { eggs: "eggs_total", mortality: "mortality", feed_bags: "feed_bags", bal_bird: "bird_population", hd_percent: "hd_percent" };
+      if (subField[key]) keys.add(`sub:${section}|${subField[key]}`);
+      if (flockField[key]) for (const f of flocks.filter((x) => x.section === section)) keys.add(`${f.display_label_as_written}|${flockField[key]}`);
+    } else if (o.item.startsWith("subtotal ")) {
+      const section = o.item.split(" ")[1];
+      const subField: Record<string, SubtotalField> = { eggs: "eggs_total", mortality: "mortality", feed_bags: "feed_bags", bal_bird: "bird_population", hd_percent: "hd_percent" };
+      keys.add(`sub:${section}|${subField[o.field] ?? o.field}`);
+    } else if (o.item.endsWith(" ledger")) {
+      keys.add(`ledger:${o.item.split(" ")[0]}|*`);
+    } else if (o.item.endsWith(" feed box")) {
+      keys.add(`feed:${o.item.split(" ")[0]}|*`);
+    } else {
+      keys.add(`${o.item}|${o.field}`);
+    }
+  }
+  return keys;
+}
 
 export async function runBenchmarkForDate(
   date: string,
@@ -524,55 +667,37 @@ export async function runBenchmarkForDate(
   // date instead" of the date a photo was mistakenly filed under. When
   // set, the STORED PHOTO is pulled from this date, but every comparison
   // still runs against `date`'s own saved rows.
-  photoDateOverride?: string
+  photoDateOverride?: string,
+  opts: BenchmarkOptions = {}
 ): Promise<BenchmarkResult> {
-  const { rows: dbRowsRaw } = await pool.query(
-    `SELECT display_label_as_written, flock_internal_id, mortality, feed_bags, eggs_total,
-            bird_population, hd_percent_written, flagged, flag_reason, source_photo_url
-       FROM daily_production
-      WHERE farm_code = $1 AND date = $2 AND deleted_at IS NULL`,
-    [farmCode, date]
-  );
-  const dbRows = dbRowsRaw as DbProductionRow[];
+  const source = opts.source ?? dbSavedData(pool, farmCode);
+  const dbRows = await source.production(date);
   if (dbRows.length === 0) {
     throw new Error(`No saved daily_production rows for ${date} — nothing to benchmark against.`);
   }
 
   const photoDateUsed = photoDateOverride ?? date;
-
-  async function findPhotoUrlFor(lookupDate: string): Promise<string | null> {
-    if (lookupDate === date) {
-      const own = dbRows.find((r) => r.source_photo_url)?.source_photo_url ?? null;
-      if (own) return own;
-    } else {
-      const { rows: otherRows } = await pool.query(
-        `SELECT source_photo_url FROM daily_production
-          WHERE farm_code = $1 AND date = $2 AND deleted_at IS NULL AND source_photo_url IS NOT NULL
-          LIMIT 1`,
-        [farmCode, lookupDate]
-      );
-      if (otherRows[0]?.source_photo_url) return otherRows[0].source_photo_url as string;
-    }
-    const { rows: benchmarkPhotoRows } = await pool.query(
-      `SELECT photo_url FROM reader_benchmark_photos WHERE farm_code = $1 AND date = $2`,
-      [farmCode, lookupDate]
-    );
-    return (benchmarkPhotoRows[0]?.photo_url as string | undefined) ?? null;
-  }
-
-  const photoUrl = await findPhotoUrlFor(photoDateUsed);
-  if (!photoUrl) {
+  let photoUrl: string | null = null;
+  if (photoDateUsed === date) photoUrl = dbRows.find((r) => r.source_photo_url)?.source_photo_url ?? null;
+  photoUrl = photoUrl ?? (await source.photoUrl(photoDateUsed));
+  if (!photoUrl && !opts.photoBuffer) {
     throw new Error(
       `${photoDateUsed} has no stored photo — use "Add a photo for the benchmark" on the list page first.`
     );
   }
 
-  const photoResponse = await fetch(photoUrl);
-  if (!photoResponse.ok) {
-    throw new Error(`Couldn't download the stored photo for ${photoDateUsed} (HTTP ${photoResponse.status}).`);
+  let rawPhotoBuffer: Buffer;
+  let contentType = opts.photoContentType ?? "image/jpeg";
+  if (opts.photoBuffer) {
+    rawPhotoBuffer = opts.photoBuffer;
+  } else {
+    const photoResponse = await fetch(photoUrl as string);
+    if (!photoResponse.ok) {
+      throw new Error(`Couldn't download the stored photo for ${photoDateUsed} (HTTP ${photoResponse.status}).`);
+    }
+    rawPhotoBuffer = Buffer.from(await photoResponse.arrayBuffer());
+    contentType = photoResponse.headers.get("content-type") || "image/jpeg";
   }
-  const rawPhotoBuffer = Buffer.from(await photoResponse.arrayBuffer());
-  const contentType = photoResponse.headers.get("content-type") || "image/jpeg";
 
   // Owner report, 2026-10-19: done ONCE, before anything else sees the
   // photo, so every subsequent step agrees on orientation — see
@@ -582,54 +707,57 @@ export async function runBenchmarkForDate(
   // Orientation (low-res vision call) -> upright -> split -> read both
   // halves -> self-check (retry 180° if a half is empty) — the same shared
   // front half the real upload path uses (halfPipeline.ts).
-  const read = await readPageHalves(photoBuffer);
+  const read = await readPageHalves(photoBuffer, opts.pipelineDeps);
   const { orientation, chosen } = read;
   const fullPage = chosen.fullPage;
   const split = chosen.split;
-  const leftExtraction = chosen.left;
-  const rightExtraction = chosen.right;
   const imageBySide: Record<HalfSide, { base64: string; mediaType: "image/jpeg" }> = {
     left: { base64: split.left.base64, mediaType: split.left.mediaType },
     right: { base64: split.right.base64, mediaType: split.right.mediaType },
   };
 
-  const halves: HalfPageSource[] = [
-    { side: "left", extraction: leftExtraction, imageBase64: split.left.base64, mediaType: "image/jpeg" },
-    { side: "right", extraction: rightExtraction, imageBase64: split.right.base64, mediaType: "image/jpeg" },
+  const halfResults: HalfResult[] = [
+    { side: "left", extraction: chosen.left },
+    { side: "right", extraction: chosen.right },
   ];
-  const halfResults: HalfResult[] = halves.map((h) => ({ side: h.side, extraction: h.extraction }));
-  const tableSectionBySide = assignTableSections(halfResults);
-  const ledgerBySection = assignLedgerSections(halfResults, tableSectionBySide);
-  const feedBoxesFound = collectFeedBoxes(halfResults);
   const pageDate = pickDate(halfResults);
-  const tableBlocks = await mergeTableBlocksFromHalves(halves);
-  const activeLabels = await getActiveLabels(pool, farmCode, date);
+  const activeLabels = await source.activeLabels(date);
+  const movementMagnitudeByFlock = await source.movementMagnitudes(date);
+  const previousDay = await source.previousDay(date);
 
-  // Ground truth for margin notes: every real movement this farm recorded
-  // for a flock on this date (any source — a margin note is the usual
-  // origin, but this is deliberately not scoped to just that source so a
-  // movement resolved to a different type still counts as "something was
-  // really there").
-  const { rows: movementRows } = await pool.query(
-    `SELECT flock_internal_id, sum(abs(birds_change))::int AS total_magnitude
-       FROM flock_movements
-      WHERE farm_code = $1 AND date = $2
-      GROUP BY flock_internal_id`,
-    [farmCode, date]
-  );
-  const movementMagnitudeByFlock = new Map<string, number>(
-    movementRows.map((r) => [r.flock_internal_id as string, Number(r.total_magnitude)])
-  );
+  // ---- RAW page, then the correction stages (owner request, 2026-10-21) ----
+  const rawPage = buildRawPage(halfResults);
+  const { corrected, report } = read.unreadable
+    ? { corrected: rawPage, report: { outcomes: [], rereadCalls: 0, warnings: [], log: [] } as CorrectionReport }
+    : await runCorrectionStages(
+        rawPage,
+        {
+          prevBird: previousDay.birdByLabel,
+          prevLedgerClosing: previousDay.ledgerClosing,
+          prevFeedClosing: previousDay.feedClosing as Partial<Record<FeedBoxGroupLabel, number | null>>,
+          images: imageBySide,
+        },
+        opts.correctionDeps
+      );
 
-  const {
-    rows,
-    unmatchedExtractedLabels,
-    missingFromExtraction,
-    summary,
-    marginNoteSummary,
-    subtotals,
-    subtotalSummary,
-  } = compareFlockTables(tableBlocks.flocks, tableBlocks.subtotals, dbRows, activeLabels, movementMagnitudeByFlock);
+  const rawFlockCompare = compareFlockTables(rawPage.flocks, rawPage.subtotals, dbRows, activeLabels, movementMagnitudeByFlock);
+  const flockCompare = compareFlockTables(corrected.flocks, corrected.subtotals, dbRows, activeLabels, movementMagnitudeByFlock);
+  const { rows, unmatchedExtractedLabels, missingFromExtraction, summary, marginNoteSummary, subtotals, subtotalSummary } = flockCompare;
+
+  // Attach each cell's RAW reading to the corrected table, so a corrected
+  // cell can show what it was before.
+  const rawRowByLabel = new Map(rawFlockCompare.rows.map((r) => [r.label, r]));
+  for (const row of rows) {
+    const rawRow = rawRowByLabel.get(row.label);
+    if (!rawRow) continue;
+    for (const field of COMPARED_FIELDS) row.fields[field].raw = { actual: rawRow.fields[field].actual, match: rawRow.fields[field].match };
+  }
+  const rawSubBySection = new Map(rawFlockCompare.subtotals.map((s) => [s.section, s]));
+  for (const sub of subtotals) {
+    const rawSub = rawSubBySection.get(sub.section);
+    if (!rawSub) continue;
+    for (const field of SUBTOTAL_FIELDS) sub.fields[field].raw = { actual: rawSub.fields[field].actual, match: rawSub.fields[field].match };
+  }
 
   // ---- Old reader, same photo, same ground truth — see OldReaderComparison's own doc comment ----
   let oldFlockPart: {
@@ -639,91 +767,57 @@ export async function runBenchmarkForDate(
     missingFromExtraction: string[];
     unmatchedExtractedLabels: string[];
   } | null = null;
-  let oldReaderError: string | null = null;
-  try {
-    const oldResult = await extractDailyProductionSafely(photoBuffer.toString("base64"), contentType, dbRows.length);
-    const oldCompared = compareFlockTables(
-      oldResult.flocks,
-      sectionSubtotalsFromArray(oldResult.extraction.section_subtotals ?? []),
-      dbRows,
-      activeLabels,
-      movementMagnitudeByFlock
-    );
-    oldFlockPart = {
-      summary: oldCompared.summary,
-      marginNoteSummary: oldCompared.marginNoteSummary,
-      subtotalSummary: oldCompared.subtotalSummary,
-      missingFromExtraction: oldCompared.missingFromExtraction,
-      unmatchedExtractedLabels: oldCompared.unmatchedExtractedLabels,
-    };
-  } catch (err) {
-    oldReaderError = err instanceof Error ? err.message : String(err);
-  }
-
-  // Owner request, 2026-10-19: extend old-vs-new to the ledger/feed box
-  // too. Best-effort and independent of the flock-table call above — same
-  // split the real upload flow itself uses (app/upload/actions.ts runs
-  // this as a separate step; a failure here never affects the flock-table
-  // result). Matched against ledgerDbRows/feedDbRows further down, once
-  // those are fetched.
+  let oldReaderError: string | null = opts.skipOldReader ? "Skipped for this run (it costs two more vision calls per photo)." : null;
   let oldLedgerFeed: LedgerFeedExtractionResult | null = null;
-  try {
-    oldLedgerFeed = await extractLedgerAndFeed(photoBuffer.toString("base64"), contentType);
-  } catch {
-    oldLedgerFeed = null; // reported per-section as "not available" below, not a hard error
-  }
-
-  // ---- Egg ledger ----
-  const { rows: ledgerDbRows } = await pool.query(
-    `SELECT id, section, opening_balance_eggs, total_eggs_produced, total_line_eggs, closing_balance_eggs
-       FROM daily_egg_stock_summary
-      WHERE farm_code = $1 AND date = $2 AND deleted_at IS NULL`,
-    [farmCode, date]
-  );
-  const ledgerDeductionsBySummaryId = new Map<number, { sequence_order: number; label_as_written: string; amount_eggs: number }[]>();
-  if (ledgerDbRows.length > 0) {
-    const { rows: deductionRows } = await pool.query(
-      `SELECT egg_stock_summary_id, sequence_order, label_as_written, amount_eggs
-         FROM daily_egg_stock_entries
-        WHERE egg_stock_summary_id = ANY($1)
-        ORDER BY egg_stock_summary_id, sequence_order`,
-      [ledgerDbRows.map((r) => r.id)]
-    );
-    for (const d of deductionRows) {
-      const list = ledgerDeductionsBySummaryId.get(d.egg_stock_summary_id) ?? [];
-      list.push(d);
-      ledgerDeductionsBySummaryId.set(d.egg_stock_summary_id, list);
+  if (!opts.skipOldReader) {
+    try {
+      const oldResult = await extractDailyProductionSafely(photoBuffer.toString("base64"), contentType, dbRows.length);
+      const oldCompared = compareFlockTables(
+        oldResult.flocks,
+        sectionSubtotalsFromArray(oldResult.extraction.section_subtotals ?? []),
+        dbRows,
+        activeLabels,
+        movementMagnitudeByFlock
+      );
+      oldFlockPart = {
+        summary: oldCompared.summary,
+        marginNoteSummary: oldCompared.marginNoteSummary,
+        subtotalSummary: oldCompared.subtotalSummary,
+        missingFromExtraction: oldCompared.missingFromExtraction,
+        unmatchedExtractedLabels: oldCompared.unmatchedExtractedLabels,
+      };
+    } catch (err) {
+      oldReaderError = err instanceof Error ? err.message : String(err);
+    }
+    try {
+      oldLedgerFeed = await extractLedgerAndFeed(photoBuffer.toString("base64"), contentType);
+    } catch {
+      oldLedgerFeed = null; // reported per-section as "not available" below, not a hard error
     }
   }
 
+  const outcomesFor = (item: string) => report.outcomes.filter((o) => o.item === item);
+  const reviewMessages = (item: string) => outcomesFor(item).filter((o) => o.status === "needs_review").map((o) => o.note);
+
+  // ---- Egg ledger ----
+  const ledgerDbRows = await source.ledgers(date);
   const ledgers: LedgerComparison[] = [];
   const ledgerRetryRounds = {} as Record<EggStockSection, number>;
   const oldLedgerComparisons: Record<LedgerField, FieldComparison>[] = [];
-  const retryDebugImages: DebugRetryImage[] = [];
+  const rawLedgerCells: LedgerCells[] = [];
+  const correctedLedgerCells: LedgerCells[] = [];
 
   for (const dbLedger of ledgerDbRows) {
-    const section = dbLedger.section as EggStockSection;
+    const section = dbLedger.section;
 
     // Cross-day note (owner request, 2026-10-19): "keep opening = previous
-    // closing as a cross-day warning only, never a retry trigger" — no
-    // single photo can know yesterday's figure, and the owner has
-    // confirmed real supervisor habits can legitimately break this chain.
-    // Informational only; never affects any match/accuracy number above.
-    const { rows: prevLedgerRows } = await pool.query(
-      `SELECT closing_balance_eggs FROM daily_egg_stock_summary
-        WHERE farm_code = $1 AND section = $2 AND date < $3 AND deleted_at IS NULL
-        ORDER BY date DESC LIMIT 1`,
-      [farmCode, section, date]
-    );
-    const prevClosing = prevLedgerRows[0]?.closing_balance_eggs ?? null;
+    // closing as a cross-day warning only, never a retry trigger".
+    const prevClosing = await source.previousLedgerClosing(section, date);
     const crossDayNote =
       prevClosing !== null && dbLedger.opening_balance_eggs !== null && prevClosing !== dbLedger.opening_balance_eggs
         ? `Saved opening (${dbLedger.opening_balance_eggs}) doesn't match the previous day's saved closing (${prevClosing}) — may be a genuine re-count, not an error.`
         : null;
 
-    // Same photo, old reader's own reading of this section, for the
-    // side-by-side comparison — never affects anything the new reader is
-    // scored on above.
     const oldLedgerRaw = oldLedgerFeed?.egg_ledgers.find((l) => l.section === section) ?? null;
     oldLedgerComparisons.push({
       opening_balance_eggs: fieldComparison(dbLedger.opening_balance_eggs, oldLedgerRaw?.opening_balance_eggs ?? null),
@@ -732,195 +826,92 @@ export async function runBenchmarkForDate(
       closing_balance_eggs: fieldComparison(dbLedger.closing_balance_eggs, oldLedgerRaw?.closing_balance_eggs ?? null),
     });
 
-    // Owner request, 2026-10-21: mapped by CONTENT — the ledger under the
-    // main table is the big one, under the continuation table the small
-    // one, whichever half either sits on (contentMapping.ts).
-    const mapped = ledgerBySection.get(section);
-    const side: HalfSide = mapped?.side ?? "left";
-    let v2Ledger = mapped?.ledger ?? null;
-    if (!v2Ledger) {
-      ledgers.push({
-        section,
-        fields: {
-          opening_balance_eggs: fieldComparison(dbLedger.opening_balance_eggs, null),
-          total_eggs_produced: fieldComparison(dbLedger.total_eggs_produced, null),
-          total_line_eggs: fieldComparison(dbLedger.total_line_eggs, null),
-          closing_balance_eggs: fieldComparison(dbLedger.closing_balance_eggs, null),
-        },
-        deductions: [],
-        note: `The reader didn't find a ${section === "big" ? "big" : "small"} egg ledger on either half of this photo.`,
-        stillFailingChecks: [],
-        crossDayNote,
-      });
-      continue;
-    }
+    const rawCells = compareLedger(dbLedger, rawPage.ledgers.get(section)?.ledger ?? null);
+    const v2Ledger = corrected.ledgers.get(section)?.ledger ?? null;
+    const cells = compareLedger(dbLedger, v2Ledger);
+    rawLedgerCells.push(rawCells);
+    correctedLedgerCells.push(cells);
+    for (const f of LEDGER_FIELDS) cells.fields[f].raw = { actual: rawCells.fields[f].actual, match: rawCells.fields[f].match };
 
-    let ledgerRetries = 0;
-    let finalFindings = checkEggLedgerArithmetic(v2Ledger);
-    for (; ledgerRetries < MAX_LEDGER_FEED_RETRIES; ledgerRetries++) {
-      if (finalFindings.length === 0) break;
-      const hint =
-        finalFindings.map((f) => f.message).join("; ") +
-        `. You're looking at the WHOLE ${side} half of the page, not just the ledger — focus only on the ${section === "big" ? "big" : "small"} egg-stock ledger.`;
-      v2Ledger = await extractEggLedgerRegion(imageBySide[side].base64, imageBySide[side].mediaType, section, { confusionHint: hint });
-      finalFindings = checkEggLedgerArithmetic(v2Ledger);
-      retryDebugImages.push({
-        label: `${section} ledger retry round ${ledgerRetries + 1}`,
-        base64: await safeDownscale(imageBySide[side].base64),
-      });
-    }
-    ledgerRetryRounds[section] = ledgerRetries;
-    const expectedDeductions = ledgerDeductionsBySummaryId.get(dbLedger.id) ?? [];
-    const maxLen = Math.max(expectedDeductions.length, v2Ledger.deductions.length);
-    const deductions: DeductionComparison[] = [];
-    for (let i = 0; i < maxLen; i++) {
-      const exp = expectedDeductions[i];
-      const act = v2Ledger.deductions[i];
-      const expAmount = exp ? Math.abs(exp.amount_eggs) : null; // stored signed (negative); magnitude is what's comparable
-      const actAmount = act ? act.amount_eggs : null;
-      deductions.push({
-        position: i + 1,
-        expectedLabel: exp?.label_as_written ?? null,
-        expectedAmount: expAmount,
-        actualLabel: act?.label_as_written ?? null,
-        actualAmount: actAmount,
-        match: expAmount !== null && actAmount !== null && expAmount === actAmount,
-      });
-    }
-
+    ledgerRetryRounds[section] = outcomesFor(`${section} ledger`).filter((o) => o.status === "reread").length;
     ledgers.push({
       section,
-      fields: {
-        opening_balance_eggs: fieldComparison(dbLedger.opening_balance_eggs, v2Ledger.opening_balance_eggs),
-        total_eggs_produced: fieldComparison(dbLedger.total_eggs_produced, v2Ledger.total_eggs_produced),
-        total_line_eggs: fieldComparison(dbLedger.total_line_eggs, v2Ledger.total_line_eggs),
-        closing_balance_eggs: fieldComparison(dbLedger.closing_balance_eggs, v2Ledger.closing_balance_eggs),
-      },
-      deductions,
-      stillFailingChecks: finalFindings.map((f) => f.message),
+      fields: cells.fields,
+      deductions: cells.deductions,
+      stillFailingChecks: reviewMessages(`${section} ledger`),
       crossDayNote,
-      note: v2Ledger.region_notes,
+      note: v2Ledger
+        ? v2Ledger.region_notes
+        : `The reader didn't find a ${section === "big" ? "big" : "small"} egg ledger on either half of this photo, even after a zoomed re-read.`,
     });
   }
-  const ledgerSummary = {} as BenchmarkResult["ledgerSummary"];
-  for (const field of LEDGER_FIELDS) {
-    const comparable = ledgers.filter((l) => l.fields[field].expected !== null || l.fields[field].actual !== null);
-    ledgerSummary[field] = { comparable: comparable.length, correct: comparable.filter((l) => l.fields[field].match).length };
-  }
-  const oldLedgerSummary = {} as Record<LedgerField, { comparable: number; correct: number }>;
-  for (const field of LEDGER_FIELDS) {
-    const comparable = oldLedgerComparisons.filter((c) => c[field].expected !== null || c[field].actual !== null);
-    oldLedgerSummary[field] = { comparable: comparable.length, correct: comparable.filter((c) => c[field].match).length };
-  }
+  const ledgerSummary = tally(LEDGER_FIELDS, ledgers.map((l) => l.fields));
+  const oldLedgerSummary = tally(LEDGER_FIELDS, oldLedgerComparisons);
 
   // ---- Feed box ----
-  const { rows: feedDbRows } = await pool.query(
-    `SELECT flock_group, opening_balance_bags, produced_bags, total_bags, closing_balance_bags,
-            consumed_bags, mill_inventory_bags, shed_inventory_bags
-       FROM daily_feed_bag_stock
-      WHERE farm_code = $1 AND date = $2 AND deleted_at IS NULL`,
-    [farmCode, date]
-  );
+  const feedDbRows = await source.feed(date);
   const feedBoxes: FeedBoxComparison[] = [];
   const feedBoxRetryRounds: Record<string, number> = {};
   const oldFeedBoxComparisons: Record<FeedBoxField, FieldComparison>[] = [];
-  // Old reader's own schema only ever asks for "BAB-1-7"/"BAB-8-10" — it
-  // has no concept of a single box covering everyone. On an "ALL" day
-  // there's genuinely only one real box, so if the old reader found
-  // exactly one, that IS its reading of it, whatever label it guessed.
+  const rawFeedCells: Record<FeedBoxField, FieldComparison>[] = [];
+  const correctedFeedCells: Record<FeedBoxField, FieldComparison>[] = [];
   function findOldFeedBox(groupLabel: FeedBoxGroupLabel) {
     const boxes = oldLedgerFeed?.feed_boxes ?? [];
     if (groupLabel === "ALL") return boxes.length === 1 ? boxes[0] : null;
     return boxes.find((b) => b.flock_group === groupLabel) ?? null;
   }
-  // Owner request, 2026-10-21: feed boxes are collected from BOTH halves
-  // and matched by the group each box says it covers — never by side.
-  const v2FeedBoxes = feedBoxesFound.map((f) => f.box);
   for (const dbFeed of feedDbRows) {
     const groupLabel = dbFeed.flock_group as FeedBoxGroupLabel;
-
     const oldFeedRaw = findOldFeedBox(groupLabel);
-    oldFeedBoxComparisons.push({
-      opening_balance_bags: fieldComparison(dbFeed.opening_balance_bags, oldFeedRaw?.opening_balance_bags ?? null),
-      produced_bags: fieldComparison(dbFeed.produced_bags, oldFeedRaw?.produced_bags ?? null),
-      total_bags: fieldComparison(dbFeed.total_bags, oldFeedRaw?.total_bags ?? null),
-      closing_balance_bags: fieldComparison(dbFeed.closing_balance_bags, oldFeedRaw?.closing_balance_bags ?? null),
-      consumed_bags: fieldComparison(dbFeed.consumed_bags, oldFeedRaw?.consumed_bags ?? null),
-      mill_inventory_bags: fieldComparison(dbFeed.mill_inventory_bags, oldFeedRaw?.mill_inventory_bags ?? null),
-      shed_inventory_bags: fieldComparison(dbFeed.shed_inventory_bags, oldFeedRaw?.shed_inventory_bags ?? null),
-    });
+    oldFeedBoxComparisons.push(compareFeed(dbFeed, oldFeedRaw as unknown as ExtractedFeedBoxRegion | null));
 
-    const matching =
-      groupLabel === "ALL"
-        ? v2FeedBoxes.length === 1 ? v2FeedBoxes[0] : null
-        : v2FeedBoxes.find((b) => b.coverage === groupLabel) ?? null;
-    const emptyFields = (): Record<FeedBoxField, FieldComparison> => ({
-      opening_balance_bags: fieldComparison(dbFeed.opening_balance_bags, null),
-      produced_bags: fieldComparison(dbFeed.produced_bags, null),
-      total_bags: fieldComparison(dbFeed.total_bags, null),
-      closing_balance_bags: fieldComparison(dbFeed.closing_balance_bags, null),
-      consumed_bags: fieldComparison(dbFeed.consumed_bags, null),
-      mill_inventory_bags: fieldComparison(dbFeed.mill_inventory_bags, null),
-      shed_inventory_bags: fieldComparison(dbFeed.shed_inventory_bags, null),
-    });
-    if (!matching) {
-      feedBoxes.push({
-        groupLabel,
-        fields: emptyFields(),
-        note: `The reader didn't find a feed box matching "${groupLabel}" on either half of this photo.`,
-        stillFailingChecks: [],
-      });
-      continue;
-    }
+    const rawEntry = findFeedEntry(rawPage.feedBoxes, groupLabel);
+    const entry = findFeedEntry(corrected.feedBoxes, groupLabel);
+    const rawCells = compareFeed(dbFeed, rawEntry?.box ?? null);
+    const cells = compareFeed(dbFeed, entry?.box ?? null);
+    rawFeedCells.push(rawCells);
+    correctedFeedCells.push(cells);
+    for (const f of FEED_BOX_FIELDS) cells[f].raw = { actual: rawCells[f].actual, match: rawCells[f].match };
 
-    const feedSide: HalfSide = feedBoxesFound.find((f) => f.box === matching)?.side ?? "left";
-    let v2Feed = matching;
-    let feedRetries = 0;
-    let finalFeedFindings = checkFeedBoxArithmetic(v2Feed);
-    for (; feedRetries < MAX_LEDGER_FEED_RETRIES; feedRetries++) {
-      if (finalFeedFindings.length === 0) break;
-      const hint =
-        finalFeedFindings.map((f) => f.message).join("; ") +
-        `. You're looking at the WHOLE ${feedSide} half of the page, not just one feed box — focus only on the box covering ${groupLabel}.`;
-      v2Feed = { ...(await extractFeedBoxRegion(imageBySide[feedSide].base64, imageBySide[feedSide].mediaType, groupLabel, { confusionHint: hint })), coverage: groupLabel };
-      finalFeedFindings = checkFeedBoxArithmetic(v2Feed);
-      retryDebugImages.push({
-        label: `${groupLabel} feed box retry round ${feedRetries + 1}`,
-        base64: await safeDownscale(imageBySide[feedSide].base64),
-      });
-    }
-    feedBoxRetryRounds[groupLabel] = feedRetries;
+    feedBoxRetryRounds[groupLabel] = outcomesFor(`${groupLabel} feed box`).filter((o) => o.status === "reread").length;
     feedBoxes.push({
       groupLabel,
-      fields: {
-        opening_balance_bags: fieldComparison(dbFeed.opening_balance_bags, v2Feed.opening_balance_bags),
-        produced_bags: fieldComparison(dbFeed.produced_bags, v2Feed.produced_bags),
-        total_bags: fieldComparison(dbFeed.total_bags, v2Feed.total_bags),
-        closing_balance_bags: fieldComparison(dbFeed.closing_balance_bags, v2Feed.closing_balance_bags),
-        consumed_bags: fieldComparison(dbFeed.consumed_bags, v2Feed.consumed_bags),
-        mill_inventory_bags: fieldComparison(dbFeed.mill_inventory_bags, v2Feed.mill_inventory_bags),
-        shed_inventory_bags: fieldComparison(dbFeed.shed_inventory_bags, v2Feed.shed_inventory_bags),
-      },
-      note: v2Feed.region_notes,
-      stillFailingChecks: finalFeedFindings.map((f) => f.message),
+      fields: cells,
+      note: entry
+        ? [entry.box.region_notes, entry.assignedBy !== "as_read" ? `Identified as ${groupLabel} by ${entry.assignedBy.replace(/_/g, " ")} (box #${entry.index + 1} from the left).` : null].filter(Boolean).join(" ") || null
+        : `The reader didn't find a feed box matching "${groupLabel}" on either half of this photo.`,
+      stillFailingChecks: reviewMessages(`${groupLabel} feed box`),
     });
   }
-  const feedBoxSummary = {} as BenchmarkResult["feedBoxSummary"];
-  for (const field of FEED_BOX_FIELDS) {
-    const comparable = feedBoxes.filter((f) => f.fields[field].expected !== null || f.fields[field].actual !== null);
-    feedBoxSummary[field] = { comparable: comparable.length, correct: comparable.filter((f) => f.fields[field].match).length };
+  const feedBoxSummary = tally(FEED_BOX_FIELDS, feedBoxes.map((f) => f.fields));
+  const oldFeedBoxSummary = tally(FEED_BOX_FIELDS, oldFeedBoxComparisons);
+
+  // ---- Raw vs corrected scores ----
+  const rawScores = buildScore(rawFlockCompare, rawLedgerCells, rawFeedCells);
+  const correctedScores = buildScore(flockCompare, correctedLedgerCells, correctedFeedCells);
+
+  // Every wrong cell must be either gone or flagged: list the ones that
+  // are still wrong WITHOUT a needs-review flag.
+  const flagged = flaggedCells(report.outcomes, corrected.flocks);
+  const unflaggedWrong: string[] = [];
+  for (const r of rows) for (const f of COMPARED_FIELDS) {
+    if (!r.fields[f].match && !flagged.has(`${r.label}|${f}`)) unflaggedWrong.push(`${r.label} ${FIELD_LABELS[f]}: read ${r.fields[f].actual ?? "—"}, saved ${r.fields[f].expected ?? "—"}`);
   }
-  const oldFeedBoxSummary = {} as Record<FeedBoxField, { comparable: number; correct: number }>;
-  for (const field of FEED_BOX_FIELDS) {
-    const comparable = oldFeedBoxComparisons.filter((c) => c[field].expected !== null || c[field].actual !== null);
-    oldFeedBoxSummary[field] = { comparable: comparable.length, correct: comparable.filter((c) => c[field].match).length };
+  for (const s of subtotals) for (const f of SUBTOTAL_FIELDS) {
+    if (!s.fields[f].match && !flagged.has(`sub:${s.section}|${f}`)) unflaggedWrong.push(`${s.section} subtotal ${FIELD_LABELS[f]}: read ${s.fields[f].actual ?? "—"}, expected ${s.fields[f].expected ?? "—"}`);
+  }
+  for (const l of ledgers) {
+    if (flagged.has(`ledger:${l.section}|*`)) continue;
+    for (const f of LEDGER_FIELDS) if (!l.fields[f].match) unflaggedWrong.push(`${l.section} ledger ${f}: read ${l.fields[f].actual ?? "—"}, saved ${l.fields[f].expected ?? "—"}`);
+    for (const d of l.deductions) if (!d.match) unflaggedWrong.push(`${l.section} ledger deduction ${d.position}: read ${d.actualAmount ?? "—"}, saved ${d.expectedAmount ?? "—"}`);
+  }
+  for (const fb of feedBoxes) {
+    if (flagged.has(`feed:${fb.groupLabel}|*`)) continue;
+    for (const f of FEED_BOX_FIELDS) if (!fb.fields[f].match) unflaggedWrong.push(`${fb.groupLabel} feed box ${f}: read ${fb.fields[f].actual ?? "—"}, saved ${fb.fields[f].expected ?? "—"}`);
   }
 
   // ---- Chick rows ----
-  const { rows: chickDbRows } = await pool.query(
-    `SELECT label_as_written, deaths FROM chick_daily_mortality WHERE farm_code = $1 AND date = $2 ORDER BY row_position`,
-    [farmCode, date]
-  );
+  const chickDbRows = await source.chick(date);
   let chickRows: ChickRowsResult;
   // Chick rows are taken from whichever half actually returned them.
   const v2Chick = pickChickRows(halfResults);
@@ -1008,13 +999,14 @@ export async function runBenchmarkForDate(
 
   return {
     date,
+    savedDataDate: date,
     photoDateUsed,
-    photoUrl,
+    photoUrl: photoUrl ?? "(local file)",
     v2DateRead: pageDate.date,
     dateMismatch: pageDate.date !== null && pageDate.date !== date,
-    v2PageNotes: [orientation.pageNotes, ...read.notes, ...tableBlocks.regionNotes].filter((n): n is string => !!n).join(" ") || null,
-    retryRoundsRun: tableBlocks.retryRoundsRun,
-    retriedLabels: tableBlocks.retriedLabels,
+    v2PageNotes: [orientation.pageNotes, ...read.notes].filter((n): n is string => !!n).join(" ") || null,
+    retryRoundsRun: report.rereadCalls,
+    retriedLabels: [...new Set(report.outcomes.filter((o) => o.status === "reread").map((o) => o.item))],
     rows,
     unmatchedExtractedLabels,
     missingFromExtraction,
@@ -1030,13 +1022,17 @@ export async function runBenchmarkForDate(
     feedBoxRetryRounds,
     chickRows,
     oldReader,
+    rawScores,
+    correctedScores,
+    correction: report,
+    unflaggedWrong,
     debugImages: {
       fullPageWithSpine,
       spineX: split.spineX,
       overlapPx: split.overlapPx,
       spineConfidence: split.spineConfidence,
       halves: debugHalves,
-      retries: retryDebugImages,
+      retries: [],
       unavailableNote: debugImagesUnavailableNote,
     },
     rotation: {
@@ -1051,14 +1047,6 @@ export async function runBenchmarkForDate(
     },
     unreadable: read.unreadable ? UNREADABLE_MESSAGE : null,
   };
-}
-
-async function safeDownscale(base64: string): Promise<string | null> {
-  try {
-    return await downscaleForDisplay(base64);
-  } catch {
-    return null;
-  }
 }
 
 export { COMPARED_FIELDS, FIELD_LABELS, SUBTOTAL_FIELDS, LEDGER_FIELDS, FEED_BOX_FIELDS };

@@ -209,8 +209,12 @@ export async function extractDailyProductionRegion(
   // Same discipline as every other extraction call in this codebase since
   // the 2026-10-12 production incident: never trust an unchecked field from
   // model JSON, especially an array, this far into a multi-stage pipeline.
+  // A zoomed crop of just the subtotal strip legitimately has no flock
+  // rows — accept a missing flocks array there as long as a subtotal came
+  // back (corrections.ts asks for exactly that).
   if (!Array.isArray(input.flocks)) {
-    throw new Error(`${section} section extraction response did not include a usable flocks array`);
+    if (input.subtotal && typeof input.subtotal === "object") input.flocks = [];
+    else throw new Error(`${section} section extraction response did not include a usable flocks array`);
   }
 
   const subtotalRaw = input.subtotal as Record<string, unknown> | null | undefined;

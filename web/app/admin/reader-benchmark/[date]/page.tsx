@@ -9,6 +9,7 @@ import {
   FEED_BOX_FIELDS,
   type BenchmarkResult,
   type FieldComparison,
+  type ScoreSummary,
 } from "@/lib/extraction/readerV2/benchmark";
 
 // Runs the reader-rebuild benchmark for ONE date on page load — see
@@ -136,8 +137,49 @@ export default async function ReaderBenchmarkDatePage({
     <>
       <h1>Reader benchmark — {date}</h1>
       <p>
+        <strong>Comparing against saved data of {result.savedDataDate}</strong>
+      </p>
+      <p>
         <Link href={backHref}>&larr; Back to date list</Link>
       </p>
+
+      <h2>Raw reader vs. corrected (same photo, same saved data)</h2>
+      <table>
+        <thead>
+          <tr><th></th><th>Raw</th><th>Corrected</th></tr>
+        </thead>
+        <tbody>
+          {([
+            ["All cells", (s: ScoreSummary) => s.overall],
+            ["Deductions", (s: ScoreSummary) => s.deductions],
+          ] as const).map(([name, pick]) => (
+            <tr key={name}>
+              <td>{name}</td>
+              <td>{pick(result.rawScores).correct}/{pick(result.rawScores).comparable}</td>
+              <td>{pick(result.correctedScores).correct}/{pick(result.correctedScores).comparable}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <p className="muted">
+        Corrected = the raw read after the correction stages: a cell is auto-repaired only when exactly one
+        single-digit change fixes every failing check; otherwise it is re-read from a zoomed crop (max 3
+        rounds); otherwise it is saved as needs review.{" "}
+        {result.correction.rereadCalls} zoomed re-read call(s) this run.{" "}
+        {result.unflaggedWrong.length === 0
+          ? "Every cell is correct or flagged."
+          : `${result.unflaggedWrong.length} cell(s) are wrong and NOT flagged: ${result.unflaggedWrong.join("; ")}.`}
+      </p>
+      {result.correction.log.length > 0 && (
+        <details>
+          <summary>What the correction stages did ({result.correction.log.length})</summary>
+          <ul>
+            {result.correction.log.map((line, i) => (
+              <li key={i}>{line}</li>
+            ))}
+          </ul>
+        </details>
+      )}
 
       {result.unreadable && (
         <div className="error-banner">
