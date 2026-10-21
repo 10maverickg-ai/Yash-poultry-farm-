@@ -1,6 +1,7 @@
 import { pool } from "../../db";
 import { ACTIVE_FARM } from "../../farm";
 import { extractDailyProductionSafely, type ExtractedFlockRow } from "../dailyProduction";
+import { extractLedgerAndFeed, type LedgerFeedExtractionResult } from "../ledgerFeedExtraction";
 import { getActiveLabels, matchFlockLabel, type ActiveLabel } from "../flockMatch";
 import { BAL_BIRD_TOLERANCE, type Section, type SectionSubtotal } from "../pageChecksum";
 import { calcHd } from "../digitEvidence";
@@ -203,6 +204,18 @@ export interface LedgerComparison {
   fields: Record<LedgerField, FieldComparison>;
   deductions: DeductionComparison[];
   note: string | null;
+  // Owner request, 2026-10-19: "never accept ledger values that are not
+  // multiples of 30; never accept ledger arithmetic that fails after
+  // retries — save as needs review with the failing check". The retry
+  // loop already re-asks up to MAX_LEDGER_FEED_RETRIES times; this is
+  // what's STILL wrong after the last attempt, surfaced plainly rather
+  // than silently presenting the final try as if it were a clean read.
+  stillFailingChecks: string[];
+  // What the OLD reader (ledgerFeedExtraction.ts, what a real upload uses
+  // today) read for this same section, for the same cross-day context —
+  // see below for the egg-ledger-specific "opening vs previous day's
+  // closing" cross-day note.
+  crossDayNote: string | null;
 }
 
 // ===================== Feed box =====================
@@ -217,6 +230,8 @@ export interface FeedBoxComparison {
   groupLabel: FeedBoxGroupLabel;
   fields: Record<FeedBoxField, FieldComparison>;
   note: string | null;
+  // See LedgerComparison.stillFailingChecks — same rule, same reasoning.
+  stillFailingChecks: string[];
 }
 
 // ===================== Chick rows =====================
@@ -238,20 +253,23 @@ export interface ChickRowsResult {
 
 // Owner request, 2026-10-19: "so we know whether the new reader is
 // actually better than what is live" — the SAME photo is also run through
-// the existing single-call reader (dailyProduction.ts, exactly what every
+// the existing readers (dailyProduction.ts for the flock tables,
+// ledgerFeedExtraction.ts for the ledger/feed box — exactly what every
 // real upload uses today) and scored against the SAME ground truth, with
-// the SAME field comparison logic, so the two numbers are directly
-// comparable. Scoped to the flock tables + subtotals + margin notes for
-// now, not the egg ledger/feed box/chick rows — the old reader reads
-// ledger/feed in one combined whole-page call with a different shape, and
-// extending this comparison to those too is follow-up work, not done
-// here.
+// the SAME field comparison logic, so the numbers are directly
+// comparable. The old reader has never read chick rows at all (its own
+// prompt explicitly tells the model to ignore them), so there is no
+// accuracy number to show for that — chickNote says so plainly instead of
+// a misleading 0%.
 export interface OldReaderComparison {
   summary: Record<ComparedField, { comparable: number; correct: number }>;
   marginNoteSummary: { comparable: number; correct: number };
   subtotalSummary: Record<SubtotalField, { comparable: number; correct: number }>;
   missingFromExtraction: string[];
   unmatchedExtractedLabels: string[];
+  ledgerSummary: Record<LedgerField, { comparable: number; correct: number }>;
+  feedBoxSummary: Record<FeedBoxField, { comparable: number; correct: number }>;
+  chickNote: string;
   // Set instead of the above if the old reader itself failed outright
   // (e.g. its own runaway-count rejection) — still worth showing, since
   // "the old reader also can't read this photo" is itself a useful answer.
@@ -536,7 +554,14 @@ export async function runBenchmarkForDate(
   } = compareFlockTables(tableBlocks.flocks, tableBlocks.subtotals, dbRows, activeLabels, movementMagnitudeByFlock);
 
   // ---- Old reader, same photo, same ground truth — see OldReaderComparison's own doc comment ----
-  let oldReader: OldReaderComparison;
+  let oldFlockPart: {
+    summary: Record<ComparedField, { comparable: number; correct: number }>;
+    marginNoteSummary: { comparable: number; correct: number };
+    subtotalSummary: Record<SubtotalField, { comparable: number; correct: number }>;
+    missingFromExtraction: string[];
+    unmatchedExtractedLabels: string[];
+  } | null = null;
+  let oldReaderError: string | null = null;
   try {
     const oldResult = await extractDailyProductionSafely(photoBuffer.toString("base64"), contentType, dbRows.length);
     const oldCompared = compareFlockTables(
@@ -546,25 +571,28 @@ export async function runBenchmarkForDate(
       activeLabels,
       movementMagnitudeByFlock
     );
-    oldReader = {
+    oldFlockPart = {
       summary: oldCompared.summary,
       marginNoteSummary: oldCompared.marginNoteSummary,
       subtotalSummary: oldCompared.subtotalSummary,
       missingFromExtraction: oldCompared.missingFromExtraction,
       unmatchedExtractedLabels: oldCompared.unmatchedExtractedLabels,
-      error: null,
     };
   } catch (err) {
-    const detail = err instanceof Error ? err.message : String(err);
-    const empty = { comparable: 0, correct: 0 };
-    oldReader = {
-      summary: { mortality: empty, feed_bags: empty, eggs_total: empty, bird_population: empty, hd_percent: empty },
-      marginNoteSummary: empty,
-      subtotalSummary: { mortality: empty, feed_bags: empty, eggs_total: empty, bird_population: empty, hd_percent: empty },
-      missingFromExtraction: [],
-      unmatchedExtractedLabels: [],
-      error: detail,
-    };
+    oldReaderError = err instanceof Error ? err.message : String(err);
+  }
+
+  // Owner request, 2026-10-19: extend old-vs-new to the ledger/feed box
+  // too. Best-effort and independent of the flock-table call above — same
+  // split the real upload flow itself uses (app/upload/actions.ts runs
+  // this as a separate step; a failure here never affects the flock-table
+  // result). Matched against ledgerDbRows/feedDbRows further down, once
+  // those are fetched.
+  let oldLedgerFeed: LedgerFeedExtractionResult | null = null;
+  try {
+    oldLedgerFeed = await extractLedgerAndFeed(photoBuffer.toString("base64"), contentType);
+  } catch {
+    oldLedgerFeed = null; // reported per-section as "not available" below, not a hard error
   }
 
   // ---- Egg ledger ----
@@ -592,8 +620,38 @@ export async function runBenchmarkForDate(
 
   const ledgers: LedgerComparison[] = [];
   const ledgerRetryRounds = {} as Record<EggStockSection, number>;
+  const oldLedgerComparisons: Record<LedgerField, FieldComparison>[] = [];
   for (const dbLedger of ledgerDbRows) {
     const section = dbLedger.section as EggStockSection;
+
+    // Cross-day note (owner request, 2026-10-19): "keep opening = previous
+    // closing as a cross-day warning only, never a retry trigger" — no
+    // single photo can know yesterday's figure, and the owner has
+    // confirmed real supervisor habits can legitimately break this chain.
+    // Informational only; never affects any match/accuracy number above.
+    const { rows: prevLedgerRows } = await pool.query(
+      `SELECT closing_balance_eggs FROM daily_egg_stock_summary
+        WHERE farm_code = $1 AND section = $2 AND date < $3 AND deleted_at IS NULL
+        ORDER BY date DESC LIMIT 1`,
+      [farmCode, section, date]
+    );
+    const prevClosing = prevLedgerRows[0]?.closing_balance_eggs ?? null;
+    const crossDayNote =
+      prevClosing !== null && dbLedger.opening_balance_eggs !== null && prevClosing !== dbLedger.opening_balance_eggs
+        ? `Saved opening (${dbLedger.opening_balance_eggs}) doesn't match the previous day's saved closing (${prevClosing}) — may be a genuine re-count, not an error.`
+        : null;
+
+    // Same photo, old reader's own reading of this section, for the
+    // side-by-side comparison — never affects anything the new reader is
+    // scored on above.
+    const oldLedgerRaw = oldLedgerFeed?.egg_ledgers.find((l) => l.section === section) ?? null;
+    oldLedgerComparisons.push({
+      opening_balance_eggs: fieldComparison(dbLedger.opening_balance_eggs, oldLedgerRaw?.opening_balance_eggs ?? null),
+      total_eggs_produced: fieldComparison(dbLedger.total_eggs_produced, oldLedgerRaw?.total_eggs_produced ?? null),
+      total_line_eggs: fieldComparison(dbLedger.total_line_eggs, oldLedgerRaw?.total_line_eggs ?? null),
+      closing_balance_eggs: fieldComparison(dbLedger.closing_balance_eggs, oldLedgerRaw?.closing_balance_eggs ?? null),
+    });
+
     const regionKind = Object.entries(EGG_LEDGER_REGION_KINDS).find(([, s]) => s === section)?.[0];
     const crop = regionKind ? cropByKind.get(regionKind) : undefined;
     if (!crop) {
@@ -607,17 +665,20 @@ export async function runBenchmarkForDate(
         },
         deductions: [],
         note: `The reader didn't detect a ${section} egg ledger region on this photo.`,
+        stillFailingChecks: [],
+        crossDayNote,
       });
       continue;
     }
 
     let v2Ledger = await extractEggLedgerRegion(crop.base64, crop.mediaType, section);
     let ledgerRetries = 0;
+    let finalFindings = checkEggLedgerArithmetic(v2Ledger);
     for (; ledgerRetries < MAX_LEDGER_FEED_RETRIES; ledgerRetries++) {
-      const findings = checkEggLedgerArithmetic(v2Ledger);
-      if (findings.length === 0) break;
-      const hint = findings.map((f) => f.message).join("; ") + ".";
+      if (finalFindings.length === 0) break;
+      const hint = finalFindings.map((f) => f.message).join("; ") + ".";
       v2Ledger = await extractEggLedgerRegion(crop.base64, crop.mediaType, section, { confusionHint: hint });
+      finalFindings = checkEggLedgerArithmetic(v2Ledger);
     }
     ledgerRetryRounds[section] = ledgerRetries;
     const expectedDeductions = ledgerDeductionsBySummaryId.get(dbLedger.id) ?? [];
@@ -647,6 +708,8 @@ export async function runBenchmarkForDate(
         closing_balance_eggs: fieldComparison(dbLedger.closing_balance_eggs, v2Ledger.closing_balance_eggs),
       },
       deductions,
+      stillFailingChecks: finalFindings.map((f) => f.message),
+      crossDayNote,
       note: v2Ledger.region_notes,
     });
   }
@@ -654,6 +717,11 @@ export async function runBenchmarkForDate(
   for (const field of LEDGER_FIELDS) {
     const comparable = ledgers.filter((l) => l.fields[field].expected !== null || l.fields[field].actual !== null);
     ledgerSummary[field] = { comparable: comparable.length, correct: comparable.filter((l) => l.fields[field].match).length };
+  }
+  const oldLedgerSummary = {} as Record<LedgerField, { comparable: number; correct: number }>;
+  for (const field of LEDGER_FIELDS) {
+    const comparable = oldLedgerComparisons.filter((c) => c[field].expected !== null || c[field].actual !== null);
+    oldLedgerSummary[field] = { comparable: comparable.length, correct: comparable.filter((c) => c[field].match).length };
   }
 
   // ---- Feed box ----
@@ -666,8 +734,30 @@ export async function runBenchmarkForDate(
   );
   const feedBoxes: FeedBoxComparison[] = [];
   const feedBoxRetryRounds: Record<string, number> = {};
+  const oldFeedBoxComparisons: Record<FeedBoxField, FieldComparison>[] = [];
+  // Old reader's own schema only ever asks for "BAB-1-7"/"BAB-8-10" — it
+  // has no concept of a single box covering everyone. On an "ALL" day
+  // there's genuinely only one real box, so if the old reader found
+  // exactly one, that IS its reading of it, whatever label it guessed.
+  function findOldFeedBox(groupLabel: FeedBoxGroupLabel) {
+    const boxes = oldLedgerFeed?.feed_boxes ?? [];
+    if (groupLabel === "ALL") return boxes.length === 1 ? boxes[0] : null;
+    return boxes.find((b) => b.flock_group === groupLabel) ?? null;
+  }
   for (const dbFeed of feedDbRows) {
     const groupLabel = dbFeed.flock_group as FeedBoxGroupLabel;
+
+    const oldFeedRaw = findOldFeedBox(groupLabel);
+    oldFeedBoxComparisons.push({
+      opening_balance_bags: fieldComparison(dbFeed.opening_balance_bags, oldFeedRaw?.opening_balance_bags ?? null),
+      produced_bags: fieldComparison(dbFeed.produced_bags, oldFeedRaw?.produced_bags ?? null),
+      total_bags: fieldComparison(dbFeed.total_bags, oldFeedRaw?.total_bags ?? null),
+      closing_balance_bags: fieldComparison(dbFeed.closing_balance_bags, oldFeedRaw?.closing_balance_bags ?? null),
+      consumed_bags: fieldComparison(dbFeed.consumed_bags, oldFeedRaw?.consumed_bags ?? null),
+      mill_inventory_bags: fieldComparison(dbFeed.mill_inventory_bags, oldFeedRaw?.mill_inventory_bags ?? null),
+      shed_inventory_bags: fieldComparison(dbFeed.shed_inventory_bags, oldFeedRaw?.shed_inventory_bags ?? null),
+    });
+
     const regionKind = Object.entries(FEED_BOX_REGION_KINDS).find(([, g]) => g === groupLabel)?.[0];
     const crop = regionKind ? cropByKind.get(regionKind) : undefined;
     const emptyFields = (): Record<FeedBoxField, FieldComparison> => ({
@@ -684,17 +774,19 @@ export async function runBenchmarkForDate(
         groupLabel,
         fields: emptyFields(),
         note: `The reader didn't detect a feed box region matching "${groupLabel}" on this photo.`,
+        stillFailingChecks: [],
       });
       continue;
     }
 
     let v2Feed = await extractFeedBoxRegion(crop.base64, crop.mediaType, groupLabel);
     let feedRetries = 0;
+    let finalFeedFindings = checkFeedBoxArithmetic(v2Feed);
     for (; feedRetries < MAX_LEDGER_FEED_RETRIES; feedRetries++) {
-      const findings = checkFeedBoxArithmetic(v2Feed);
-      if (findings.length === 0) break;
-      const hint = findings.map((f) => f.message).join("; ") + ".";
+      if (finalFeedFindings.length === 0) break;
+      const hint = finalFeedFindings.map((f) => f.message).join("; ") + ".";
       v2Feed = await extractFeedBoxRegion(crop.base64, crop.mediaType, groupLabel, { confusionHint: hint });
+      finalFeedFindings = checkFeedBoxArithmetic(v2Feed);
     }
     feedBoxRetryRounds[groupLabel] = feedRetries;
     feedBoxes.push({
@@ -709,12 +801,18 @@ export async function runBenchmarkForDate(
         shed_inventory_bags: fieldComparison(dbFeed.shed_inventory_bags, v2Feed.shed_inventory_bags),
       },
       note: v2Feed.region_notes,
+      stillFailingChecks: finalFeedFindings.map((f) => f.message),
     });
   }
   const feedBoxSummary = {} as BenchmarkResult["feedBoxSummary"];
   for (const field of FEED_BOX_FIELDS) {
     const comparable = feedBoxes.filter((f) => f.fields[field].expected !== null || f.fields[field].actual !== null);
     feedBoxSummary[field] = { comparable: comparable.length, correct: comparable.filter((f) => f.fields[field].match).length };
+  }
+  const oldFeedBoxSummary = {} as Record<FeedBoxField, { comparable: number; correct: number }>;
+  for (const field of FEED_BOX_FIELDS) {
+    const comparable = oldFeedBoxComparisons.filter((c) => c[field].expected !== null || c[field].actual !== null);
+    oldFeedBoxSummary[field] = { comparable: comparable.length, correct: comparable.filter((c) => c[field].match).length };
   }
 
   // ---- Chick rows ----
@@ -765,6 +863,33 @@ export async function runBenchmarkForDate(
       isWholePageFallback: tableBlocks.fellBackToFullPage.includes(c.kind),
     }))
   );
+
+  const emptyFieldSummary = { comparable: 0, correct: 0 };
+  const oldReader: OldReaderComparison = oldFlockPart
+    ? {
+        ...oldFlockPart,
+        ledgerSummary: oldLedgerSummary,
+        feedBoxSummary: oldFeedBoxSummary,
+        chickNote: "The old reader doesn't read chick rows at all — there is nothing to compare here.",
+        error: null,
+      }
+    : {
+        summary: {
+          mortality: emptyFieldSummary, feed_bags: emptyFieldSummary, eggs_total: emptyFieldSummary,
+          bird_population: emptyFieldSummary, hd_percent: emptyFieldSummary,
+        },
+        marginNoteSummary: emptyFieldSummary,
+        subtotalSummary: {
+          mortality: emptyFieldSummary, feed_bags: emptyFieldSummary, eggs_total: emptyFieldSummary,
+          bird_population: emptyFieldSummary, hd_percent: emptyFieldSummary,
+        },
+        missingFromExtraction: [],
+        unmatchedExtractedLabels: [],
+        ledgerSummary: oldLedgerSummary,
+        feedBoxSummary: oldFeedBoxSummary,
+        chickNote: "The old reader doesn't read chick rows at all — there is nothing to compare here.",
+        error: oldReaderError,
+      };
 
   return {
     date,

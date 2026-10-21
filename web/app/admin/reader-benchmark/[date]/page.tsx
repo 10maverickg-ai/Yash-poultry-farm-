@@ -248,15 +248,42 @@ export default async function ReaderBenchmarkDatePage({
                     : "—"}
                 </td>
               </tr>
+              {LEDGER_FIELDS.map((f) => {
+                const n = result.ledgerSummary[f];
+                const o = result.oldReader.ledgerSummary[f];
+                const nPct = n.comparable > 0 ? Math.round((n.correct / n.comparable) * 100) : null;
+                const oPct = o.comparable > 0 ? Math.round((o.correct / o.comparable) * 100) : null;
+                return (
+                  <tr key={`ledger-${f}`}>
+                    <td>Ledger: {LEDGER_FIELD_LABELS[f]}</td>
+                    <td>{nPct === null ? "—" : `${nPct}% (${n.correct}/${n.comparable})`}</td>
+                    <td>{oPct === null ? "—" : `${oPct}% (${o.correct}/${o.comparable})`}</td>
+                  </tr>
+                );
+              })}
+              {FEED_BOX_FIELDS.map((f) => {
+                const n = result.feedBoxSummary[f];
+                const o = result.oldReader.feedBoxSummary[f];
+                const nPct = n.comparable > 0 ? Math.round((n.correct / n.comparable) * 100) : null;
+                const oPct = o.comparable > 0 ? Math.round((o.correct / o.comparable) * 100) : null;
+                return (
+                  <tr key={`feed-${f}`}>
+                    <td>Feed box: {FEED_BOX_FIELD_LABELS[f]}</td>
+                    <td>{nPct === null ? "—" : `${nPct}% (${n.correct}/${n.comparable})`}</td>
+                    <td>{oPct === null ? "—" : `${oPct}% (${o.correct}/${o.comparable})`}</td>
+                  </tr>
+                );
+              })}
+              <tr>
+                <td>Chick rows</td>
+                <td colSpan={2} className="muted">
+                  {result.oldReader.chickNote}
+                </td>
+              </tr>
             </tbody>
           </table>
         </div>
       )}
-      <p className="muted">
-        Scoped to the flock tables, subtotals and margin notes — the old reader reads the egg ledger/feed
-        box in one combined whole-page call with a different shape, and doesn&apos;t read chick rows at
-        all, so those don&apos;t have an old-reader comparison here yet.
-      </p>
 
       <h2>Flock tables — accuracy by field</h2>
       <AccuracySummaryTable fields={COMPARED_FIELDS} labels={FIELD_LABELS} summary={result.summary} />
@@ -364,6 +391,15 @@ export default async function ReaderBenchmarkDatePage({
             <p className="muted" style={{ margin: 0 }}>
               Checksum retry rounds: {result.ledgerRetryRounds[l.section] ?? 0}
             </p>
+            {l.stillFailingChecks.length > 0 && (
+              <div className="error-banner">
+                <strong>Needs review — still fails its own arithmetic after retries:</strong>
+                <ul style={{ margin: "0.3rem 0 0", paddingLeft: "1.2rem" }}>
+                  {l.stillFailingChecks.map((msg, i) => <li key={i}>{msg}</li>)}
+                </ul>
+              </div>
+            )}
+            {l.crossDayNote && <p className="muted">{l.crossDayNote}</p>}
             {l.note && <p className="muted">{l.note}</p>}
             <div className="table-wrap">
               <table>
@@ -416,6 +452,14 @@ export default async function ReaderBenchmarkDatePage({
             <p className="muted" style={{ margin: 0 }}>
               Checksum retry rounds: {result.feedBoxRetryRounds[f.groupLabel] ?? 0}
             </p>
+            {f.stillFailingChecks.length > 0 && (
+              <div className="error-banner">
+                <strong>Needs review — still fails its own arithmetic after retries:</strong>
+                <ul style={{ margin: "0.3rem 0 0", paddingLeft: "1.2rem" }}>
+                  {f.stillFailingChecks.map((msg, i) => <li key={i}>{msg}</li>)}
+                </ul>
+              </div>
+            )}
             {f.note && <p className="muted">{f.note}</p>}
             <div className="table-wrap">
               <table>

@@ -259,8 +259,25 @@ export async function uploadAndExtractDailyProduction(
     return { ...EMPTY, photoUrl, error: friendly, technicalDetail: detail };
   }
 
-  // The date on the page is authoritative if legible; the date the
-  // supervisor picked at upload time is the fallback.
+  // Owner report, 2026-10-19 (Aug 8 benchmark): the old rule here — trust
+  // the photo's own date whenever the model was confident, silently
+  // ignoring what the supervisor picked — is exactly how a confident
+  // MISREAD (2024-08-28 instead of 2026-08-08) could have saved a real
+  // upload under the wrong date with no warning at all. A confident read
+  // that DISAGREES with what the supervisor chose is never resolved
+  // silently either way now — it stops the upload and asks, since only a
+  // human looking at the actual page can say which one is right. A
+  // low-confidence (effectively illegible) read still falls back to the
+  // supervisor's own date exactly as before — that case isn't a
+  // disagreement, it's "the page didn't say," and blocking on it would
+  // only add friction for no safety benefit.
+  if (extraction.date && extraction.date_confidence > 0.5 && extraction.date !== dateHint) {
+    return {
+      ...EMPTY,
+      photoUrl,
+      error: `This photo's date looks like ${extraction.date}, but you picked ${dateHint}. Please check the actual page and re-upload with the date that matches it — a photo is never saved under a date that disagrees with what it reads.`,
+    };
+  }
   const date = extraction.date && extraction.date_confidence > 0.5 ? extraction.date : dateHint;
 
   // Diagnostic only — sections_found doesn't gate anything, but is worth
