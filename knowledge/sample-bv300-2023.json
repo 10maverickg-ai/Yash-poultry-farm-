@@ -1,0 +1,43 @@
+{
+  "doc_key": "venky-bv300-2023-sample",
+  "company": "Venkateshwara Hatcheries (Venky's)",
+  "title": "BV 300 commercial layer standards (2023 guide) — sample extract",
+  "year": 2023,
+  "source_url": "https://www.venkys.com/",
+  "entries": [
+    {
+      "entry_key": "laying-ramp-weeks-19-26",
+      "topic": "Hen-day production",
+      "page": "Laying standards table (weeks 19–26); same values as the bv300_standard_laying table already loaded in this app",
+      "breed": "BV300",
+      "notes": "Start of lay: 25% at week 19 rising to 96.5% by week 26.",
+      "standards": [
+        { "metric": "hen_day_percent", "age_weeks": 19, "value": 25, "unit": "%" },
+        { "metric": "hen_day_percent", "age_weeks": 20, "value": 50, "unit": "%" },
+        { "metric": "hen_day_percent", "age_weeks": 21, "value": 75, "unit": "%" },
+        { "metric": "hen_day_percent", "age_weeks": 22, "value": 90, "unit": "%" },
+        { "metric": "hen_day_percent", "age_weeks": 23, "value": 93, "unit": "%" },
+        { "metric": "hen_day_percent", "age_weeks": 24, "value": 95, "unit": "%" },
+        { "metric": "hen_day_percent", "age_weeks": 25, "value": 96, "unit": "%" },
+        { "metric": "hen_day_percent", "age_weeks": 26, "value": 96.5, "unit": "%" }
+      ]
+    },
+    {
+      "entry_key": "feed-weeks-19-26",
+      "topic": "Feed intake",
+      "page": "Laying standards table (weeks 19–26)",
+      "breed": "BV300",
+      "notes": "Feed per bird per day in grams.",
+      "standards": [
+        { "metric": "feed_g_per_bird_day", "age_weeks": 19, "value": 80, "unit": "g" },
+        { "metric": "feed_g_per_bird_day", "age_weeks": 20, "value": 85, "unit": "g" },
+        { "metric": "feed_g_per_bird_day", "age_weeks": 21, "value": 90, "unit": "g" },
+        { "metric": "feed_g_per_bird_day", "age_weeks": 22, "value": 95, "unit": "g" },
+        { "metric": "feed_g_per_bird_day", "age_weeks": 23, "value": 100, "unit": "g" },
+        { "metric": "feed_g_per_bird_day", "age_weeks": 24, "value": 105, "unit": "g" },
+        { "metric": "feed_g_per_bird_day", "age_weeks": 25, "value": 105, "unit": "g" },
+        { "metric": "feed_g_per_bird_day", "age_weeks": 26, "value": 107, "unit": "g" }
+      ]
+    }
+  ]
+}
