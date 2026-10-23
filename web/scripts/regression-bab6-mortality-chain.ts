@@ -54,18 +54,18 @@ function check(name: string, cond: boolean, detail?: unknown) {
 // below — the other 6 only need a mortality figure, to reconstruct the
 // real section-sum evidence.
 const rawFlocks: RawFlockInput[] = [
-  { displayLabelAsWritten: "BAB-1", section: "main", mortality: 3, feedBags: 14, eggsTotal: 5910, eggsIi: 5910, birdPopulation: 8598, birdPopulationReadings: [8598, 8598], hdPercentWritten: 68.7, confidence: {} },
-  { displayLabelAsWritten: "BAB-2", section: "main", mortality: 6, feedBags: 27, eggsTotal: 11610, eggsIi: 11610, birdPopulation: 15572, birdPopulationReadings: [15572, 15572], hdPercentWritten: 74.5, confidence: {} },
-  { displayLabelAsWritten: "BAB-3", section: "main", mortality: 2, feedBags: 16, eggsTotal: 6150, eggsIi: 6150, birdPopulation: 7410, birdPopulationReadings: [7410, 7410], hdPercentWritten: 83.0, confidence: {} },
-  { displayLabelAsWritten: "BAB-4", section: "main", mortality: 3, feedBags: 16, eggsTotal: 6150, eggsIi: 6150, birdPopulation: 7410, birdPopulationReadings: [7410, 7410], hdPercentWritten: 83.0, confidence: {} },
-  { displayLabelAsWritten: "BAB-5", section: "main", mortality: 6, feedBags: 20, eggsTotal: 7020, eggsIi: 7020, birdPopulation: 9100, birdPopulationReadings: [9100, 9100], hdPercentWritten: 77.1, confidence: {} },
+  { displayLabelAsWritten: "BAB-1", section: "main", mortality: 3, feedBags: 14, eggsTotal: 5910, eggsIi: 5910, birdPopulation: 8598, birdPopulationReadings: [8598, 8598], hdPercentWritten: 68.7, confidence: {}, marginNote: null },
+  { displayLabelAsWritten: "BAB-2", section: "main", mortality: 6, feedBags: 27, eggsTotal: 11610, eggsIi: 11610, birdPopulation: 15572, birdPopulationReadings: [15572, 15572], hdPercentWritten: 74.5, confidence: {}, marginNote: null },
+  { displayLabelAsWritten: "BAB-3", section: "main", mortality: 2, feedBags: 16, eggsTotal: 6150, eggsIi: 6150, birdPopulation: 7410, birdPopulationReadings: [7410, 7410], hdPercentWritten: 83.0, confidence: {}, marginNote: null },
+  { displayLabelAsWritten: "BAB-4", section: "main", mortality: 3, feedBags: 16, eggsTotal: 6150, eggsIi: 6150, birdPopulation: 7410, birdPopulationReadings: [7410, 7410], hdPercentWritten: 83.0, confidence: {}, marginNote: null },
+  { displayLabelAsWritten: "BAB-5", section: "main", mortality: 6, feedBags: 20, eggsTotal: 7020, eggsIi: 7020, birdPopulation: 9100, birdPopulationReadings: [9100, 9100], hdPercentWritten: 77.1, confidence: {}, marginNote: null },
   // BAB-6: the real bug. mortality extracted as 8 (true: 3), feedBags
   // deliberately NOT equal to 8 so mortalityFeedSwap.ts's column-swap
   // check has nothing to misfire on — this is a digit misread, not a
   // column swap, a different failure mode entirely. bird_population
   // extracted CORRECTLY as 9680.
-  { displayLabelAsWritten: "BAB-6", section: "main", mortality: 8, feedBags: 18, eggsTotal: 7020, eggsIi: 7020, birdPopulation: 9680, birdPopulationReadings: [9680, 9680], hdPercentWritten: 72.6, confidence: {} },
-  { displayLabelAsWritten: "BAB-7", section: "main", mortality: 5, feedBags: 19, eggsTotal: 6840, eggsIi: 6840, birdPopulation: 9200, birdPopulationReadings: [9200, 9200], hdPercentWritten: 74.3, confidence: {} },
+  { displayLabelAsWritten: "BAB-6", section: "main", mortality: 8, feedBags: 18, eggsTotal: 7020, eggsIi: 7020, birdPopulation: 9680, birdPopulationReadings: [9680, 9680], hdPercentWritten: 72.6, confidence: {}, marginNote: null },
+  { displayLabelAsWritten: "BAB-7", section: "main", mortality: 5, feedBags: 19, eggsTotal: 6840, eggsIi: 6840, birdPopulation: 9200, birdPopulationReadings: [9200, 9200], hdPercentWritten: 74.3, confidence: {}, marginNote: null },
 ];
 
 const locals: LocallyResolvedFlock[] = rawFlocks.map(resolveFieldsLocally);

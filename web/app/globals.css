@@ -118,6 +118,15 @@ h2 {
   margin-bottom: 1rem;
 }
 
+.success-banner {
+  background: #eafaf0;
+  border: 1px solid #1a8f4c;
+  color: #1a8f4c;
+  border-radius: 8px;
+  padding: 0.6rem 0.8rem;
+  margin-bottom: 1rem;
+}
+
 /* --- tables ------------------------------------------------------------- */
 
 .table-wrap {
@@ -182,6 +191,18 @@ form.stack {
 .field .hint {
   font-weight: 400;
   color: var(--muted);
+}
+
+/* Owner request, 2026-10-19: the calculated HD% (eggs / balance birds) is
+   the real, trustworthy figure — the register's own written % is optional
+   and often truncated by the supervisor. Shown as a large, read-only
+   number (matching the visual weight of an input) rather than a small
+   hint, so it reads as the primary figure, not an aside. */
+.hd-calc {
+  font-size: 1.4rem;
+  font-weight: 700;
+  padding: 0.5rem 0.6rem;
+  color: var(--accent);
 }
 
 input,

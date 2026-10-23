@@ -118,6 +118,16 @@ export interface RawFlockInput {
   birdPopulationReadings: (number | null)[];
   hdPercentWritten: number | null;
   confidence: Record<string, number>;
+  // Owner request, 2026-10-15: the exact text of a handwritten margin note
+  // next to this flock's label block, if any (e.g. "(-)2967", "740") — a
+  // bird-count adjustment note (sale, transfer, Anil farm). Transcribed
+  // verbatim, never interpreted by the model — see dailyProduction.ts's
+  // prompt. Passed through stages 2-4 unchanged; stage 5
+  // (applyBirdTransferDetection) is the only stage that reads it, purely to
+  // quote it in a flock_movements row's register_note — it never decides
+  // sign or magnitude, which still come entirely from the bal-bird chain
+  // (the same text can legitimately appear on BOTH sides of a transfer).
+  marginNote: string | null;
 }
 
 // eggsTotal/hdPercentWritten were removed (owner request, 2026-10-12):
@@ -150,6 +160,19 @@ export interface ResolvedFlock {
   // which is the only place this ever becomes an actual flag message. Null
   // on every other row.
   transferCandidateDelta: number | null;
+  marginNote: string | null;
+  // Set by stage 5, replacing transferCandidateDelta once consumed — the
+  // structured decision upload/actions.ts turns into an actual
+  // flock_movements row (in addition to, not instead of, the flag message
+  // already pushed to extraFlagReasons). Null on every row stage 5 didn't
+  // touch.
+  movementCandidate: MovementCandidate | null;
+}
+
+export interface MovementCandidate {
+  unexplainedDelta: number;
+  counterpartLabel: string | null;
+  marginNote: string | null;
 }
 
 // ===================== STAGE 2 =====================
@@ -182,6 +205,7 @@ export interface LocallyResolvedFlock {
   // if it were the original.
   mortalityOriginal: number | null;
   mortalityChecksumNotes: string[];
+  marginNote: string | null;
 }
 
 export function resolveFieldsLocally(raw: RawFlockInput): LocallyResolvedFlock {
@@ -296,6 +320,7 @@ export function resolveFieldsLocally(raw: RawFlockInput): LocallyResolvedFlock {
     collisionNotes: dedupeNotes(collisionNotes),
     mortalityOriginal: null, // stage 3 (applyMortalityChecksum) may still set this
     mortalityChecksumNotes: [],
+    marginNote: raw.marginNote,
   };
 }
 
@@ -439,6 +464,8 @@ export function applyChainCorrections(
       extraFlagReasons,
       suppressBirdPopulationIncreaseFlag,
       transferCandidateDelta,
+      marginNote: local.marginNote,
+      movementCandidate: null, // stage 5 (applyBirdTransferDetection) may still set this
     },
   };
 }
@@ -475,6 +502,17 @@ export function applyBirdTransferDetection(flocks: ResolvedFlock[]): ResolvedFlo
       ...f,
       extraFlagReasons: finding ? [...f.extraFlagReasons, finding.note] : f.extraFlagReasons,
       transferCandidateDelta: null,
+      // Owner request, 2026-10-15: every candidate here gets a
+      // flock_movements row (upload/actions.ts), not just a flag message —
+      // whether or not it paired with another flock. finding is always
+      // defined at this point (detectBirdTransfers returns exactly one
+      // finding per non-zero-delta candidate), but the fallback keeps this
+      // safe if that ever changes.
+      movementCandidate: {
+        unexplainedDelta: f.transferCandidateDelta,
+        counterpartLabel: finding?.counterpartLabel ?? null,
+        marginNote: f.marginNote,
+      },
     };
   });
 }
