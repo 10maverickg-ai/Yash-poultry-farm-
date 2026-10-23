@@ -1,6 +1,6 @@
 // Tests the BAFTA rate message parser on the sample SMS and layout variants.
 //   node scripts/rates-check.mts
-import { parseRateMessages, rateNumbers, findDate } from "../lib/rates/parse.ts";
+import { parseRateMessages, rateNumbers, findDate, classifySale, salePrice } from "../lib/rates/parse.ts";
 
 let failed = 0;
 const eq = (name: string, got: unknown, want: unknown) => {
@@ -24,8 +24,14 @@ eq("message wrapped over two lines", one("OCTOBER 19, 2026\nBFTA EGG RATE RS.560
 eq("junk gives nothing", one("hello there"), []);
 eq("invalid date rejected", findDate("FEBRUARY 31, 2026"), null);
 const n = rateNumbers(560, 0);
-eq("560 per 100 → 5.60 / big 5.57 / small 5.35", [n.perEgg, n.effective, n.big, n.small], [5.6, 5.6, 5.57, 5.35]);
-eq("subsidy 10 paise → effective 5.50", rateNumbers(560, 10).effective, 5.5);
-// Same arithmetic as the 17 existing August rows: big = rate - 0.03, small = rate - 0.25.
-eq("Aug 1 pattern (4.85 → 4.82 / 4.60)", [rateNumbers(485, 0).big, rateNumbers(485, 0).small], [4.82, 4.6]);
+eq("560 per 100 -> rate 5.60, Farmfresh 5.57, local 5.61", [n.perEgg, n.effective, n.farmfresh, n.local], [5.6, 5.6, 5.57, 5.61]);
+eq("subsidy 10 paise -> effective 5.50", rateNumbers(560, 10).effective, 5.5);
+// Sept 1 stored rate 5.53: owner's Farmfresh price 5.50 = rate - 0.03.
+eq("Sept 1 (5.53): Farmfresh 5.50, local 5.54", [salePrice(5.53, "farmfresh"), salePrice(5.53, "local")], [5.5, 5.54]);
+eq("Farmfresh big OR small both at rate - 0.03 (no 0.25 discount any more)", [salePrice(5.4, "farmfresh")], [5.37]);
+eq("classify: ledger local_sale -> local", classifySale({ category: "local_sale", label: "Ashok", eggs: 600 }), "local");
+eq("classify: 'sale' with a big lot -> farmfresh (big or small grade does not matter)", classifySale({ category: "sale", label: "Buy", eggs: 36330 }), "farmfresh");
+eq("classify: label says local -> local", classifySale({ category: "sale", label: "Local sale", eggs: 900 }), "local");
+eq("classify: a small lot of 120 eggs is never Farmfresh", classifySale({ category: "sale", label: "Sale", eggs: 120 }), "local");
+eq("classify: 150 eggs is still a small lot; 180 is not", [classifySale({ category: "sale", label: "Sale", eggs: 150 }), classifySale({ category: "sale", label: "Sale", eggs: 180 })], ["local", "farmfresh"]);
 process.exit(failed ? 1 : 0);

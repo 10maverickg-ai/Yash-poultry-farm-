@@ -22,8 +22,8 @@ export default async function RatesPage() {
     <>
       <h1>BAFTA egg rate</h1>
       <p className="muted">
-        Paste the daily SMS. The number after RS. is the price per 100 eggs (560 → ₹5.60 per egg). Big eggs sell at the rate − ₹0.03,
-        small at the rate − ₹0.25. A day without its own rate reuses the previous day&apos;s for up to 3 days and says “rate not updated”.
+        Paste the daily SMS. The number after RS. is the price per 100 eggs (560 → ₹5.60 per egg). Farmfresh pays the rate − ₹0.03 for big and small eggs;
+        local sales go at the rate + ₹0.01 (a person&apos;s name, “local”, or any lot up to about 150 eggs). A day without its own rate reuses the previous day&apos;s for up to 3 days and says “rate not updated”.
       </p>
       <RatesForm />
 
@@ -40,15 +40,15 @@ export default async function RatesPage() {
       <div className="table-wrap">
         <table>
           <thead>
-            <tr><th>Date</th><th>Per egg</th><th>Big</th><th>Small</th><th>Subsidy</th><th>Source</th></tr>
+            <tr><th>Date</th><th>Rate</th><th>Farmfresh</th><th>Local</th><th>Subsidy</th><th>Source</th></tr>
           </thead>
           <tbody>
             {rates.map((r) => (
               <tr key={r.date}>
                 <td>{r.date}</td>
                 <td>{r.bafta.toFixed(2)}</td>
-                <td>{r.big?.toFixed(2) ?? "—"}</td>
-                <td>{r.small?.toFixed(2) ?? "—"}</td>
+                <td>{(r.bafta - 0.03).toFixed(2)}</td>
+                <td>{(r.bafta + 0.01).toFixed(2)}</td>
                 <td>{r.subsidyPaise ? `${r.subsidyPaise} p` : "0"}</td>
                 <td className="muted">{r.source ?? ""}</td>
               </tr>

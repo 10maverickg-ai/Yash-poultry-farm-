@@ -5,8 +5,7 @@ type Q = Pick<PoolClient, "query">;
 export interface RateForDay {
   date: string; // the day asked for
   rateDate: string; // the day the rate actually belongs to
-  big: number;
-  small: number;
+  rate: number; // effective BAFTA rate (after subsidy) of rateDate
   carried: boolean; // true = "rate not updated": an earlier day's rate reused
 }
 
@@ -17,13 +16,13 @@ export const CARRY_DAYS = 3;
 
 export async function rateFor(db: Q, date: string): Promise<RateForDay | null> {
   const { rows } = await db.query(
-    `SELECT date, big_rate, small_rate FROM daily_egg_rates
-      WHERE date <= $1 AND date >= ($1::date - $2::int) AND big_rate IS NOT NULL AND small_rate IS NOT NULL
+    `SELECT date, bafta_rate FROM daily_egg_rates
+      WHERE date <= $1 AND date >= ($1::date - $2::int)
       ORDER BY date DESC LIMIT 1`,
     [date, CARRY_DAYS]
   );
   const r = rows[0];
   if (!r) return null;
-  return { date, rateDate: r.date, big: Number(r.big_rate), small: Number(r.small_rate), carried: r.date !== date };
+  return { date, rateDate: r.date, rate: Number(r.bafta_rate), carried: r.date !== date };
 }
 

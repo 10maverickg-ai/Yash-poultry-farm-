@@ -8,8 +8,6 @@ import type { EntryCategory, EggStockSection } from "@/lib/eggstock-types";
 export interface StoredRate {
   date: string;
   bafta: number; // effective per-egg rate as stored (after subsidy)
-  big: number | null;
-  small: number | null;
   per100: number | null;
   subsidyPaise: number;
   original: string | null;
@@ -21,15 +19,13 @@ export type { RateForDay } from "./lookup";
 
 export async function listRates(limit = 60): Promise<StoredRate[]> {
   const { rows } = await pool.query(
-    `SELECT date, bafta_rate, big_rate, small_rate, rate_per_100, subsidy_paise, original_text, source
+    `SELECT date, bafta_rate, rate_per_100, subsidy_paise, original_text, source
        FROM daily_egg_rates ORDER BY date DESC LIMIT $1`,
     [limit]
   );
   return rows.map((r) => ({
     date: r.date,
     bafta: Number(r.bafta_rate),
-    big: r.big_rate != null ? Number(r.big_rate) : null,
-    small: r.small_rate != null ? Number(r.small_rate) : null,
     per100: r.rate_per_100 != null ? Number(r.rate_per_100) : null,
     subsidyPaise: r.subsidy_paise ?? 0,
     original: r.original_text,
@@ -63,13 +59,13 @@ export async function saveRates(entries: RateToSave[]): Promise<{ saved: number;
       const n = rateNumbers(e.per100, e.subsidyPaise);
       await client.query(
         `INSERT INTO daily_egg_rates
-           (date, bafta_rate, big_rate, small_rate, source, rate_per_100, subsidy_paise, original_text, date_in_message, carried_forward)
-         VALUES ($1,$2,$3,$4,'pasted rate message',$5,$6,$7,$8,false)
+           (date, bafta_rate, source, rate_per_100, subsidy_paise, original_text, date_in_message, carried_forward)
+         VALUES ($1,$2,'pasted rate message',$3,$4,$5,$6,false)
          ON CONFLICT (date) DO UPDATE SET
-           bafta_rate = EXCLUDED.bafta_rate, big_rate = EXCLUDED.big_rate, small_rate = EXCLUDED.small_rate,
+           bafta_rate = EXCLUDED.bafta_rate,
            source = EXCLUDED.source, rate_per_100 = EXCLUDED.rate_per_100, subsidy_paise = EXCLUDED.subsidy_paise,
            original_text = EXCLUDED.original_text, date_in_message = EXCLUDED.date_in_message, carried_forward = false`,
-        [e.date, n.effective, n.big, n.small, e.per100, e.subsidyPaise, e.original, e.dateInMessage]
+        [e.date, n.effective, e.per100, e.subsidyPaise, e.original, e.dateInMessage]
       );
     }
     for (const e of entries) salesCreated += await createMissingSalesForDate(client, e.date);

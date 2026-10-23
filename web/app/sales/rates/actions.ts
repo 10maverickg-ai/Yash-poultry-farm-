@@ -15,8 +15,8 @@ export interface PreviewRow {
   notes: string[];
   existing: number | null; // rate already stored for the date (will be replaced)
   effective: number;
-  big: number;
-  small: number;
+  farmfresh: number;
+  local: number;
 }
 export interface PreviewState {
   rows: PreviewRow[];
@@ -77,8 +77,8 @@ export async function previewRates(_prev: PreviewState | null, formData: FormDat
         notes: p.notes,
         existing: date ? existing.get(date) ?? null : null,
         effective: n.effective,
-        big: n.big,
-        small: n.small,
+        farmfresh: n.farmfresh,
+        local: n.local,
       };
     });
     return { rows };

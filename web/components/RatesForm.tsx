@@ -56,7 +56,7 @@ export function RatesForm() {
                 <div className="rate-nums">
                   <span><b>₹{(r.per100 / 100).toFixed(2)}</b> per egg ({r.per100} per 100)</span>
                   <span>subsidy {r.subsidyPaise} paise → <b>₹{r.effective.toFixed(2)}</b></span>
-                  <span>big ₹{r.big.toFixed(2)} · small ₹{r.small.toFixed(2)}</span>
+                  <span>Farmfresh ₹{r.farmfresh.toFixed(2)} (big or small) · local ₹{r.local.toFixed(2)}</span>
                 </div>
                 {r.existing != null && <div className="flag-banner">Replaces the rate already saved for this date (₹{r.existing.toFixed(2)}).</div>}
                 {mismatch && (

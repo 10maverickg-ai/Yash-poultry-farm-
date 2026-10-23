@@ -86,13 +86,40 @@ export function parseRateMessages(text: string): ParsedRate[] {
 
 export interface RateNumbers {
   perEgg: number; // as messaged (per100 / 100)
-  effective: number; // after subsidy
-  big: number;
-  small: number;
+  effective: number; // after subsidy: "the rate"
+  farmfresh: number; // Farmfresh sale price per egg, big OR small = rate - 0.03
+  local: number; // local sale price per egg = rate + 0.01
 }
 const r2 = (x: number) => Math.round(x * 100) / 100;
+
+// Owner (V5 follow-up F3): Farmfresh buys big AND small eggs at rate - 0.03;
+// local sales go at rate + 0.01. The old small-egg price (rate - 0.25) is scrapped.
+export const FARMFRESH_DISCOUNT = 0.03;
+export const LOCAL_PREMIUM = 0.01;
+/** A lot this small is never a Farmfresh collection: it is a local sale. */
+export const SMALL_LOT_MAX_EGGS = 150;
+
 export function rateNumbers(per100: number, subsidyPaise: number): RateNumbers {
   const perEgg = per100 / 100;
   const effective = r2(perEgg - subsidyPaise / 100);
-  return { perEgg: r2(perEgg), effective, big: r2(effective - 0.03), small: r2(effective - 0.25) };
+  return { perEgg: r2(perEgg), effective, farmfresh: r2(effective - FARMFRESH_DISCOUNT), local: r2(effective + LOCAL_PREMIUM) };
+}
+
+export type SaleKind = "farmfresh" | "local";
+
+/**
+ * Farmfresh or local? A ledger line categorised local_sale, a label that says
+ * "local", or any lot up to SMALL_LOT_MAX_EGGS is local (a person's name is
+ * categorised local_sale by the ledger step). Everything else sold is Farmfresh.
+ */
+export function classifySale(input: { category: string | null; label: string; eggs: number }): SaleKind {
+  if (input.category === "local_sale") return "local";
+  if (Math.abs(input.eggs) <= SMALL_LOT_MAX_EGGS) return "local";
+  if (/\blocal\b/i.test(input.label)) return "local";
+  return "farmfresh";
+}
+
+/** Price per egg for a sale, from the day's rate (the effective BAFTA rate after subsidy). */
+export function salePrice(rate: number, kind: SaleKind): number {
+  return r2(kind === "farmfresh" ? rate - FARMFRESH_DISCOUNT : rate + LOCAL_PREMIUM);
 }

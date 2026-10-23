@@ -34,6 +34,7 @@ Gate per item: `tsc`, `eslint`, `next build` pass. Status: todo / built / debugg
 | 9.3 | September test dates | todo (blocked) | the September rows have no stored photos (hand-entered backfill; source_photo_url is null for all 30 days), so there is nothing to read; also blocked by credits |
 | F1 | Egg build-up rule (follow-up) | built | fires only above 5 days of production (big+small) OR 4+ days since the last Farmfresh sale; Sept 23 → 6 alerts, August 9 → 0; 28 self-tests pass (`--include-cleared` evaluates August) |
 | F2 | Missing-day: both ledger sections | built | a day is complete when it has a big AND a small egg_stock_summary row (Sep 3 now ok; was 1 alert, now 0; a day with only one section still alerts) |
+| F3 | Pricing of new ledger sales | built | Farmfresh (big OR small) = rate − 0.03; local (category local_sale, label "local", or a lot ≤150 eggs) = rate + 0.01; enum `sales_transaction_type` += `local` (migration 0033, applied live); rate save no longer writes the generated big_rate/small_rate columns (live has both GENERATED ALWAYS — my first version would have failed there; local test DB now mirrors that); existing sales rows are never re-typed or repriced; tested in browser: rate 5.00 → 4.97 / 4.97 / 5.01 / 5.01 for 7,200 big, 36,330 small, 120-egg lot, "Ashok" |
 | F4 | Never alert on reviewed / section-3 items | built | August dates return no alerts by default; owner-confirmed rows (Sep 8/9 feed cells, Sep 15 BAB-3 eggs) skipped via `neverFlag` on rows; reviewed rows suppressed (tests) |
 | Z | Debug everything | built (partly) | route sweep 29 routes × 360/390 px: all 200, no horizontal scroll, no console errors; fixed day-nav wrapping and <40 px tap targets; 13 regression scripts 244 checks pass; own self-tests: analytics 21, rates 14, costs 7, knowledge idempotent; live-schema smoke queries for every new page run OK against live Supabase; never-flag filter verified on local copy; Vercel preview pending at time of writing |
 
@@ -48,6 +49,7 @@ Gate per item: `tsc`, `eslint`, `next build` pass. Status: todo / built / debugg
 - 8.2: no per-cell photo crop (old reader returns no coordinates); the whole day's photo is shown instead.
 
 ## Needs owner
+- F3: `small_rate` (rate − 0.25) is scrapped and no longer used anywhere. Run when ready: `ALTER TABLE daily_egg_rates DROP COLUMN small_rate;` (it is a generated column; `big_rate` = rate − 0.03 equals the Farmfresh price and can stay).
 - (Done by the owner meanwhile: as of 23 Oct the live database already holds BAFTA rates 2026-08-01..10-19 (64 days) and 27 September sales rows; 6 of them are priced differently from the grade rate, e.g. Farmfresh small eggs at the big rate — that is the owner's own entry, left untouched.)
 - Real placement dates of BAB-8, 9, 10 (placeholder 2026-01-01).
 - Exact BAB-5 moulting start date (pre-filled Aug 15 2026, inferred).
