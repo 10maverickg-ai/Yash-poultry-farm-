@@ -16,8 +16,8 @@ Gate per item: `tsc`, `eslint`, `next build` pass. Status: todo / built / debugg
 | 3.2 | Placeholder-age flocks: no standard check | built | flocks with placement 2026-01-01 and placement_date_confirmed not true show "age unknown, no standard check"; real flock name (flocks.display_label) everywhere with register label secondary |
 | 3.3 | Revenue / cost / profit on analytics | todo | needs 4, 5 |
 | 3.4 | Drop `_stage_dp` | todo (blocked) | verified no views/FKs/functions depend on it (100 rows); `DROP TABLE` via Supabase tool times out at 60 s because destructive SQL waits for a confirmation I cannot give. SQL in Needs owner |
-| 4.1 | BAFTA rate entry | todo | |
-| 4.2 | Sales rows from ledger lines when rates exist | todo | |
+| 4.1 | BAFTA rate entry | built | /sales/rates: paste one or many SMS (parser tested, 14 cases, `node web/scripts/rates-check.mts`), preview, date-mismatch stop, replace-warning, subsidy note; screenshot path calls Anthropic vision only if a key is set (NOT tested) |
+| 4.2 | Sales rows from ledger lines when rates exist | built | on save, missing sales rows are created for those days (big/small price, amount = eggs × price, both links set, never duplicated); new uploads reuse a rate up to 3 days old else stay unpriced. Tested on local copy of real rows |
 | 5.1 | Cost settings | todo | |
 | 5.2 | Daily/monthly profit | todo | |
 | 6.1 | Knowledge tables + screens | todo | |
@@ -55,7 +55,7 @@ Gate per item: `tsc`, `eslint`, `next build` pass. Status: todo / built / debugg
 - First non-zero BAFTA subsidy: confirm effective rate = rate − subsidy/100.
 
 ## Could not test
-(none yet)
+- Rate screenshot reading (vision): needs ANTHROPIC_API_KEY; code path written, not run.
 
 ## Decisions
 - `flocks.display_label` IS the real flock name (V5 §2: Sep 9 register shows DB flocks BAB-3,4,5,6,7,10,9,8). My earlier PR #17 note calling it stale was wrong; analytics and the review screen now show it first and the register label as secondary text.

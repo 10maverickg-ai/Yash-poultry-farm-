@@ -1,0 +1,98 @@
+// Reads the daily BAFTA rate SMS by meaning, not by one fixed layout. Pure
+// functions only (no DB), so scripts/rates-check.mts can test them.
+//
+//   "OCTOBER 19, 2026 BFTA EGG RATE RS.560/- Subsidy for 0 Paise"
+//
+// RS.<n> is the price per 100 eggs (560 -> 5.60 per egg). Subsidy is in paise
+// per egg. Effective per-egg rate = rate/100 - subsidy_paise/100 (assumed:
+// the owner confirms this the first time a non-zero subsidy appears). Big
+// eggs sell at effective - 0.03, small at effective - 0.25.
+
+export interface ParsedRate {
+  date: string | null; // YYYY-MM-DD read from the message; null if none found
+  per100: number;
+  subsidyPaise: number;
+  original: string;
+  notes: string[];
+}
+
+const MONTHS: Record<string, number> = {
+  jan: 1, january: 1, feb: 2, february: 2, mar: 3, march: 3, apr: 4, april: 4, may: 5,
+  jun: 6, june: 6, jul: 7, july: 7, aug: 8, august: 8, sep: 9, sept: 9, september: 9,
+  oct: 10, october: 10, nov: 11, november: 11, dec: 12, december: 12,
+};
+
+const pad = (n: number) => String(n).padStart(2, "0");
+const validDate = (y: number, m: number, d: number) => {
+  if (m < 1 || m > 12 || d < 1 || d > 31 || y < 2000 || y > 2100) return null;
+  const t = new Date(Date.UTC(y, m - 1, d));
+  if (t.getUTCMonth() !== m - 1) return null;
+  return `${y}-${pad(m)}-${pad(d)}`;
+};
+
+/** Finds a date written as "OCTOBER 19, 2026", "19 Oct 2026", "19/10/2026", "19-10-26" or "2026-10-19". */
+export function findDate(text: string): string | null {
+  let m = text.match(/\b(\d{4})-(\d{1,2})-(\d{1,2})\b/);
+  if (m) return validDate(+m[1], +m[2], +m[3]);
+  m = text.match(/\b([A-Za-z]{3,9})\.?\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{4})\b/);
+  if (m && MONTHS[m[1].toLowerCase()]) return validDate(+m[3], MONTHS[m[1].toLowerCase()], +m[2]);
+  m = text.match(/\b(\d{1,2})(?:st|nd|rd|th)?[\s-]+([A-Za-z]{3,9})\.?,?[\s-]+(\d{2,4})\b/);
+  if (m && MONTHS[m[2].toLowerCase()]) return validDate(+m[3] < 100 ? 2000 + +m[3] : +m[3], MONTHS[m[2].toLowerCase()], +m[1]);
+  m = text.match(/\b(\d{1,2})[/.-](\d{1,2})[/.-](\d{2,4})\b/);
+  if (m) return validDate(+m[3] < 100 ? 2000 + +m[3] : +m[3], +m[2], +m[1]); // day first, as written in India
+  return null;
+}
+
+/** Splits pasted text into one chunk per message (a new chunk starts at each date). */
+function chunks(text: string): string[] {
+  const clean = text.replace(/\r/g, "\n").replace(/[ \t]+/g, " ").trim();
+  if (!clean) return [];
+  const re = /(?:^|\n)(?=[^\n]*(?:\b[A-Za-z]{3,9}\.?\s+\d{1,2}(?:st|nd|rd|th)?,?\s+\d{4}|\b\d{1,2}(?:st|nd|rd|th)?[\s-]+[A-Za-z]{3,9}\.?,?[\s-]+\d{2,4}|\b\d{1,2}[/.-]\d{1,2}[/.-]\d{2,4}|\b\d{4}-\d{1,2}-\d{1,2}\b))/;
+  // Re-join lines so a message wrapped over several lines stays together:
+  // a new message starts on a line that contains a date AND (later) a rate.
+  const lines = clean.split("\n");
+  const out: string[] = [];
+  let cur = "";
+  for (const line of lines) {
+    const startsNew = re.test("\n" + line) && /RS\.?|₹|INR|RATE/i.test(line + cur);
+    if (startsNew && cur && /(?:RS\.?|₹|INR)\s*\d/i.test(cur)) {
+      out.push(cur.trim());
+      cur = line;
+    } else cur += (cur ? " " : "") + line;
+  }
+  if (cur.trim()) out.push(cur.trim());
+  return out;
+}
+
+export function parseRateMessages(text: string): ParsedRate[] {
+  const res: ParsedRate[] = [];
+  for (const chunk of chunks(text)) {
+    const notes: string[] = [];
+    // price per 100: number after RS / Rs. / ₹ / INR; tolerate "RS.560/-", "Rs 560", "560/-"
+    const rate = chunk.match(/(?:RS\.?|₹|INR)\s*\.?\s*(\d{2,4}(?:\.\d+)?)/i) ?? chunk.match(/\b(\d{3,4}(?:\.\d+)?)\s*\/-/);
+    if (!rate) continue;
+    const per100 = Number(rate[1]);
+    if (!(per100 >= 100 && per100 <= 2000)) {
+      notes.push(`Rate ${per100} per 100 looks wrong (expected roughly 400–800).`);
+    }
+    const sub = chunk.match(/subsidy\s*(?:for|of|:)?\s*(\d+(?:\.\d+)?)\s*paise/i) ?? chunk.match(/(\d+(?:\.\d+)?)\s*paise/i);
+    const subsidyPaise = sub ? Math.round(Number(sub[1])) : 0;
+    if (!sub) notes.push("No subsidy line found; assumed 0 paise.");
+    if (subsidyPaise > 0) notes.push(`Subsidy ${subsidyPaise} paise: effective rate assumed = rate − subsidy/100 per egg. Please confirm this the first time.`);
+    res.push({ date: findDate(chunk), per100, subsidyPaise, original: chunk, notes });
+  }
+  return res;
+}
+
+export interface RateNumbers {
+  perEgg: number; // as messaged (per100 / 100)
+  effective: number; // after subsidy
+  big: number;
+  small: number;
+}
+const r2 = (x: number) => Math.round(x * 100) / 100;
+export function rateNumbers(per100: number, subsidyPaise: number): RateNumbers {
+  const perEgg = per100 / 100;
+  const effective = r2(perEgg - subsidyPaise / 100);
+  return { perEgg: r2(perEgg), effective, big: r2(effective - 0.03), small: r2(effective - 0.25) };
+}

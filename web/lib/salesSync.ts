@@ -1,6 +1,7 @@
 import type { PoolClient } from "pg";
 import type { EntryCategory, EggStockSection } from "./eggstock-types";
 import { ACTIVE_FARM } from "./farm";
+import { rateFor } from "./rates/lookup";
 
 // Shared between the manual Egg Stock entry screen (app/egg-stock/actions.ts)
 // and the photo-upload pipeline (lib/extraction/writeLedgerFeed.ts) — owner
@@ -61,14 +62,22 @@ export async function syncSaleForEntry(
     const transactionType = inferTransactionType(entry.category, entry.labelAsWritten);
     if (entry.linkedSaleId) {
       await client.query(
-        `UPDATE sales SET date = $2, buyer_or_recipient = $3, eggs_quantity = $4, transaction_type = $5, grade = $6 WHERE id = $1`,
+        `UPDATE sales SET date = $2, buyer_or_recipient = $3, eggs_quantity = $4, transaction_type = $5, grade = $6,
+                amount = CASE WHEN price_per_unit IS NOT NULL THEN round($4::numeric * price_per_unit, 2) ELSE amount END
+          WHERE id = $1`,
         [entry.linkedSaleId, date, buyer, qty, transactionType, section]
       );
     } else {
+      // Price from that day's BAFTA rate (big/small grade); a day without its
+      // own rate reuses the previous day's for up to 3 days ("rate not
+      // updated" on the Sales page); beyond that the row is created unpriced
+      // rather than guessed.
+      const rate = await rateFor(client, date);
+      const price = rate ? (section === "big" ? rate.big : rate.small) : null;
       const { rows } = await client.query(
-        `INSERT INTO sales (date, farm_code, source_ledger_entry_id, transaction_type, buyer_or_recipient, eggs_quantity, grade)
-         VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
-        [date, farmCode, entry.id, transactionType, buyer, qty, section]
+        `INSERT INTO sales (date, farm_code, source_ledger_entry_id, transaction_type, buyer_or_recipient, eggs_quantity, grade, price_per_unit, amount)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
+        [date, farmCode, entry.id, transactionType, buyer, qty, section, price, price != null ? Math.round(qty * price * 100) / 100 : null]
       );
       await client.query(`UPDATE daily_egg_stock_entries SET linked_sale_id = $2 WHERE id = $1`, [entry.id, rows[0].id]);
     }

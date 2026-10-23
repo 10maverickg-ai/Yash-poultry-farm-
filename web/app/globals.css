@@ -586,3 +586,11 @@ main { padding-bottom: 5.5rem; }
   .bottom-nav { display: none; }
   main { padding-bottom: 1rem; }
 }
+
+/* --- /sales/rates --- */
+.rate-row { display: grid; gap: 0.5rem; padding: 0.7rem 0; border-top: 1px solid var(--line); }
+.rate-row:first-of-type { border-top: none; }
+.rate-use { display: flex; gap: 0.5rem; align-items: center; font-weight: 600; min-height: 44px; }
+.rate-nums { display: grid; gap: 0.15rem; font-size: 0.92rem; }
+.rate-confirm { display: flex; gap: 0.5rem; align-items: start; }
+textarea { width: 100%; font: inherit; padding: 0.55rem 0.7rem; border: 1px solid var(--line); border-radius: 8px; }
