@@ -520,7 +520,7 @@ button:hover,
 .an-sub { font-size: 0.85rem; margin: 0 0 0.6rem; }
 .an-foot { font-size: 0.8rem; margin: 0.4rem 0 1rem; }
 .an-tiny { font-size: 0.78rem; }
-.an-small { padding: 0.35rem 0.7rem; font-size: 0.85rem; }
+.an-small { padding: 0.35rem 0.7rem; font-size: 0.85rem; min-height: 40px; }
 .an-picker { display: flex; gap: 0.6rem; align-items: end; }
 .an-picker .field { flex: 1; }
 .an-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem; }
@@ -583,8 +583,10 @@ button:hover,
 .hd-written input { font-size: 0.9rem; padding: 0.35rem 0.5rem; }
 
 /* --- /day --- */
-.day-nav { display: flex; gap: 0.5rem; align-items: center; justify-content: space-between; margin-bottom: 0.8rem; }
-.day-pick { display: flex; gap: 0.4rem; }
+.day-nav { display: flex; gap: 0.4rem; align-items: center; justify-content: space-between; margin-bottom: 0.8rem; }
+.day-nav .btn { white-space: nowrap; padding: 0.55rem 0.6rem; min-height: 44px; display: inline-flex; align-items: center; }
+.day-pick { display: flex; gap: 0.3rem; flex: 1; min-width: 0; }
+.day-pick input { min-width: 0; width: 100%; }
 .day-flock-head { display: flex; justify-content: space-between; align-items: start; gap: 0.5rem; }
 .day-hd { text-align: right; }
 .day-nums { display: flex; flex-wrap: wrap; gap: 0.3rem 1rem; font-size: 0.9rem; margin-top: 0.3rem; }

@@ -12,7 +12,7 @@ Gate per item: `tsc`, `eslint`, `next build` pass. Status: todo / built / debugg
 | 2.1 | HD% display | built | calculated HD large+read-only on production form, new /day page (flock rows + day total); written % small optional |
 | 2.2 | Sales page (Aug sales, Sep lines, bird sales) | built | 26 Aug sales shown; 27 Sept sale/local lines listed as "waiting for a rate" (no guessing); bird sales table from flock_movements (4 rows at ₹73 exist live); links to /sales/rates (item 4.1) |
 | 2.3 | Navigation: seven sections | built | bottom nav on phones, header links on wide screens, sub-nav per section; Purchases/Medicines/rates/batches/moulting pages arrive with their items |
-| 3.1 | Alert rules (owner-decided) | built | rules in `web/lib/analytics/engine.ts` RULES; never-flag filter in `web/lib/neverFlag.ts`; 22 self-tests pass (`node web/scripts/analytics-check.mts <fixtures> --selftest`). Counts on real data: Aug prod-drop 12, mort 4, low-feed 12, egg 9; Sep prod-drop 8, mort 2, low-feed 5, egg 23, missing 1 |
+| 3.1 | Alert rules (owner-decided) | built | rules in `web/lib/analytics/engine.ts` RULES; never-flag filter in `web/lib/neverFlag.ts`; 21 self-tests pass (`node web/scripts/analytics-check.mts <fixtures> --selftest`). Counts on real data: Aug prod-drop 12, mort 4, low-feed 12, egg 9; Sep prod-drop 8, mort 2, low-feed 5, egg 23, missing 1 |
 | 3.2 | Placeholder-age flocks: no standard check | built | flocks with placement 2026-01-01 and placement_date_confirmed not true show "age unknown, no standard check"; real flock name (flocks.display_label) everywhere with register label secondary |
 | 3.3 | Revenue / cost / profit on analytics | built | Money card (revenue, cost, profit, revenue/egg vs cost/egg) + month view profit column + watch item; unpriced eggs shown as "left out", never guessed (September has no rates yet) |
 | 3.4 | Drop `_stage_dp` | todo (blocked) | verified no views/FKs/functions depend on it (100 rows); `DROP TABLE` via Supabase tool times out at 60 s because destructive SQL waits for a confirmation I cannot give. SQL in Needs owner |
@@ -45,7 +45,7 @@ Gate per item: `tsc`, `eslint`, `next build` pass. Status: todo / built / debugg
 - 8.2: no per-cell photo crop (old reader returns no coordinates); the whole day's photo is shown instead.
 
 ## Needs owner
-- September BAFTA rates.
+- (Done by the owner meanwhile: as of 23 Oct the live database already holds BAFTA rates 2026-08-01..10-19 (64 days) and 27 September sales rows; 6 of them are priced differently from the grade rate, e.g. Farmfresh small eggs at the big rate — that is the owner's own entry, left untouched.)
 - Real placement dates of BAB-8, 9, 10 (placeholder 2026-01-01).
 - Exact BAB-5 moulting start date (pre-filled Aug 15 2026, inferred).
 - Knowledge content files (including any vaccination schedule).
