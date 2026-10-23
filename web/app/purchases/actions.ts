@@ -74,3 +74,68 @@ export async function addDiesel(formData: FormData) {
   revalidatePath("/purchases");
   back("Diesel saved.", true);
 }
+
+// ---- monthly "inputs still missing" checklist ---------------------------------
+const MONTH_INPUTS = ["electricity", "diesel", "medicines", "labour", "packing"] as const;
+
+async function setStatus(month: string, key: string, status: "none" | "confirmed") {
+  await pool.query(
+    `INSERT INTO monthly_input_status (farm_code, month, input_key, status) VALUES ($1,$2,$3,$4)
+     ON CONFLICT (farm_code, month, input_key) DO UPDATE SET status = EXCLUDED.status, created_at = now()`,
+    [ACTIVE_FARM, month, key, status]
+  );
+}
+
+export async function completeMonthInput(month: string, key: string, formData: FormData) {
+  if (!/^\d{4}-\d{2}$/.test(month) || !(MONTH_INPUTS as readonly string[]).includes(key)) back("Unknown month or item.");
+  const first = `${month}-01`;
+  const num = (name: string) => positive(formData.get(name));
+  const none = formData.get("none") !== null;
+
+  if (key === "electricity") {
+    const v = num("value");
+    if (v == null) back("Enter the electricity bill in rupees.");
+    await pool.query(
+      `INSERT INTO cost_settings (farm_code, cost_type, value, unit, effective_from, month, note) VALUES ($1,'electricity_month',$2,'INR/month',$3,$4,'Entered from the monthly checklist')`,
+      [ACTIVE_FARM, v, first, month]
+    );
+  } else if (key === "diesel") {
+    if (none) await setStatus(month, "diesel", "none");
+    else {
+      const litres = num("litres");
+      const amount = num("amount_inr");
+      const date = String(formData.get("date") ?? first);
+      if (litres == null || litres <= 0 || amount == null) back("Enter litres and amount, or tap “None this month”.");
+      if (!iso.test(date) || !date.startsWith(month)) back("The date must be inside that month.");
+      await pool.query(`INSERT INTO diesel_purchases (farm_code, date, litres, amount_inr, note) VALUES ($1,$2,$3,$4,'Entered from the monthly checklist')`, [ACTIVE_FARM, date, litres, amount]);
+    }
+  } else if (key === "medicines") {
+    if (none) await setStatus(month, "medicines", "none");
+    else {
+      const amount = num("amount_inr");
+      const item = String(formData.get("item") ?? "").trim();
+      const date = String(formData.get("date") ?? first);
+      if (!item || amount == null) back("Say what was bought and the amount, or tap “None this month”.");
+      if (!iso.test(date) || !date.startsWith(month)) back("The date must be inside that month.");
+      await pool.query(`INSERT INTO purchases (farm_code, date, category, item, amount_inr, note) VALUES ($1,$2,'medicine',$3,$4,'Entered from the monthly checklist')`, [ACTIVE_FARM, date, item, amount]);
+    }
+  } else if (key === "labour") {
+    const v = num("value");
+    if (v == null) back("Enter the labour total for the month in rupees.");
+    await pool.query(
+      `INSERT INTO cost_settings (farm_code, cost_type, value, unit, effective_from, month, note) VALUES ($1,'labour_month',$2,'INR/month',$3,$4,'Confirmed from the monthly checklist')`,
+      [ACTIVE_FARM, v, first, month]
+    );
+    await setStatus(month, "labour", "confirmed");
+  } else if (key === "packing") {
+    const v = num("value");
+    if (v == null) back("Enter the packing cost per tray in rupees.");
+    const cur = await pool.query(`SELECT value FROM cost_settings WHERE farm_code = $1 AND cost_type = 'packing_per_tray' AND month IS NULL AND effective_from <= $2 ORDER BY effective_from DESC LIMIT 1`, [ACTIVE_FARM, first]);
+    if (!cur.rows[0] || Number(cur.rows[0].value) !== v) {
+      await pool.query(`INSERT INTO cost_settings (farm_code, cost_type, value, unit, effective_from, note) VALUES ($1,'packing_per_tray',$2,'INR/tray',$3,'Changed from the monthly checklist')`, [ACTIVE_FARM, v, first]);
+    }
+    await setStatus(month, "packing", "confirmed");
+  }
+  revalidatePath("/purchases");
+  back("Saved.", true);
+}

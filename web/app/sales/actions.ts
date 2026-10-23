@@ -15,6 +15,7 @@ import {
 const TRANSACTION_TYPES = [
   "sale_farmfresh",
   "sale_wholesaler",
+  "local",
   "gift",
   "staff_allocation",
   "other",
@@ -52,4 +53,17 @@ export async function updateSale(
   }
   revalidatePath("/sales");
   redirect("/sales?saved=1");
+}
+
+// The buyer of an old-bird sale is not recorded yet; the owner can add it here.
+// Left empty it stays empty (nothing is guessed). Only movements of type 'sale'
+// can be changed through this.
+export async function setBirdSaleBuyer(id: number, formData: FormData) {
+  const buyer = String(formData.get("buyer") ?? "").trim().slice(0, 80);
+  await pool.query(
+    `UPDATE flock_movements SET buyer = $2 WHERE id = $1 AND farm_code = $3 AND movement_type = 'sale'`,
+    [id, buyer === "" ? null : buyer, ACTIVE_FARM]
+  );
+  revalidatePath("/sales");
+  redirect("/sales");
 }

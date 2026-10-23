@@ -74,3 +74,26 @@ export async function listBirdSales(): Promise<BirdSale[]> {
     };
   });
 }
+
+export interface AnilMovement {
+  id: number;
+  date: string;
+  flockName: string;
+  birds: number; // signed: negative = left Yash farm for Anil farm, positive = came from Anil farm
+  reason: string | null;
+}
+
+// Birds that went to (or came from) Anil farm — the family farm next door.
+// They are TRANSFERS: never counted as a sale and never as a loss. A movement
+// counts as Anil farm when its buyer/counterpart text or the owner's reason says so.
+export async function listAnilMovements(): Promise<AnilMovement[]> {
+  const { rows } = await pool.query(
+    `SELECT m.id, m.date, f.display_label AS flock_name, m.birds_change, m.reason
+       FROM flock_movements m JOIN flocks f USING (flock_internal_id)
+      WHERE m.farm_code = $1 AND m.movement_type <> 'sale'
+        AND (m.buyer ILIKE '%anil%' OR m.reason ILIKE '%anil%')
+      ORDER BY m.date DESC, m.id DESC`,
+    [ACTIVE_FARM]
+  );
+  return rows.map((r) => ({ id: Number(r.id), date: r.date, flockName: r.flock_name, birds: r.birds_change, reason: r.reason }));
+}

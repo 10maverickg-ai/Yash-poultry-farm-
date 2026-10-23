@@ -639,3 +639,12 @@ textarea { width: 100%; font: inherit; padding: 0.55rem 0.7rem; border: 1px soli
 .fr-photo img { width: 100%; max-height: 180px; object-fit: cover; object-position: top; border: 1px solid var(--line); border-radius: 8px; }
 .an-verdict { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; margin-bottom: 0.5rem; }
 .an-v-on { background: var(--ink); color: #fff; }
+.buyer-form { display: flex; gap: 0.3rem; align-items: center; }
+.buyer-form input { min-width: 8rem; padding: 0.35rem 0.5rem; }
+
+/* --- monthly inputs checklist --- */
+.checklist summary { cursor: pointer; font-weight: 600; min-height: 44px; display: flex; align-items: center; }
+.check-item { display: grid; gap: 0.4rem; padding: 0.6rem 0; border-top: 1px solid var(--line); }
+.check-done { opacity: 0.7; }
+.check-form { display: flex; gap: 0.4rem; flex-wrap: wrap; align-items: center; }
+.check-form input { flex: 1 1 6rem; min-width: 0; }

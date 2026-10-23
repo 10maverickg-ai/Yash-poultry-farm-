@@ -4,7 +4,8 @@ import { ACTIVE_FARM } from "@/lib/farm";
 import { loadCostInput } from "@/lib/costs/load";
 import { monthEconomics } from "@/lib/costs/engine";
 import { ExportLinks } from "@/components/ExportLinks";
-import { addCostSetting, addPurchase, addDiesel } from "./actions";
+import { addCostSetting, addPurchase, addDiesel, completeMonthInput } from "./actions";
+import { monthChecklist, type ChecklistItem } from "@/lib/costs/inputs";
 
 export const dynamic = "force-dynamic";
 
@@ -17,6 +18,31 @@ const TYPE_LABEL: Record<string, string> = {
   packing_per_tray: "Packing per tray sold",
 };
 
+function Checklist({ month, items }: { month: string; items: ChecklistItem[] }) {
+  const missing = items.filter((i) => !i.done);
+  return (
+    <details className="card checklist" open={missing.length > 0}>
+      <summary>
+        {missing.length === 0 ? "All monthly inputs dealt with ✓" : `${missing.length} input${missing.length === 1 ? "" : "s"} still missing — tap to complete (about 2 minutes)`}
+      </summary>
+      {items.map((i) => (
+        <div key={i.key} className={`check-item ${i.done ? "check-done" : ""}`}>
+          <div><b>{i.done ? "✓" : "○"} {i.label}</b> <span className="muted an-tiny">— {i.how}</span></div>
+          {!i.done && (
+            <form action={completeMonthInput.bind(null, month, i.key)} className="check-form">
+              {i.key === "electricity" && (<><input type="number" name="value" step="0.01" min="0" inputMode="decimal" placeholder="Bill ₹" aria-label="Electricity bill in rupees" /><button type="submit">Save</button></>)}
+              {i.key === "diesel" && (<><input type="number" name="litres" step="0.1" min="0" inputMode="decimal" placeholder="Litres" aria-label="Litres" /><input type="number" name="amount_inr" step="0.01" min="0" inputMode="decimal" placeholder="₹" aria-label="Amount in rupees" /><input type="date" name="date" defaultValue={`${month}-01`} min={`${month}-01`} aria-label="Date" /><button type="submit">Save</button><button type="submit" name="none" value="1" className="btn-secondary">None this month</button></>)}
+              {i.key === "medicines" && (<><input type="text" name="item" placeholder="What" aria-label="What was bought" /><input type="number" name="amount_inr" step="0.01" min="0" inputMode="decimal" placeholder="₹" aria-label="Amount in rupees" /><input type="date" name="date" defaultValue={`${month}-01`} min={`${month}-01`} aria-label="Date" /><button type="submit">Save</button><button type="submit" name="none" value="1" className="btn-secondary">None this month</button></>)}
+              {i.key === "labour" && (<><input type="number" name="value" step="0.01" min="0" inputMode="decimal" defaultValue={i.standing} aria-label="Labour total for the month in rupees" /><button type="submit">Confirm this month</button></>)}
+              {i.key === "packing" && (<><input type="number" name="value" step="0.01" min="0" inputMode="decimal" defaultValue={i.standing} aria-label="Packing cost per tray in rupees" /><button type="submit">Confirm</button></>)}
+            </form>
+          )}
+        </div>
+      ))}
+    </details>
+  );
+}
+
 export default async function PurchasesPage({ searchParams }: { searchParams: Promise<{ saved?: string; error?: string }> }) {
   const sp = await searchParams;
   const today = new Date().toISOString().slice(0, 10);
@@ -27,6 +53,8 @@ export default async function PurchasesPage({ searchParams }: { searchParams: Pr
     pool.query(`SELECT date, litres, amount_inr FROM diesel_purchases WHERE farm_code = $1 ORDER BY date DESC, id DESC LIMIT 15`, [ACTIVE_FARM]),
   ]);
   const months = [...new Set(input.prod.map((p) => p.date.slice(0, 7)))].sort().reverse();
+  const checklists = new Map<string, ChecklistItem[]>();
+  for (const m of months) checklists.set(m, await monthChecklist(m));
 
   return (
     <>
@@ -51,7 +79,7 @@ export default async function PurchasesPage({ searchParams }: { searchParams: Pr
             <table className="an-table" style={{ minWidth: 0 }}>
               <tbody>
                 <tr><td>Feed</td><td className="num">₹{inr(e.cost.feed)}</td></tr>
-                <tr><td>Electricity</td><td className="num">₹{inr(e.cost.electricity)}</td></tr>
+                <tr><td>Electricity</td><td className="num">{e.missing.some((x) => x.startsWith("electricity")) ? <span className="badge badge-flagged">missing: not entered</span> : `₹${inr(e.cost.electricity)}`}</td></tr>
                 <tr><td>Labour</td><td className="num">₹{inr(e.cost.labour)}</td></tr>
                 <tr><td>Packing</td><td className="num">₹{inr(e.cost.packing)}</td></tr>
                 <tr><td>Diesel</td><td className="num">₹{inr(e.cost.diesel)}</td></tr>
@@ -59,13 +87,14 @@ export default async function PurchasesPage({ searchParams }: { searchParams: Pr
                 <tr><td>Other purchases</td><td className="num">₹{inr(e.cost.other)}</td></tr>
               </tbody>
               <tfoot>
-                <tr><th>Total cost</th><th className="num">₹{inr(e.cost.total)}</th></tr>
+                <tr><th>Total cost so far{e.missing.length ? " (incomplete)" : ""} <span className="muted an-tiny">estimate</span></th><th className="num">₹{inr(e.cost.total)}</th></tr>
                 <tr><td>Egg revenue (priced sales)</td><td className="num">{e.revenue ? `₹${inr(e.revenue)}` : "—"}</td></tr>
-                <tr><th>Estimated profit</th><th className="num">{e.revenue ? `₹${inr(e.profit)}` : "—"}</th></tr>
+                <tr><th>Estimated profit{e.missing.length ? " — INCOMPLETE" : ""} <span className="muted an-tiny">estimate</span></th><th className="num">{e.revenue ? `₹${inr(e.profit)}` : "—"}</th></tr>
               </tfoot>
             </table>
             {e.chickPurchases > 0 && <p className="muted an-tiny">Chick purchases this month (not in the total): ₹{inr(e.chickPurchases)}</p>}
             {e.birdSaleRevenue > 0 && <p className="muted an-tiny">Bird sales this month (not in egg revenue): ₹{inr(e.birdSaleRevenue)}</p>}
+            <Checklist month={m} items={checklists.get(m) ?? []} />
             {e.unpricedEggsSold > 0 && <div className="flag-banner">{e.unpricedEggsSold.toLocaleString("en-IN")} eggs were sold without a BAFTA rate, so revenue and profit here are incomplete. <Link href="/sales/rates">Enter the rates</Link>.</div>}
             {e.missing.length > 0 && <div className="flag-banner">Not entered: {e.missing.join(", ")}.</div>}
           </div>

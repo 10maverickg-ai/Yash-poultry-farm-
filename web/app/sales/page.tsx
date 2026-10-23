@@ -2,7 +2,8 @@ import Link from "next/link";
 import { Fragment } from "react";
 import { listSales } from "@/lib/eggstock";
 import type { SaleRow } from "@/lib/eggstock-types";
-import { listUnpricedLedgerSales, listBirdSales } from "@/lib/salesExtra";
+import { listUnpricedLedgerSales, listBirdSales, listAnilMovements } from "@/lib/salesExtra";
+import { setBirdSaleBuyer } from "./actions";
 import { ExportLinks } from "@/components/ExportLinks";
 
 export const dynamic = "force-dynamic";
@@ -53,7 +54,9 @@ export default async function SalesPage({
   searchParams: Promise<{ saved?: string }>;
 }) {
   const { saved } = await searchParams;
-  const [sales, unpriced, birdSales] = await Promise.all([listSales(5000), listUnpricedLedgerSales(), listBirdSales()]);
+  const [sales, unpriced, birdSales, anil] = await Promise.all([listSales(5000), listUnpricedLedgerSales(), listBirdSales(), listAnilMovements()]);
+  const anilOut = anil.filter((m) => m.birds < 0).reduce((t, m) => t - m.birds, 0);
+  const anilIn = anil.filter((m) => m.birds > 0).reduce((t, m) => t + m.birds, 0);
   const { byDay, byMonth } = groupTotals(sales);
   const unpricedByMonth = new Map<string, number>();
   for (const u of unpriced) unpricedByMonth.set(monthKey(u.date), (unpricedByMonth.get(monthKey(u.date)) ?? 0) + u.eggs);
@@ -217,6 +220,7 @@ export default async function SalesPage({
                 <th>Birds</th>
                 <th>₹ / bird</th>
                 <th>Amount (INR)</th>
+                <th>Buyer</th>
               </tr>
             </thead>
             <tbody>
@@ -227,6 +231,12 @@ export default async function SalesPage({
                   <td>{b.birds.toLocaleString("en-IN")}</td>
                   <td>{b.pricePerBird ?? "—"}</td>
                   <td>{b.amount != null ? inr(b.amount) : "—"}</td>
+                  <td>
+                    <form action={setBirdSaleBuyer.bind(null, b.id)} className="buyer-form">
+                      <input type="text" name="buyer" defaultValue={b.buyer ?? ""} placeholder="not recorded" aria-label={`Buyer for ${b.flockName} ${b.date}`} maxLength={80} />
+                      <button type="submit" className="btn-secondary an-small">Save</button>
+                    </form>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -236,6 +246,38 @@ export default async function SalesPage({
                 <th>{birdSales.reduce((t, b) => t + b.birds, 0).toLocaleString("en-IN")}</th>
                 <th></th>
                 <th>{inr(birdTotal)}</th>
+                <th></th>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      )}
+      <h2>Shifted to Anil farm</h2>
+      <p className="muted an-sub">
+        Birds that moved between Yash farm and Anil farm (the family farm next door). These are <b>transfers</b> — not sales and not losses — so they are not in the sales or revenue figures above.
+      </p>
+      {anil.length === 0 ? (
+        <p className="card muted">No movements to or from Anil farm recorded.</p>
+      ) : (
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Date</th><th>Flock</th><th>Birds</th><th>Direction</th></tr>
+            </thead>
+            <tbody>
+              {anil.map((m) => (
+                <tr key={m.id}>
+                  <td>{m.date}</td>
+                  <td>{m.flockName}</td>
+                  <td>{Math.abs(m.birds).toLocaleString("en-IN")}</td>
+                  <td>{m.birds < 0 ? "to Anil farm" : "from Anil farm"}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr>
+                <th colSpan={2}>Total</th>
+                <th colSpan={2}>{anilOut.toLocaleString("en-IN")} to Anil farm{anilIn ? ` · ${anilIn.toLocaleString("en-IN")} from Anil farm` : ""}</th>
               </tr>
             </tfoot>
           </table>

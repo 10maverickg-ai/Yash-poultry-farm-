@@ -89,8 +89,8 @@ Facts that changed (do not redo): all 30 Sept BAFTA rates + 27 Sept sales rows a
 | G3 | Alert review table + `alert_feedback` | built | `docs/ALERTS_SEPTEMBER.md` (21 alerts: 7 look real, 12 noise, 2 unclear — guesses with reasons, thresholds untouched; generator `web/scripts/alerts-report.mts`); table `alert_feedback` (migration 0034, applied live); "This was real / This was noise" buttons on every alert on /analytics (stored per alert key, can be changed); tested in browser on the local DB |
 | G4 | Excel/CSV export | built | `/export` (month buttons; Daily production, Egg ledger, Egg sales, Costs & profit as real .xlsx via exceljs — dates are dates, numbers numbers, totals row with SUM formulas, per-row formulas for HD%, amount, total, profit — and CSV with UTF-8 BOM); "Download this month" buttons on /day, /sales, /purchases; attachment download (Safari/Chrome). Tested: all 8 downloads 200, bad month/kind 400, files re-read with exceljs (types, formulas, totals row). Not opened in real Excel / not tried on an iPhone |
 | G5 | Backup zip | built | `/export/backup` page ("do this on the 1st of every month, keep it in Google Drive") + `/export/backup/zip`: 33 tables as CSV + README.txt with row counts and timestamp in the name; includes soft-deleted rows; tables missing in a database are skipped and noted. Tested on local DB (34 files). Live DB not exercised through the app |
-| G6 | Bird sales + Anil farm lists | todo | |
-| G7 | Costs honesty + missing-inputs checklist | todo | |
+| G6 | Bird sales + Anil farm lists | built | Buyer column with save; separate "Shifted to Anil farm" list (transfers, not sales/losses); `local` added to transaction types. Browser-tested at 390px. |
+| G7 | Costs honesty + missing-inputs checklist | built | Migration 0035 (live+local). Missing electricity shows "missing: not entered"; cost/profit labelled incomplete estimate; per-month checklist (electricity, diesel, medicines, labour, packing). Browser-tested locally (none-this-month, electricity save, no overflow). |
 | G8 | Today screen | todo | |
 | G9 | Reader benchmark (budget USD 5) | todo | last; tiny call first |
 | G10 | Phase Z for G1–G8 | todo | |
