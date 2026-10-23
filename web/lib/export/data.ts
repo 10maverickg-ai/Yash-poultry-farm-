@@ -1,0 +1,154 @@
+import { pool } from "@/lib/db";
+import { ACTIVE_FARM } from "@/lib/farm";
+import { compareLabels } from "@/lib/naturalSort";
+import { loadCostInput } from "@/lib/costs/load";
+import { dayEconomics, monthEconomics } from "@/lib/costs/engine";
+import type { Dataset } from "./types";
+
+// Read-only datasets for the Excel / CSV export. Same sources the screens use;
+// soft-deleted rows are excluded; flocks are shown by REAL name with the
+// register label beside them.
+const bounds = (month: string) => {
+  const [y, m] = month.split("-").map(Number);
+  const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  return { from: `${month}-01`, to: `${month}-${String(last).padStart(2, "0")}` };
+};
+export const validMonth = (m: string) => /^\d{4}-(0[1-9]|1[0-2])$/.test(m);
+
+export async function productionDataset(month: string): Promise<Dataset> {
+  const { from, to } = bounds(month);
+  const { rows } = await pool.query(
+    `SELECT dp.date, f.display_label AS flock, dp.display_label_as_written AS reg, dp.bird_population AS birds,
+            dp.mortality, dp.feed_bags, dp.eggs_total
+       FROM daily_production dp JOIN flocks f USING (flock_internal_id)
+      WHERE dp.farm_code = $1 AND dp.deleted_at IS NULL AND dp.date BETWEEN $2 AND $3
+      ORDER BY dp.date`,
+    [ACTIVE_FARM, from, to]
+  );
+  rows.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : compareLabels(a.flock, b.flock)));
+  return {
+    name: "Daily production",
+    title: `Daily production ${month}`,
+    columns: [
+      { key: "date", header: "Date", type: "date", width: 12 },
+      { key: "flock", header: "Flock", type: "text", width: 10 },
+      { key: "reg", header: "Register label", type: "text", width: 14 },
+      { key: "birds", header: "Birds (end of day)", type: "int", width: 16 },
+      { key: "mortality", header: "Deaths", type: "int", width: 9, total: true },
+      { key: "feed", header: "Feed (bags)", type: "int", width: 12, total: true },
+      { key: "eggs", header: "Eggs", type: "int", width: 10, total: true },
+      { key: "hd", header: "HD % (eggs ÷ birds)", type: "pct", width: 18 },
+    ],
+    rows: rows.map((r) => ({
+      date: String(r.date).slice(0, 10), flock: r.flock, reg: r.reg, birds: r.birds, mortality: r.mortality, feed: r.feed_bags, eggs: r.eggs_total,
+      hd: r.birds ? Math.round(((r.eggs_total ?? 0) / r.birds) * 10000) / 100 : null,
+    })),
+    notes: ["HD % is calculated as eggs ÷ birds × 100 (not the supervisor's written %).", "Birds are the end-of-day count from the register."],
+    formulas: { hd: (row) => `IF(D${row}>0,ROUND(G${row}/D${row}*100,2),"")` },
+  };
+}
+
+export async function ledgerDataset(month: string): Promise<Dataset> {
+  const { from, to } = bounds(month);
+  const { rows } = await pool.query(
+    `SELECT s.date, s.section, s.opening_balance_eggs AS opening, s.total_eggs_produced AS produced, s.closing_balance_eggs AS closing,
+            coalesce(sum(-e.amount_eggs) FILTER (WHERE e.category IN ('sale','local_sale')), 0)::int AS sales,
+            coalesce(sum(-e.amount_eggs) FILTER (WHERE e.category = 'breakage'), 0)::int AS breakage,
+            coalesce(sum(-e.amount_eggs) FILTER (WHERE e.category NOT IN ('sale','local_sale','breakage') OR e.category IS NULL), 0)::int AS other
+       FROM daily_egg_stock_summary s LEFT JOIN daily_egg_stock_entries e ON e.egg_stock_summary_id = s.id
+      WHERE s.farm_code = $1 AND s.deleted_at IS NULL AND s.date BETWEEN $2 AND $3
+      GROUP BY s.id ORDER BY s.date, s.section`,
+    [ACTIVE_FARM, from, to]
+  );
+  return {
+    name: "Egg ledger",
+    title: `Egg ledger ${month}`,
+    columns: [
+      { key: "date", header: "Date", type: "date", width: 12 },
+      { key: "section", header: "Ledger", type: "text", width: 8 },
+      { key: "opening", header: "Opening", type: "int", width: 11 },
+      { key: "produced", header: "Produced", type: "int", width: 11, total: true },
+      { key: "sales", header: "Sales", type: "int", width: 11, total: true },
+      { key: "breakage", header: "Breakage", type: "int", width: 11, total: true },
+      { key: "other", header: "Other (net)", type: "int", width: 11, total: true },
+      { key: "closing", header: "Closing", type: "int", width: 11 },
+    ],
+    rows: rows.map((r) => ({ date: String(r.date).slice(0, 10), section: r.section, opening: r.opening, produced: r.produced, sales: r.sales, breakage: r.breakage, other: r.other, closing: r.closing })),
+    notes: ["All figures are eggs. Sales = Farmfresh + local sale lines; Other = labour take, gifts, cross-farm and unlabelled lines (net, deductions positive).", "Closing is the figure written in the register; it can differ from opening + produced − deductions where the register had a correction."],
+  };
+}
+
+export async function salesDataset(month: string): Promise<Dataset> {
+  const { from, to } = bounds(month);
+  const { rows } = await pool.query(
+    `SELECT date, buyer_or_recipient AS buyer, grade, transaction_type::text AS type, eggs_quantity AS eggs, price_per_unit AS price, amount
+       FROM sales WHERE farm_code = $1 AND date BETWEEN $2 AND $3 ORDER BY date, id`,
+    [ACTIVE_FARM, from, to]
+  );
+  return {
+    name: "Sales",
+    title: `Egg sales ${month}`,
+    columns: [
+      { key: "date", header: "Date", type: "date", width: 12 },
+      { key: "buyer", header: "Buyer", type: "text", width: 14 },
+      { key: "grade", header: "Grade", type: "text", width: 8 },
+      { key: "type", header: "Type", type: "text", width: 14 },
+      { key: "eggs", header: "Eggs", type: "int", width: 11, total: true },
+      { key: "price", header: "Price per egg (₹)", type: "num", width: 16 },
+      { key: "amount", header: "Amount (₹)", type: "num", width: 14, total: true },
+    ],
+    rows: rows.map((r) => ({ date: String(r.date).slice(0, 10), buyer: r.buyer, grade: r.grade, type: r.type, eggs: r.eggs, price: r.price != null ? Number(r.price) : null, amount: r.amount != null ? Number(r.amount) : null })),
+    notes: ["Farmfresh (big or small) is paid the BAFTA rate − ₹0.03 per egg; local sales the rate + ₹0.01.", "A row with no price had no BAFTA rate entered for its day."],
+    formulas: { amount: (row) => `IF(F${row}="","",ROUND(E${row}*F${row},2))` },
+  };
+}
+
+export async function costsDataset(month: string): Promise<Dataset> {
+  const input = await loadCostInput();
+  const dates = [...new Set(input.prod.filter((p) => p.date.startsWith(month)).map((p) => p.date))].sort();
+  const m = monthEconomics(input, month);
+  const rows = dates.map((d) => {
+    const e = dayEconomics(input, d);
+    const r = (x: number) => Math.round(x * 100) / 100;
+    return {
+      date: d, produced: e.eggsProduced, sold: e.eggsSold, revenue: r(e.revenue), feed: r(e.cost.feed), electricity: r(e.cost.electricity), labour: r(e.cost.labour),
+      packing: r(e.cost.packing), diesel: r(e.cost.diesel), medicine: r(e.cost.medicine), other: r(e.cost.other), total: r(e.cost.total), profit: r(e.profit),
+    };
+  });
+  const notes = [
+    "ALL COST AND PROFIT FIGURES ARE ESTIMATES. Feed is exact (bags × 45 kg × price per kg). Electricity and labour are the month's amount spread evenly over its days; packing is per tray sold; diesel and medicines count on the day bought.",
+    "Revenue is eggs SOLD that day at the saved sale prices, not eggs laid. Bird sales and chick purchases are not included.",
+  ];
+  if (m.missing.length) notes.push(`MISSING INPUTS (counted as 0, not guessed): ${m.missing.join(", ")}.`);
+  if (m.unpricedEggsSold > 0) notes.push(`${m.unpricedEggsSold} eggs were sold without a BAFTA rate, so revenue is incomplete.`);
+  return {
+    name: "Costs and profit",
+    title: `Costs and profit ${month} (estimate)`,
+    columns: [
+      { key: "date", header: "Date", type: "date", width: 12 },
+      { key: "produced", header: "Eggs laid", type: "int", width: 11, total: true },
+      { key: "sold", header: "Eggs sold", type: "int", width: 11, total: true },
+      { key: "revenue", header: "Egg revenue ₹", type: "num", width: 14, total: true },
+      { key: "feed", header: "Feed ₹", type: "num", width: 12, total: true },
+      { key: "electricity", header: "Electricity ₹", type: "num", width: 13, total: true },
+      { key: "labour", header: "Labour ₹", type: "num", width: 12, total: true },
+      { key: "packing", header: "Packing ₹", type: "num", width: 12, total: true },
+      { key: "diesel", header: "Diesel ₹", type: "num", width: 11, total: true },
+      { key: "medicine", header: "Medicines ₹", type: "num", width: 12, total: true },
+      { key: "other", header: "Other ₹", type: "num", width: 11, total: true },
+      { key: "total", header: "Total cost ₹", type: "num", width: 13, total: true },
+      { key: "profit", header: "Estimated profit ₹", type: "num", width: 16, total: true },
+    ],
+    rows,
+    notes,
+    formulas: { total: (row) => `SUM(E${row}:K${row})`, profit: (row) => `D${row}-L${row}` },
+  };
+}
+
+export const DATASETS = {
+  production: productionDataset,
+  ledger: ledgerDataset,
+  sales: salesDataset,
+  costs: costsDataset,
+} as const;
+export type DatasetKind = keyof typeof DATASETS;

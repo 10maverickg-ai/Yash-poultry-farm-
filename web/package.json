@@ -12,6 +12,8 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.111.0",
     "@supabase/supabase-js": "^2.110.4",
+    "exceljs": "^4.4.0",
+    "jszip": "^3.10.2",
     "next": "16.2.10",
     "pg": "^8.22.0",
     "react": "19.2.4",

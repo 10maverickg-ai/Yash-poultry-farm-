@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { listProductionDates, loadDay, hdOf } from "@/lib/day/load";
+import { ExportLinks } from "@/components/ExportLinks";
 
 export const dynamic = "force-dynamic";
 
@@ -41,6 +42,11 @@ export default async function DayPage({ searchParams }: { searchParams: Promise<
           <button type="submit" className="btn-secondary">Go</button>
         </form>
         {d.nextDate ? <Link className="btn btn-secondary" href={`/day?date=${d.nextDate}`}>{d.nextDate.slice(5)} →</Link> : <span />}
+      </div>
+
+      <div className="card stack">
+        <ExportLinks kind="production" month={date.slice(0, 7)} label="Daily production" />
+        <ExportLinks kind="ledger" month={date.slice(0, 7)} label="Egg ledger" />
       </div>
 
       <section className="card an-today" aria-labelledby="day-total-h">

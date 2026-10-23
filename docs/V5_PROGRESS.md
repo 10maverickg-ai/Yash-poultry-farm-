@@ -87,8 +87,8 @@ Facts that changed (do not redo): all 30 Sept BAFTA rates + 27 Sept sales rows a
 | G1 | Merge `claude/f8-breed-standard`; stdFor regression test | built | merged; 1 conflict (load.ts) resolved; my F7 "extra reference" lines removed because F8 says every flock compares only with its own breed; `node web/scripts/std-for-check.mts` 21 checks; local run: BAB-6 "no reference loaded for Bovans White", BV300 flocks colour normally; a Bovans guide loaded later as `knowledge/bovans-white-*.json` (breed "Bovans White", metric `hen_day_percent`) is picked up with no code change |
 | G2 | Vercel build + runtime logs | todo | |
 | G3 | Alert review table + `alert_feedback` | built | `docs/ALERTS_SEPTEMBER.md` (21 alerts: 7 look real, 12 noise, 2 unclear — guesses with reasons, thresholds untouched; generator `web/scripts/alerts-report.mts`); table `alert_feedback` (migration 0034, applied live); "This was real / This was noise" buttons on every alert on /analytics (stored per alert key, can be changed); tested in browser on the local DB |
-| G4 | Excel/CSV export | todo | |
-| G5 | Backup zip | todo | |
+| G4 | Excel/CSV export | built | `/export` (month buttons; Daily production, Egg ledger, Egg sales, Costs & profit as real .xlsx via exceljs — dates are dates, numbers numbers, totals row with SUM formulas, per-row formulas for HD%, amount, total, profit — and CSV with UTF-8 BOM); "Download this month" buttons on /day, /sales, /purchases; attachment download (Safari/Chrome). Tested: all 8 downloads 200, bad month/kind 400, files re-read with exceljs (types, formulas, totals row). Not opened in real Excel / not tried on an iPhone |
+| G5 | Backup zip | built | `/export/backup` page ("do this on the 1st of every month, keep it in Google Drive") + `/export/backup/zip`: 33 tables as CSV + README.txt with row counts and timestamp in the name; includes soft-deleted rows; tables missing in a database are skipped and noted. Tested on local DB (34 files). Live DB not exercised through the app |
 | G6 | Bird sales + Anil farm lists | todo | |
 | G7 | Costs honesty + missing-inputs checklist | todo | |
 | G8 | Today screen | todo | |
@@ -108,7 +108,7 @@ Facts that changed (do not redo): all 30 Sept BAFTA rates + 27 Sept sales rows a
 7. Add Anthropic credits only after G1–G8 are verified.
 
 ## V6 Could not test
-(none yet)
+- G4/G5: files not opened in real Excel or downloaded on an actual iPhone; backup zip not run against the live database through the app (no DATABASE_URL here).
 
 ## V6 Decisions
 - G1: the F7 extra-reference lines (other breeds' hen-day % on the flock cards) were removed: F8's rule is "own breed only".

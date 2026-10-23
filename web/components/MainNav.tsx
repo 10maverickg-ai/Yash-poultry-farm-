@@ -10,8 +10,8 @@ import { usePathname } from "next/navigation";
 export const SECTIONS = [
   { key: "upload", label: "Upload", icon: "📷", href: "/upload", match: ["/upload", "/flagged"],
     subs: [["/upload", "Upload photos"], ["/flagged", "Review flags"]] },
-  { key: "day", label: "Day", icon: "🥚", href: "/day", match: ["/day", "/production", "/egg-stock", "/feed-bag-stock", "/records"],
-    subs: [["/day", "Day view"], ["/production", "Correct a day"], ["/egg-stock", "Egg ledger"], ["/feed-bag-stock", "Feed bags"], ["/records", "Records"]] },
+  { key: "day", label: "Day", icon: "🥚", href: "/day", match: ["/day", "/production", "/egg-stock", "/feed-bag-stock", "/records", "/export"],
+    subs: [["/day", "Day view"], ["/production", "Correct a day"], ["/egg-stock", "Egg ledger"], ["/feed-bag-stock", "Feed bags"], ["/records", "Records"], ["/export", "Excel / backup"]] },
   { key: "sales", label: "Sales", icon: "₹", href: "/sales", match: ["/sales"],
     subs: [["/sales", "Egg & bird sales"], ["/sales/rates", "BAFTA rates"]] },
   { key: "purchases", label: "Buy", icon: "🧾", href: "/purchases", match: ["/purchases", "/feed-stock", "/formulation"],

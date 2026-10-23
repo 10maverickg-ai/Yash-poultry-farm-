@@ -3,6 +3,7 @@ import { pool } from "@/lib/db";
 import { ACTIVE_FARM } from "@/lib/farm";
 import { loadCostInput } from "@/lib/costs/load";
 import { monthEconomics } from "@/lib/costs/engine";
+import { ExportLinks } from "@/components/ExportLinks";
 import { addCostSetting, addPurchase, addDiesel } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -33,6 +34,11 @@ export default async function PurchasesPage({ searchParams }: { searchParams: Pr
       {sp.saved && <div className="saved-banner">{sp.saved}</div>}
       {sp.error && <div className="error-banner">{sp.error}</div>}
 
+      {months.length > 0 && (
+        <div className="card">
+          <ExportLinks kind="costs" month={months[0]} label="Costs and profit" />
+        </div>
+      )}
       <h2>Monthly cost (estimate)</h2>
       <p className="muted an-sub">
         Feed is exact (bags × 45 kg × price). Electricity and labour are the month&apos;s amount spread evenly over its days; packing is per tray sold; diesel and medicines count on the day bought. A month with no electricity entered shows as missing, not as zero.

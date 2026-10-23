@@ -3,6 +3,7 @@ import { Fragment } from "react";
 import { listSales } from "@/lib/eggstock";
 import type { SaleRow } from "@/lib/eggstock-types";
 import { listUnpricedLedgerSales, listBirdSales } from "@/lib/salesExtra";
+import { ExportLinks } from "@/components/ExportLinks";
 
 export const dynamic = "force-dynamic";
 
@@ -69,6 +70,11 @@ export default async function SalesPage({
       </p>
       {saved && <div className="saved-banner">Sale details saved.</div>}
 
+      {months.length > 0 && (
+        <div className="card">
+          <ExportLinks kind="sales" month={months[0]} label="Egg sales" />
+        </div>
+      )}
       <div className="actions-bar">
         <Link href="/sales/rates" className="btn">
           Enter BAFTA rates
