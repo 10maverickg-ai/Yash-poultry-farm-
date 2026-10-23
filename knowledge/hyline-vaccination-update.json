@@ -1,0 +1,75 @@
+{
+ "doc_key": "hyline-tu-vaccination",
+ "company": "Hy-Line International",
+ "title": "Technical Update: Vaccination Recommendations",
+ "year": 2021,
+ "source_url": "https://www.hyline.com/Upload/Resources/TU VACC ENG.pdf",
+ "entries": [
+  {
+   "entry_key": "basic-program",
+   "topic": "Vaccination schedule",
+   "page": "Basic Commercial Layer Vaccine Applications",
+   "breed": "Hy-Line layers",
+   "notes": "Basic program for all layers. Marek's: hatchery, day-old, subcutaneous (Rispens or Rispens/HVT preferred). Newcastle: live (water, spray or eye drop) where no velogenic ND; where velogenic ND is present, live eye drop plus inactivated injection together. Infectious bronchitis: 2-3 live doses, last by spray. Gumboro/IBD: live intermediate or intermediate-plus at days 15-18, 21-25 and 28-32, drinking water preferred. Fowl pox: 1-2 doses between 6 and 15 wk (water or wing-web); under 6 wk use highly attenuated or pigeon pox. Avian encephalomyelitis: 2 doses 4 wk apart. Ages not printed in the text are not stored.",
+   "standards": [
+    {
+     "metric": "vaccine:Marek's (Rispens or Rispens/HVT)",
+     "age_weeks": 0,
+     "value": 1,
+     "unit": "subcutaneous, hatchery"
+    },
+    {
+     "metric": "vaccine:Gumboro/IBD live intermediate (day 15-18)",
+     "age_weeks": 2,
+     "value": 1,
+     "unit": "drinking water"
+    },
+    {
+     "metric": "vaccine:Gumboro/IBD live intermediate (day 21-25)",
+     "age_weeks": 3,
+     "value": 1,
+     "unit": "drinking water"
+    },
+    {
+     "metric": "vaccine:Gumboro/IBD live intermediate (day 28-32)",
+     "age_weeks": 4,
+     "value": 1,
+     "unit": "drinking water"
+    },
+    {
+     "metric": "vaccine:Fowl pox (6-15 wk window, first dose)",
+     "age_weeks": 6,
+     "value": 1,
+     "unit": "drinking water or wing web"
+    }
+   ]
+  },
+  {
+   "entry_key": "optional-program",
+   "topic": "Vaccination schedule (optional)",
+   "page": "Optional Commercial Layer Vaccine Applications",
+   "breed": "Hy-Line layers",
+   "notes": "Use where disease is present: infectious coryza (2 doses 4 wk apart); fowl cholera live or inactivated (2 doses 4 wk apart); ILT (eye drop preferred; keep 7 days from other live respiratory vaccines); Mycoplasma gallisepticum (TS-11, 6/85 milder; F-strain stronger; bacterins available); Mycoplasma synoviae MS-H eye drop at 3-6 wk, MS-1 fine spray at 6+ wk; Salmonella 2-3 live doses then inactivated; E. coli live coarse spray 0-6 wk and again 12-14 wk; Egg drop syndrome one inactivated injection; avian pneumovirus; avian influenza inactivated (injected). Recombinant HVT vector vaccines (IBD, ND, ILT, H5) are given at the hatchery; do not combine two HVT-vectored vaccines.",
+   "standards": [
+    {
+     "metric": "vaccine:Mycoplasma synoviae MS-H",
+     "age_weeks": 3,
+     "value": 1,
+     "unit": "eye drop (frozen vaccine)"
+    },
+    {
+     "metric": "vaccine:Mycoplasma synoviae MS-1",
+     "age_weeks": 6,
+     "value": 1,
+     "unit": "fine spray"
+    },
+    {
+     "metric": "vaccine:E. coli live (second dose)",
+     "age_weeks": 12,
+     "value": 1,
+     "unit": "coarse spray"
+    }
+   ]
+  }
+ ]
+}
