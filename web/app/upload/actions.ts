@@ -89,12 +89,16 @@ export interface UploadOutcome {
   // recorded to ledger_extraction_issues, so the owner sees it here too,
   // without it being treated as this upload's own `error`.
   ledgerFeedIssue: string | null;
+  // V5 8.3 date rule: set when the date read off the page differs from the
+  // date the owner entered. NOTHING has been saved in that case — the owner
+  // is asked which date is right (resubmit with force_date).
+  dateMismatch: { page: string; entered: string } | null;
 }
 
 const EMPTY: UploadOutcome = {
   error: null, technicalDetail: null, photoUrl: null, date: null,
   pageNotes: null, pageIssue: null, written: [], unresolved: [], autoCorrections: [],
-  ledgerFeed: null, ledgerFeedIssue: null,
+  ledgerFeed: null, ledgerFeedIssue: null, dateMismatch: null,
 };
 
 // Every error shown to the end user must be plain, non-technical text —
@@ -152,9 +156,19 @@ export async function uploadAndExtractDailyProduction(
     return { ...EMPTY, error: "Pick the date shown on the register page" };
   }
 
+  // V5 8.1: the upload queue stores the photo first and passes its URL here,
+  // so the original is not stored twice. Without it (the single-photo form)
+  // the photo is stored here, exactly as before.
+  const existingPhotoUrl = formData.get("existing_photo_url");
+  // V5 8.3: a date the owner has explicitly chosen after a mismatch question.
+  const forceDateRaw = formData.get("force_date");
+  const forceDate = typeof forceDateRaw === "string" && /^\d{4}-\d{2}-\d{2}$/.test(forceDateRaw) ? forceDateRaw : null;
+
   let photoUrl: string;
   try {
-    photoUrl = await uploadRegisterPhoto(file, "production", dateHint);
+    photoUrl = typeof existingPhotoUrl === "string" && existingPhotoUrl.startsWith("https://")
+      ? existingPhotoUrl
+      : await uploadRegisterPhoto(file, "production", dateHint);
   } catch (err) {
     const { friendly } = logAndFriendly(
       "storage upload failed",
@@ -219,9 +233,22 @@ export async function uploadAndExtractDailyProduction(
     return { ...EMPTY, photoUrl, error: friendly, technicalDetail: detail };
   }
 
-  // The date on the page is authoritative if legible; the date the
-  // supervisor picked at upload time is the fallback.
-  const date = extraction.date && extraction.date_confidence > 0.5 ? extraction.date : dateHint;
+  // V5 8.3 — the date rule: read the date from the page and compare it with
+  // the date the owner entered. If they differ, STOP and ask; never save
+  // under a misread (or a mistyped) date. The owner's explicit answer comes
+  // back as force_date. If the page date is not legible the entered date is
+  // used, and says so in the notes.
+  const pageDate = extraction.date && extraction.date_confidence > 0.5 ? extraction.date : null;
+  if (!forceDate && pageDate && pageDate !== dateHint) {
+    return {
+      ...EMPTY,
+      photoUrl,
+      date: dateHint,
+      dateMismatch: { page: pageDate, entered: dateHint },
+      error: `The page says ${pageDate} but you entered ${dateHint}. Nothing has been saved — tell me which date is right.`,
+    };
+  }
+  const date = forceDate ?? dateHint;
 
   // Diagnostic only — sections_found doesn't gate anything, but is worth
   // having in the logs while we build confidence in the multi-section fix.
@@ -790,5 +817,6 @@ export async function uploadAndExtractDailyProduction(
     autoCorrections,
     ledgerFeed: ledgerFeedResult,
     ledgerFeedIssue,
+    dateMismatch: null,
   };
 }

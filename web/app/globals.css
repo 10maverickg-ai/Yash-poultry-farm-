@@ -597,3 +597,18 @@ textarea { width: 100%; font: inherit; padding: 0.55rem 0.7rem; border: 1px soli
 
 .check-row { display: flex; gap: 0.6rem; align-items: start; min-height: 44px; font-size: 0.92rem; }
 .check-row input { margin-top: 0.2rem; width: 1.2rem; height: 1.2rem; }
+
+/* --- upload queue --- */
+.queue-picks { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.5rem; }
+.queue-pick { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; padding: 0.5rem; border: 1px solid var(--line); border-radius: 8px; }
+.queue-name { flex: 1 1 8rem; font-size: 0.85rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.queue-error { border-color: var(--danger); }
+.queue-note { color: var(--danger); flex-basis: 100%; }
+.queue-summary { display: flex; gap: 0.4rem; flex-wrap: wrap; margin: 0.8rem 0; }
+.queue-head { display: flex; gap: 0.7rem; align-items: center; }
+.queue-thumb { width: 64px; height: 64px; object-fit: cover; border-radius: 8px; border: 1px solid var(--line); }
+.queue-sbs { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
+.queue-sbs-img { width: 100%; max-height: 220px; object-fit: contain; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
+.queue-s-failed { border-left: 5px solid var(--danger); }
+.queue-s-needs_review, .queue-s-duplicate { border-left: 5px solid var(--an-amber); }
+.queue-s-saved { border-left: 5px solid var(--an-green); }
