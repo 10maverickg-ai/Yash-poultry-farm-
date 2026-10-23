@@ -5,6 +5,10 @@ export default function Home() {
     <>
       <h1>Registers</h1>
       <div className="home-menu">
+        <Link href="/today" className="card">
+          <h3>Today</h3>
+          <p className="muted">Eggs, alerts, stock, cash and what is still missing</p>
+        </Link>
         <Link href="/upload" className="card">
           <h3>Upload Photo</h3>
           <p className="muted">

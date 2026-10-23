@@ -648,3 +648,10 @@ textarea { width: 100%; font: inherit; padding: 0.55rem 0.7rem; border: 1px soli
 .check-done { opacity: 0.7; }
 .check-form { display: flex; gap: 0.4rem; flex-wrap: wrap; align-items: center; }
 .check-form input { flex: 1 1 6rem; min-width: 0; }
+
+/* --- Today screen --- */
+.td-flock { display: flex; gap: 0.6rem; align-items: flex-start; padding: 0.55rem 0; border-top: 1px solid var(--line); }
+.td-flock:first-of-type { border-top: 0; }
+.td-dot { flex: none; width: 0.9rem; height: 0.9rem; border-radius: 50%; margin-top: 0.25rem; }
+.td-alert summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; }
+.td-miss { display: flex; gap: 0.6rem; align-items: center; justify-content: space-between; flex-wrap: wrap; }

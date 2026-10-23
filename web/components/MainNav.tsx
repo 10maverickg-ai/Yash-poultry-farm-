@@ -20,8 +20,8 @@ export const SECTIONS = [
     subs: [["/medicines", "Medicines & vaccines"], ["/knowledge", "Knowledge"]] },
   { key: "flocks", label: "Flocks", icon: "🐔", href: "/flocks", match: ["/flocks", "/chick-batches", "/sheds"],
     subs: [["/flocks", "Flocks"], ["/flocks/batches", "Chick batches"], ["/flocks/moulting", "Moulting"], ["/chick-batches", "Chick log"], ["/sheds", "Sheds"]] },
-  { key: "analytics", label: "Analytics", icon: "📊", href: "/analytics", match: ["/analytics"],
-    subs: [["/analytics", "Analytics"]] },
+  { key: "analytics", label: "Analytics", icon: "📊", href: "/analytics", match: ["/analytics", "/today"],
+    subs: [["/today", "Today"], ["/analytics", "Analytics"]] },
 ] as const;
 
 function active(path: string, match: readonly string[]) {
