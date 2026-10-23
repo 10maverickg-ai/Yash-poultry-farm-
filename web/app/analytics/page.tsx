@@ -15,7 +15,9 @@ import {
   type CardStatus,
   type FlockCard,
 } from "@/lib/analytics/engine";
-import { markAlertReviewed } from "./actions";
+import { markAlertReviewed, saveAlertFeedback } from "./actions";
+import { pool } from "@/lib/db";
+import { ACTIVE_FARM } from "@/lib/farm";
 import { loadCostInput } from "@/lib/costs/load";
 import { dayEconomics, monthEconomics, rangeEconomics, flockMonthEconomics } from "@/lib/costs/engine";
 
@@ -118,6 +120,9 @@ export default async function AnalyticsPage({
     const a = alertsFor(ctx, d);
     if (a.length) earlier.push({ date: d, alerts: a });
   }
+  const verdicts = new Map<string, string>(
+    (await pool.query(`SELECT alert_key, verdict FROM alert_feedback WHERE farm_code = $1`, [ACTIVE_FARM])).rows.map((r) => [r.alert_key, r.verdict])
+  );
   const cards = flockCards(ctx, asOf);
   const live = cards.filter((c) => c.status !== "left");
   const gone = cards.filter((c) => c.status === "left");
@@ -210,7 +215,7 @@ export default async function AnalyticsPage({
         </h2>
         {alertsToday.length === 0 && <p className="card muted">Nothing to alert on for {pretty(asOf)}.</p>}
         {alertsToday.map((a, i) => (
-          <AlertCard key={i} a={a} returnTo={returnTo} />
+          <AlertCard key={i} a={a} returnTo={returnTo} verdict={verdicts.get(a.key)} />
         ))}
         {earlier.length > 0 && (
           <details className="card">
@@ -221,7 +226,7 @@ export default async function AnalyticsPage({
               <div key={e.date}>
                 <h3 className="an-daystamp">{pretty(e.date)}</h3>
                 {e.alerts.map((a, i) => (
-                  <AlertCard key={i} a={a} returnTo={returnTo} compact />
+                  <AlertCard key={i} a={a} returnTo={returnTo} compact verdict={verdicts.get(a.key)} />
                 ))}
               </div>
             ))}
@@ -377,7 +382,7 @@ function Metric({
   );
 }
 
-function AlertCard({ a, returnTo, compact }: { a: Alert; returnTo: string; compact?: boolean }) {
+function AlertCard({ a, returnTo, compact, verdict }: { a: Alert; returnTo: string; compact?: boolean; verdict?: string }) {
   return (
     <div className={`card an-alert an-alert-${a.kind}`}>
       <div className="an-alert-head">
@@ -392,6 +397,15 @@ function AlertCard({ a, returnTo, compact }: { a: Alert; returnTo: string; compa
         {!compact && <span className="muted an-tiny">{pretty(a.date)}</span>}
       </div>
       <p className="an-reason">{a.reason}</p>
+      <div className="an-verdict">
+        <span className="muted an-tiny">Was this alert useful?</span>
+        <form action={saveAlertFeedback.bind(null, a.key, "real", returnTo)}>
+          <button type="submit" className={verdict === "real" ? "an-small an-v-on" : "btn-secondary an-small"} aria-pressed={verdict === "real"}>This was real</button>
+        </form>
+        <form action={saveAlertFeedback.bind(null, a.key, "noise", returnTo)}>
+          <button type="submit" className={verdict === "noise" ? "an-small an-v-on" : "btn-secondary an-small"} aria-pressed={verdict === "noise"}>This was noise</button>
+        </form>
+      </div>
       {a.source && (
         <form action={markAlertReviewed.bind(null, a.source.table, a.source.id, returnTo)}>
           <button type="submit" className="btn-secondary an-small">

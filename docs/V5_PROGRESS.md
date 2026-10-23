@@ -86,7 +86,7 @@ Facts that changed (do not redo): all 30 Sept BAFTA rates + 27 Sept sales rows a
 |---|---|---|---|
 | G1 | Merge `claude/f8-breed-standard`; stdFor regression test | built | merged; 1 conflict (load.ts) resolved; my F7 "extra reference" lines removed because F8 says every flock compares only with its own breed; `node web/scripts/std-for-check.mts` 21 checks; local run: BAB-6 "no reference loaded for Bovans White", BV300 flocks colour normally; a Bovans guide loaded later as `knowledge/bovans-white-*.json` (breed "Bovans White", metric `hen_day_percent`) is picked up with no code change |
 | G2 | Vercel build + runtime logs | todo | |
-| G3 | Alert review table + `alert_feedback` | todo | |
+| G3 | Alert review table + `alert_feedback` | built | `docs/ALERTS_SEPTEMBER.md` (21 alerts: 7 look real, 12 noise, 2 unclear — guesses with reasons, thresholds untouched; generator `web/scripts/alerts-report.mts`); table `alert_feedback` (migration 0034, applied live); "This was real / This was noise" buttons on every alert on /analytics (stored per alert key, can be changed); tested in browser on the local DB |
 | G4 | Excel/CSV export | todo | |
 | G5 | Backup zip | todo | |
 | G6 | Bird sales + Anil farm lists | todo | |

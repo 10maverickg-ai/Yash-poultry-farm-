@@ -142,6 +142,7 @@ export type AlertKind =
   | "missing_day";
 
 export interface Alert {
+  key: string; // stable id: '<rule>|<date>|<flock id or "farm">' (what alert_feedback is keyed on)
   kind: AlertKind;
   date: string;
   flockId: string | null;
@@ -636,11 +637,25 @@ function hdDrop(ctx: Ctx, flockId: string, date: string): { drop: number; avg: n
 /** Rows dated before this are the cleared August register: never flagged for data-quality reasons. */
 export const NEVER_FLAG_BEFORE = "2026-09-01";
 
+export function alertKey(a: { kind: AlertKind; date: string; flockId: string | null }, n = 0): string {
+  return `${a.kind}|${a.date}|${a.flockId ?? "farm"}${n ? `#${n}` : ""}`;
+}
+
 export function alertsFor(ctx: Ctx, date: string, opts: { includeCleared?: boolean } = {}): Alert[] {
+  const seen = new Map<string, number>();
+  return alertsForRaw(ctx, date, opts).map((a) => {
+    const base = alertKey(a);
+    const n = seen.get(base) ?? 0;
+    seen.set(base, n + 1);
+    return { ...a, key: alertKey(a, n) };
+  });
+}
+
+function alertsForRaw(ctx: Ctx, date: string, opts: { includeCleared?: boolean } = {}): Omit<Alert, "key">[] {
   // V5 section 3: all August rows were cleared (2026-10-19) — never alert on them.
   // `includeCleared` exists only so a rule can be evaluated on August in scripts.
   if (date < NEVER_FLAG_BEFORE && !opts.includeCleared) return [];
-  const out: Alert[] = [];
+  const out: Omit<Alert, "key">[] = [];
   const rows = ctx.byDate.get(date) ?? [];
 
   for (const r of rows) {

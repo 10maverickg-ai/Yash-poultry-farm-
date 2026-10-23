@@ -29,3 +29,18 @@ export async function markAlertReviewed(
   // Only ever return to a path inside /analytics.
   redirect(returnTo.startsWith("/analytics") ? returnTo : "/analytics");
 }
+
+// The owner's verdict on an alert: "this was real" or "this was noise". One
+// verdict per alert (saving again changes it). Used to tune the rules from
+// evidence; it never changes or hides the alert itself.
+export async function saveAlertFeedback(alertKey: string, verdict: "real" | "noise", returnTo: string) {
+  if (verdict !== "real" && verdict !== "noise") throw new Error("Unknown verdict");
+  if (!/^[a-z_]+\|\d{4}-\d{2}-\d{2}\|[0-9a-f-]+(#\d+)?$|^[a-z_]+\|\d{4}-\d{2}-\d{2}\|farm(#\d+)?$/.test(alertKey)) throw new Error("Bad alert key");
+  await pool.query(
+    `INSERT INTO alert_feedback (farm_code, alert_key, verdict) VALUES ($1,$2,$3)
+     ON CONFLICT (farm_code, alert_key) DO UPDATE SET verdict = EXCLUDED.verdict, created_at = now()`,
+    [ACTIVE_FARM, alertKey, verdict]
+  );
+  revalidatePath("/analytics");
+  redirect(returnTo.startsWith("/analytics") ? returnTo : "/analytics");
+}
