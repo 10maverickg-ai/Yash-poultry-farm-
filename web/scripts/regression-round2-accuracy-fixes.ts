@@ -71,12 +71,12 @@ function check(name: string, cond: boolean, detail?: unknown) {
   const bab5Raw: RawFlockInput = {
     displayLabelAsWritten: "BAB-5", section: "main", mortality: 4, feedBags: 22,
     eggsTotal: 8370, eggsIi: 8370, birdPopulation: 10419, birdPopulationReadings: [10419, 10419],
-    hdPercentWritten: 80.3, confidence: {},
+    hdPercentWritten: 80.3, confidence: {}, marginNote: null,
   };
   const bab6Raw: RawFlockInput = {
     displayLabelAsWritten: "BAB-6", section: "main", mortality: 5, feedBags: 20,
     eggsTotal: 7500, eggsIi: 7500, birdPopulation: 10160, birdPopulationReadings: [10160, 10160],
-    hdPercentWritten: 73.8, confidence: {},
+    hdPercentWritten: 73.8, confidence: {}, marginNote: null,
   };
   const { resolved: bab5Resolved } = applyChainCorrections(resolveFieldsLocally(bab5Raw), { birdPopulation: 10908 });
   const { resolved: bab6Resolved } = applyChainCorrections(resolveFieldsLocally(bab6Raw), { birdPopulation: 9680 });
@@ -276,7 +276,7 @@ function check(name: string, cond: boolean, detail?: unknown) {
     displayLabelAsWritten: "BAB-10", section: "main", mortality: 2, feedBags: 15,
     eggsTotal: 4200, eggsIi: 4200,
     birdPopulation: 6318, birdPopulationReadings: [4200, 4200],
-    hdPercentWritten: 66.4, confidence: {},
+    hdPercentWritten: 66.4, confidence: {}, marginNote: null,
   };
   const local = resolveFieldsLocally(raw);
   check(

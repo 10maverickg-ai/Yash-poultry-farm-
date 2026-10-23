@@ -2484,3 +2484,63 @@ plain `SELECT`s.
   register's actual units; re-check when real Feed Stock pages are entered in Phase 2.
 - **Egg Stock Ledger variable-line structure** — to be validated against a full week of
   real entries during Phase 2, per the brief.
+
+## Analytics board + by-day flag review (2026-10-21)
+
+Built from the data already in Supabase; no Anthropic calls, no schema change,
+no RLS change, reader code untouched, `READER_V2_ENABLED` not set.
+`claude/v4-master-prompt.md` and `claude/v4-analytics-decisions.md` were not
+reachable from this session (not in the repo or any branch), so the rules
+below come from the owner's task message; anything those docs would add or
+change is NOT reflected here.
+
+- **Engine** (`web/lib/analytics/engine.ts`) is pure functions over plain rows,
+  so the same code runs in the page and in `web/scripts/analytics-check.mts`
+  against exported copies of the real rows (17 negative self-tests included).
+- **Identity:** flocks are joined by `flock_internal_id` only. The register
+  label (`display_label_as_written`) is shown as "the label that day", with a
+  "placed Mon YYYY" tag so BAB-5 in August (d6b2…) and BAB-5 in September
+  (0d0b…) are never confused. CORRECTION (V5, 2026-10-23): `flocks.display_label`
+  is NOT stale — it is the real flock name (the owner confirmed DB flocks BAB-3, 4, 5,
+  6, 7, 10, 9, 8 are what the register's BAB-1…8 mean from 9 Sep). The screens now show
+  it first and the register label as secondary text.
+- **Moulting is inferred, not recorded** (no table/column holds it): feed ≤ 25%
+  of the flock's own prior 7-day average, and HD still under 80% of its
+  pre-withdrawal HD. On the real data this marks only BAB-5's August flock,
+  17 Aug → 26 Sep. One function (`moultOn`) to swap when moults are recorded.
+- **Choices the brief left open** (all constants in `RULES`): card colour is
+  the 7-day HD as a share of the BV300 standard for the flock's age (green ≥
+  90%, amber 80–90%, red < 80%); "mortality creeping" = last 7 days ≥ 1.5× the
+  14 before and ≥ +1 death/day; "trending below" = HD fell ≥ 2 points week on
+  week and is > 3 under standard; egg stock days = closing eggs (all ledger
+  sections) ÷ 7-day average eggs laid; feed days = closing bags ÷ 7-day average
+  box consumption.
+- **Reviewing:** "Reviewed" on an alert and "Right as read" on /flagged both set
+  the existing `reviewed_by_owner` on the record (production row, feed box,
+  egg-ledger summary or line). The one derived check (an egg-ledger opening
+  that differs from the previous day's closing) is not stored as a flag; it is
+  computed when the screen loads and answered through the summary row's
+  `reviewed_by_owner`.
+
+## V7 — week / month / year views (owner decisions)
+- **Week = Monday to Sunday.** Month = calendar month, year = calendar year. A
+  month's first and last week are clipped to the month. A period still running
+  says "so far, N days".
+- **HD% for a period is pooled**: total eggs ÷ total bird-days × 100, never the
+  mean of daily percentages (a day with fewer birds must not weigh the same as
+  a day with more). The mean is shown only in "More numbers" to show the two differ.
+- **A cost that was not entered is MISSING, not zero.** Cost totals are labelled
+  "so far", profit "incomplete", and the missing inputs are listed with a link
+  to enter them. Profit is always an estimate.
+- **Partial periods are never mixed with full ones silently.** Every period
+  says "N of M days have data"; averages and comparisons use per-day rates over
+  days with data only.
+- **Comparison** is with the previous period of the same kind and, when data
+  exists, the same period last year (until then: "no earlier data"). Arrows are
+  coloured good/bad per measure (more deaths = bad, more eggs = good) and also
+  say "better"/"worse" in words.
+- **Bird sales and Anil-farm transfers are movements, not mortality.**
+- **Run rate** (last full month × 12) appears only with at least two full
+  months and is labelled arithmetic, not a forecast.
+- The view is kept in the URL (`/analytics?view=week|month|year&p=…`), not in
+  browser storage.

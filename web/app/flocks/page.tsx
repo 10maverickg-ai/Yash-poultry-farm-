@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { listFlocks } from "@/lib/flocks";
+import { weeksSince } from "@/lib/ageWeeks";
 
 export const dynamic = "force-dynamic";
 
@@ -17,6 +18,12 @@ export default async function FlocksPage() {
         </Link>
         <Link href="/flocks/renumber" className="btn btn-secondary">
           Renumbering event
+        </Link>
+        <Link href="/flocks/batches" className="btn btn-secondary">
+          Chick batches
+        </Link>
+        <Link href="/flocks/moulting" className="btn btn-secondary">
+          Moulting
         </Link>
       </div>
 
@@ -36,6 +43,7 @@ export default async function FlocksPage() {
                 <th>Shed</th>
                 <th>Birds</th>
                 <th>Placed</th>
+                <th>Age</th>
                 <th>Breed</th>
               </tr>
             </thead>
@@ -54,6 +62,11 @@ export default async function FlocksPage() {
                   <td>{f.current_shed ?? "—"}</td>
                   <td>{f.current_bird_count?.toLocaleString("en-IN") ?? "—"}</td>
                   <td>{f.placement_date ?? "—"}</td>
+                  <td>
+                    {!f.placement_date || (String(f.placement_date).slice(0, 10) === "2026-01-01" && f.placement_date_confirmed !== true)
+                      ? <span className="badge badge-flagged">age unknown</span>
+                      : `${weeksSince(f.placement_date)} wk`}
+                  </td>
                   <td>{f.breed ?? "—"}</td>
                 </tr>
               ))}

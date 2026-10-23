@@ -1,0 +1,46 @@
+import { pool } from "@/lib/db";
+import { ACTIVE_FARM } from "@/lib/farm";
+import type { CostInput } from "./engine";
+
+const num = (x: unknown) => (x == null ? null : Number(x));
+
+export async function loadCostInput(): Promise<CostInput> {
+  const [settings, purchases, diesel, prod, sales, birds] = await Promise.all([
+    pool.query(`SELECT cost_type, value, effective_from, month FROM cost_settings WHERE farm_code = $1`, [ACTIVE_FARM]),
+    pool.query(`SELECT date, category, amount_inr FROM purchases WHERE farm_code = $1`, [ACTIVE_FARM]),
+    pool.query(`SELECT date, amount_inr FROM diesel_purchases WHERE farm_code = $1`, [ACTIVE_FARM]),
+    pool.query(
+      `SELECT date, flock_internal_id, eggs_total, feed_bags, bird_population
+         FROM daily_production WHERE farm_code = $1 AND deleted_at IS NULL`,
+      [ACTIVE_FARM]
+    ),
+    pool.query(`SELECT date, eggs_quantity, amount FROM sales WHERE farm_code = $1`, [ACTIVE_FARM]),
+    pool.query(
+      `SELECT date, birds_change, price_per_bird FROM flock_movements
+        WHERE farm_code = $1 AND movement_type = 'sale'`,
+      [ACTIVE_FARM]
+    ),
+  ]);
+  return {
+    settings: settings.rows.map((r) => ({
+      type: r.cost_type,
+      value: Number(r.value),
+      effectiveFrom: String(r.effective_from).slice(0, 10),
+      month: r.month,
+    })),
+    purchases: purchases.rows.map((r) => ({ date: r.date, category: r.category, amount: Number(r.amount_inr) })),
+    diesel: diesel.rows.map((r) => ({ date: r.date, amount: Number(r.amount_inr) })),
+    prod: prod.rows.map((r) => ({
+      date: r.date,
+      flockId: r.flock_internal_id,
+      eggs: r.eggs_total ?? 0,
+      feedBags: r.feed_bags ?? 0,
+      birds: r.bird_population ?? 0,
+    })),
+    sales: sales.rows.map((r) => ({ date: r.date, eggs: r.eggs_quantity ?? 0, amount: num(r.amount) })),
+    birdSales: birds.rows.map((r) => ({
+      date: r.date,
+      amount: r.price_per_bird != null ? Math.abs(r.birds_change) * Number(r.price_per_bird) : null,
+    })),
+  };
+}

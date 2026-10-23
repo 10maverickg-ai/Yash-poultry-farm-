@@ -1,0 +1,90 @@
+{
+ "doc_key": "merck-vet-manual-layer-vaccination",
+ "company": "Merck Veterinary Manual",
+ "title": "Vaccination Program for Commercial Layers (example program)",
+ "year": 2026,
+ "source_url": "https://www.merckvetmanual.com/multimedia/table/vaccination-program-for-commercial-layers",
+ "entries": [
+  {
+   "entry_key": "layer-vaccination-example",
+   "topic": "Vaccination schedule",
+   "page": "Table: Vaccination Program for Commercial Layers",
+   "breed": "Commercial layers",
+   "notes": "Example program only; the source says actual programs vary with local disease challenge and regulation. Ages are weeks from hatch (day-old = 0). Printed ages: Marek 1 day; ND/IB and IBD 14-21 days; ND/IB 5 wk; ND/IB 8-10 wk; AE, fowl pox, ILT 10-12 wk; MG live 10-14 wk, MG inactivated 10-14 or 18 wk; ND/IB 12-14 wk and 16-18 wk; inactivated ND/IB every 60-90 days or one dose at 18 wk. Use your veterinarian's local programme.",
+   "standards": [
+    {
+     "metric": "vaccine:Marek's (HVT + SB-1)",
+     "age_weeks": 0,
+     "value": 1,
+     "unit": "subcutaneous, hatchery"
+    },
+    {
+     "metric": "vaccine:Newcastle/IB (B1/Massachusetts) day 14-21",
+     "age_weeks": 2,
+     "value": 1,
+     "unit": "drinking water"
+    },
+    {
+     "metric": "vaccine:Gumboro/IBD (intermediate) day 14-21",
+     "age_weeks": 2,
+     "value": 1,
+     "unit": "drinking water"
+    },
+    {
+     "metric": "vaccine:Newcastle/IB (B1/Massachusetts) 5 wk",
+     "age_weeks": 5,
+     "value": 1,
+     "unit": "drinking water or coarse spray"
+    },
+    {
+     "metric": "vaccine:Newcastle/IB (B1 or LaSota/Mass) 8-10 wk",
+     "age_weeks": 8,
+     "value": 1,
+     "unit": "drinking water or coarse spray"
+    },
+    {
+     "metric": "vaccine:Avian encephalomyelitis (live) 10-12 wk",
+     "age_weeks": 10,
+     "value": 1,
+     "unit": "wing web"
+    },
+    {
+     "metric": "vaccine:Fowl pox (modified live) 10-12 wk",
+     "age_weeks": 10,
+     "value": 1,
+     "unit": "wing web"
+    },
+    {
+     "metric": "vaccine:Infectious laryngotracheitis (modified live) 10-12 wk",
+     "age_weeks": 10,
+     "value": 1,
+     "unit": "eye drop"
+    },
+    {
+     "metric": "vaccine:Mycoplasma gallisepticum (mild live) 10-14 wk",
+     "age_weeks": 10,
+     "value": 1,
+     "unit": "eye drop or spray"
+    },
+    {
+     "metric": "vaccine:Newcastle/IB (B1 or LaSota/Mass) 12-14 wk",
+     "age_weeks": 12,
+     "value": 1,
+     "unit": "drinking water or aerosol"
+    },
+    {
+     "metric": "vaccine:Newcastle/IB (B1 or LaSota/Mass) 16-18 wk",
+     "age_weeks": 16,
+     "value": 1,
+     "unit": "drinking water or aerosol"
+    },
+    {
+     "metric": "vaccine:Newcastle/IB inactivated (single dose at 18 wk)",
+     "age_weeks": 18,
+     "value": 1,
+     "unit": "injection"
+    }
+   ]
+  }
+ ]
+}

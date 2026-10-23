@@ -23,6 +23,11 @@ export interface TransferCandidate {
 export interface TransferFinding {
   label: string;
   note: string;
+  // Owner request, 2026-10-15: which OTHER flock this candidate paired with
+  // (null for a solo "no matching transfer found" finding) — upload/actions.ts
+  // uses this to write a structured flock_movements row alongside the flag
+  // message above, not just the flag text.
+  counterpartLabel: string | null;
 }
 
 // "roughly equal size (within about 5%)" — owner's own wording, 2026-10-12.
@@ -60,7 +65,10 @@ export function detectBirdTransfers(candidates: TransferCandidate[]): TransferFi
       const toLabel = a.unexplainedDelta < 0 ? b.label : a.label;
       const approxBirds = Math.round((magA + magB) / 2);
       const note = `Likely bird transfer ${fromLabel} -> ${toLabel} (~${approxBirds} birds). Confirm and no correction needed.`;
-      findings.push({ label: a.label, note }, { label: b.label, note });
+      findings.push(
+        { label: a.label, note, counterpartLabel: b.label },
+        { label: b.label, note, counterpartLabel: a.label }
+      );
       break;
     }
   }
@@ -71,6 +79,7 @@ export function detectBirdTransfers(candidates: TransferCandidate[]): TransferFi
     findings.push({
       label: c.label,
       note: `bird count changed by ${signed}, no matching transfer found, please check`,
+      counterpartLabel: null,
     });
   }
 
