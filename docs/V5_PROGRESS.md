@@ -92,7 +92,7 @@ Facts that changed (do not redo): all 30 Sept BAFTA rates + 27 Sept sales rows a
 | G6 | Bird sales + Anil farm lists | built | Buyer column with save; separate "Shifted to Anil farm" list (transfers, not sales/losses); `local` added to transaction types. Browser-tested at 390px. |
 | G7 | Costs honesty + missing-inputs checklist | built | Migration 0035 (live+local). Missing electricity shows "missing: not entered"; cost/profit labelled incomplete estimate; per-month checklist (electricity, diesel, medicines, labour, packing). Browser-tested locally (none-this-month, electricity save, no overflow). |
 | G8 | Today screen | built | `/today` (nav: Analytics section, plus home card). Per-flock eggs/HD% vs own-breed standard with colour + one line, open alerts (max 5, tap to expand), feed days and egg-stock days, cash estimate (marked incomplete), what is missing (photo not uploaded for yesterday, no rate, cost inputs). No new tables. Browser-tested at 360/390 px. |
-| G9 | Reader benchmark (budget USD 5) | todo | last; tiny call first |
+| G9 | Reader benchmark | blocked | Tiny call (1 message, ~10 tokens, no photo) on 2026-10-23 returned "credit balance is too low". Stopped as instructed; 0 photos run, USD 0 spent. Added to Needs owner. |
 | G10 | Phase Z for G1–G8 | todo | |
 
 ## V6 Known bugs
@@ -112,3 +112,5 @@ Facts that changed (do not redo): all 30 Sept BAFTA rates + 27 Sept sales rows a
 
 ## V6 Decisions
 - G1: the F7 extra-reference lines (other breeds' hen-day % on the flock cards) were removed: F8's rule is "own breed only".
+
+- **G9 (owner):** the Anthropic key still reports "credit balance is too low" (checked 2026-10-23). Add credits, then re-run the benchmark; budget cap USD 5.
