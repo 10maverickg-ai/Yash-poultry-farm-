@@ -32,7 +32,7 @@ Gate per item: `tsc`, `eslint`, `next build` pass. Status: todo / built / debugg
 | 9.1 | Merge readerV2 into integration branch | built | merged origin/claude/yash-poultry-schema-setup-81xuq7 (c974f77) into this branch only; 2 conflict hunks (date rule, HD% display) resolved in favour of the queue-aware date rule; READER_V2_ENABLED is not set or read by the queue (old reader stays the default) |
 | 9.2 | Benchmark runs | todo (blocked) | READER_TEST_KEY is set but the Anthropic API answered "credit balance is too low" on a 8-token test call; per the brief I stopped at once and did not retry. No benchmark was run, so there are NO raw-vs-corrected accuracy figures |
 | 9.3 | September test dates | todo (blocked) | the September rows have no stored photos (hand-entered backfill; source_photo_url is null for all 30 days), so there is nothing to read; also blocked by credits |
-| Z | Debug everything | todo | |
+| Z | Debug everything | built (partly) | route sweep 29 routes × 360/390 px: all 200, no horizontal scroll, no console errors; fixed day-nav wrapping and <40 px tap targets; 13 regression scripts 244 checks pass; own self-tests: analytics 21, rates 14, costs 7, knowledge idempotent; live-schema smoke queries for every new page run OK against live Supabase; never-flag filter verified on local copy; Vercel preview pending at time of writing |
 
 ## Migrations applied
 - 0025_rates_subsidy.sql: daily_egg_rates + rate_per_100, subsidy_paise, original_text, date_in_message, carried_forward

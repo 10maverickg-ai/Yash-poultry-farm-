@@ -2500,9 +2500,10 @@ change is NOT reflected here.
 - **Identity:** flocks are joined by `flock_internal_id` only. The register
   label (`display_label_as_written`) is shown as "the label that day", with a
   "placed Mon YYYY" tag so BAB-5 in August (d6b2…) and BAB-5 in September
-  (0d0b…) are never confused. `flocks.display_label` is stale (it still shows
-  the pre-27-Aug BAB-8/BAB-10 swap and none of the September shifts), so it is
-  not used for display.
+  (0d0b…) are never confused. CORRECTION (V5, 2026-10-23): `flocks.display_label`
+  is NOT stale — it is the real flock name (the owner confirmed DB flocks BAB-3, 4, 5,
+  6, 7, 10, 9, 8 are what the register's BAB-1…8 mean from 9 Sep). The screens now show
+  it first and the register label as secondary text.
 - **Moulting is inferred, not recorded** (no table/column holds it): feed ≤ 25%
   of the flock's own prior 7-day average, and HD still under 80% of its
   pre-withdrawal HD. On the real data this marks only BAB-5's August flock,
