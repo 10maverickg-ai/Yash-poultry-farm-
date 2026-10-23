@@ -72,6 +72,7 @@ export type ReviewItem =
 
 export interface ReviewDay {
   date: string;
+  photoUrl: string | null; // the register photo that day's rows were read from, if stored
   items: ReviewItem[];
 }
 
@@ -250,11 +251,21 @@ export async function loadFlagReview(filter: DateFilter = {}): Promise<{ days: R
 
   for (const p of pageIssues.rows) if (!isNeverFlaggedPageIssue(p.date)) push(p.date, { kind: "page_issue", id: Number(p.id), date: p.date, text: p.issue_text });
 
+  const photos = byDay.size
+    ? await pool.query(
+        `SELECT date, max(source_photo_url) AS url FROM daily_production
+          WHERE farm_code = $1 AND deleted_at IS NULL AND date = ANY($2::date[]) AND source_photo_url IS NOT NULL GROUP BY date`,
+        [ACTIVE_FARM, [...byDay.keys()]]
+      )
+    : { rows: [] as { date: string; url: string }[] };
+  const photoByDate = new Map<string, string>(photos.rows.map((r) => [r.date, r.url]));
+
   const order = { production: 0, movement: 1, ledger_gap: 2, egg_entry: 3, page_issue: 4 } as const;
   const days: ReviewDay[] = [...byDay.entries()]
     .sort(([a], [b]) => (a < b ? -1 : 1))
     .map(([date, items]) => ({
       date,
+      photoUrl: photoByDate.get(date) ?? null,
       items: items.sort((a, b) => order[a.kind] - order[b.kind] || a.id - b.id),
     }));
 

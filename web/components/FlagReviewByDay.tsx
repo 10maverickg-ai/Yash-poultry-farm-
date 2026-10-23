@@ -154,6 +154,15 @@ export function FlagReviewByDay({
           <h2 className="fr-day">
             {pretty(d.date)} <span className="muted">· {d.items.length}</span>
           </h2>
+          {d.photoUrl && (
+            <a href={d.photoUrl} target="_blank" rel="noreferrer" className="fr-photo" aria-label={`Open the register photo for ${d.date} full size`}>
+              {
+                // eslint-disable-next-line @next/next/no-img-element -- external Supabase Storage URL
+                <img src={d.photoUrl} alt={`Register photo for ${d.date}`} loading="lazy" />
+              }
+              <span className="muted an-tiny">Tap to open the register photo for this day at full size</span>
+            </a>
+          )}
           {d.items.map((item) => (
             <Item key={`${item.kind}-${item.id}`} item={item} />
           ))}
