@@ -15,6 +15,8 @@ import {
   type FlockCard,
 } from "@/lib/analytics/engine";
 import { markAlertReviewed } from "./actions";
+import { loadCostInput } from "@/lib/costs/load";
+import { dayEconomics, monthEconomics, rangeEconomics, flockMonthEconomics } from "@/lib/costs/engine";
 
 export const dynamic = "force-dynamic";
 
@@ -89,7 +91,8 @@ export default async function AnalyticsPage({
   searchParams: Promise<{ date?: string; month?: string }>;
 }) {
   const sp = await searchParams;
-  const ctx = buildCtx(await loadEngineInput());
+  const [engineInput, costInput] = await Promise.all([loadEngineInput(), loadCostInput()]);
+  const ctx = buildCtx(engineInput);
 
   if (ctx.dates.length === 0) {
     return (
@@ -118,6 +121,18 @@ export default async function AnalyticsPage({
   const live = cards.filter((c) => c.status !== "left");
   const gone = cards.filter((c) => c.status === "left");
   const watch = watchList(ctx, asOf);
+  const money = dayEconomics(costInput, asOf);
+  const week = rangeEconomics(costInput, addDays(asOf, -6), asOf);
+  const monthMoney = monthEconomics(costInput, month);
+  const flockMoney = new Map(flockMonthEconomics(costInput, month).map((f) => [f.flockId, f]));
+  if (week.revenuePerEgg != null && week.costPerEgg != null && week.revenuePerEgg < week.costPerEgg) {
+    watch.push({
+      kind: "trending_below",
+      flockId: null,
+      label: null,
+      text: `Revenue per egg ₹${week.revenuePerEgg.toFixed(2)} is below cost per egg ₹${week.costPerEgg.toFixed(2)} over the last ${week.days} days (estimate).`,
+    });
+  }
   const mv = monthView(ctx, month);
   const returnTo = `/analytics?date=${asOf}&month=${month}`;
   const staleDays = Math.round((Date.parse(new Date().toISOString().slice(0, 10)) - Date.parse(latest)) / 86400000);
@@ -170,6 +185,21 @@ export default async function AnalyticsPage({
         ) : (
           <p className="muted">No production rows for this date.</p>
         )}
+      </section>
+
+      {/* ---- Money (estimate) ---- */}
+      <section className="card" aria-labelledby="an-money-h">
+        <h2 id="an-money-h" style={{ marginTop: 0 }}>Money — {pretty(asOf)} <span className="badge badge-flagged">estimate</span></h2>
+        <div className="an-grid">
+          <div className="an-metric"><div className="an-metric-title">Egg revenue</div><div className="an-metric-value">{money.revenue ? `₹${n0(money.revenue)}` : "—"}</div><div className="an-metric-cmp">{n0(money.eggsSold)} eggs sold</div></div>
+          <div className="an-metric"><div className="an-metric-title">Cost</div><div className="an-metric-value">₹{n0(money.cost.total)}</div><div className="an-metric-cmp">feed ₹{n0(money.cost.feed)}</div></div>
+          <div className="an-metric"><div className="an-metric-title">Profit</div><div className="an-metric-value">{money.revenue ? `₹${n0(money.profit)}` : "—"}</div></div>
+          <div className="an-metric"><div className="an-metric-title">Revenue / egg</div><div className="an-metric-value">{money.revenuePerEgg != null ? `₹${money.revenuePerEgg.toFixed(2)}` : "—"}</div></div>
+          <div className="an-metric"><div className="an-metric-title">Cost / egg</div><div className="an-metric-value">{money.costPerEgg != null ? `₹${money.costPerEgg.toFixed(2)}` : "—"}</div></div>
+        </div>
+        {money.unpricedEggsSold > 0 && <div className="flag-banner" style={{ marginTop: "0.6rem" }}>{n0(money.unpricedEggsSold)} eggs were sold this day with no BAFTA rate entered, so revenue and profit are left out rather than guessed. <Link href="/sales/rates">Enter the rates</Link></div>}
+        {money.missing.length > 0 && <div className="flag-banner" style={{ marginTop: "0.6rem" }}>Cost is missing: {money.missing.join(", ")}.</div>}
+        <p className="muted an-foot">Feed is exact; electricity, labour and packing are spread/estimated; diesel and medicines count the day bought. Revenue is eggs <em>sold</em> that day, not laid.</p>
       </section>
 
       {/* ---- Alerts ---- */}
@@ -267,6 +297,7 @@ export default async function AnalyticsPage({
                 <th className="num">Feed bags</th>
                 <th className="num">Deaths</th>
                 <th className="num">Deaths %</th>
+                <th className="num">Est. profit ₹</th>
               </tr>
             </thead>
             <tbody>
@@ -283,6 +314,7 @@ export default async function AnalyticsPage({
                   <td className="num">{n0(r.feed)}</td>
                   <td className="num">{n0(r.mort)}</td>
                   <td className="num">{r.mortPct != null ? r.mortPct.toFixed(2) : "–"}</td>
+                  <td className="num">{r.flockId && monthMoney.revenue && flockMoney.get(r.flockId) ? n0(flockMoney.get(r.flockId)!.profit) : "–"}</td>
                 </tr>
               ))}
             </tbody>
@@ -295,12 +327,15 @@ export default async function AnalyticsPage({
                 <th className="num">{n0(mv.total.feed)}</th>
                 <th className="num">{n0(mv.total.mort)}</th>
                 <th className="num">–</th>
+                <th className="num">{monthMoney.revenue ? n0(monthMoney.profit) : "–"}</th>
               </tr>
             </tfoot>
           </table>
         </div>
         <p className="muted an-foot">
-          Deaths % = deaths ÷ birds at the start of the flock&apos;s first day in the month. Chick-shed deaths this month: {n0(mv.chickDeaths)} (not in the table). Revenue and profit are left out until egg rates are loaded.
+          Deaths % = deaths ÷ birds at the start of the flock&apos;s first day in the month. Chick-shed deaths this month: {n0(mv.chickDeaths)} (not in the table).
+          {monthMoney.revenue ? ` Farm: revenue ₹${n0(monthMoney.revenue)}, cost ₹${n0(monthMoney.cost.total)}, estimated profit ₹${n0(monthMoney.profit)}${monthMoney.revenuePerEgg != null && monthMoney.costPerEgg != null ? `; revenue per egg ₹${monthMoney.revenuePerEgg.toFixed(2)} vs cost per egg ₹${monthMoney.costPerEgg.toFixed(2)}` : ""}. Per-flock profit is an estimate (feed exact, other costs by bird count, revenue by eggs laid).` : " Revenue and profit are left out for this month: no BAFTA rates have been entered, so nothing is priced."}
+          {monthMoney.birdSaleRevenue > 0 ? ` Bird sales this month ₹${n0(monthMoney.birdSaleRevenue)} (not in egg revenue).` : ""}
         </p>
       </section>
     </>
