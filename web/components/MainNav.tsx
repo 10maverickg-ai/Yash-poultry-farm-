@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 
 // The seven sections of the app. Phones get a fixed bottom bar (big tap
 // targets); wider screens get the same links in the header. The second row
@@ -21,7 +21,7 @@ export const SECTIONS = [
   { key: "flocks", label: "Flocks", icon: "🐔", href: "/flocks", match: ["/flocks", "/chick-batches", "/sheds"],
     subs: [["/flocks", "Flocks"], ["/flocks/batches", "Chick batches"], ["/flocks/moulting", "Moulting"], ["/chick-batches", "Chick log"], ["/sheds", "Sheds"]] },
   { key: "analytics", label: "Analytics", icon: "📊", href: "/analytics", match: ["/analytics", "/today"],
-    subs: [["/today", "Today"], ["/analytics", "Analytics"]] },
+    subs: [["/today", "Today"], ["/analytics", "Day"], ["/analytics?view=week", "Week"], ["/analytics?view=month", "Month"], ["/analytics?view=year", "Year"]] },
 ] as const;
 
 function active(path: string, match: readonly string[]) {
@@ -30,6 +30,7 @@ function active(path: string, match: readonly string[]) {
 
 export function MainNav({ position }: { position: "top" | "bottom" }) {
   const path = usePathname() ?? "/";
+  const view = useSearchParams()?.get("view") ?? "";
   const current = SECTIONS.find((s) => active(path, s.match));
   if (position === "bottom") {
     return (
@@ -55,7 +56,11 @@ export function MainNav({ position }: { position: "top" | "bottom" }) {
       {current && current.subs.length > 1 && (
         <nav className="sub-nav" aria-label={`${current.label} pages`}>
           {current.subs.map(([href, label]) => (
-            <Link key={href} href={href} className={path === href ? "on" : ""}>
+            <Link key={href} href={href} className={(() => {
+                const [hp, hq] = href.split("?");
+                const hv = new URLSearchParams(hq ?? "").get("view") ?? "";
+                return path === hp && (hp !== "/analytics" || hv === view) ? "on" : "";
+              })()}>
               {label}
             </Link>
           ))}

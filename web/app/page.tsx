@@ -9,6 +9,14 @@ export default function Home() {
           <h3>Today</h3>
           <p className="muted">Eggs, alerts, stock, cash and what is still missing</p>
         </Link>
+        <Link href="/analytics?view=week" className="card">
+          <h3>This week</h3>
+          <p className="muted">Week summary, compared with the week before</p>
+        </Link>
+        <Link href="/analytics?view=month" className="card">
+          <h3>This month</h3>
+          <p className="muted">Month summary, week by week, sales and costs</p>
+        </Link>
         <Link href="/upload" className="card">
           <h3>Upload Photo</h3>
           <p className="muted">

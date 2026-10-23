@@ -57,6 +57,12 @@ export default async function TodayPage() {
         {stale > 0 ? ` — ${stale} day${stale === 1 ? "" : "s"} behind yesterday, nothing newer has been entered.` : "."}
       </p>
 
+      <p className="actions-bar">
+        <Link href="/analytics?view=week" className="btn btn-secondary">This week</Link>
+        <Link href="/analytics?view=month" className="btn btn-secondary">This month</Link>
+        <Link href="/analytics?view=year" className="btn btn-secondary">This year</Link>
+      </p>
+
       <section className="card" aria-labelledby="td-flocks">
         <h2 id="td-flocks" style={{ marginTop: 0 }}>Eggs and hen-day % by flock</h2>
         {cards.map((c) => {

@@ -2521,3 +2521,26 @@ change is NOT reflected here.
   that differs from the previous day's closing) is not stored as a flag; it is
   computed when the screen loads and answered through the summary row's
   `reviewed_by_owner`.
+
+## V7 — week / month / year views (owner decisions)
+- **Week = Monday to Sunday.** Month = calendar month, year = calendar year. A
+  month's first and last week are clipped to the month. A period still running
+  says "so far, N days".
+- **HD% for a period is pooled**: total eggs ÷ total bird-days × 100, never the
+  mean of daily percentages (a day with fewer birds must not weigh the same as
+  a day with more). The mean is shown only in "More numbers" to show the two differ.
+- **A cost that was not entered is MISSING, not zero.** Cost totals are labelled
+  "so far", profit "incomplete", and the missing inputs are listed with a link
+  to enter them. Profit is always an estimate.
+- **Partial periods are never mixed with full ones silently.** Every period
+  says "N of M days have data"; averages and comparisons use per-day rates over
+  days with data only.
+- **Comparison** is with the previous period of the same kind and, when data
+  exists, the same period last year (until then: "no earlier data"). Arrows are
+  coloured good/bad per measure (more deaths = bad, more eggs = good) and also
+  say "better"/"worse" in words.
+- **Bird sales and Anil-farm transfers are movements, not mortality.**
+- **Run rate** (last full month × 12) appears only with at least two full
+  months and is labelled arithmetic, not a forecast.
+- The view is kept in the URL (`/analytics?view=week|month|year&p=…`), not in
+  browser storage.

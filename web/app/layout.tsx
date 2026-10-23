@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { ACTIVE_FARM, ACTIVE_FARM_NAME } from "@/lib/farm";
+import { Suspense } from "react";
 import { MainNav } from "@/components/MainNav";
 import "./globals.css";
 
@@ -20,10 +21,10 @@ export default function RootLayout({
             {ACTIVE_FARM_NAME}
           </Link>
           <span className="farm-badge">{ACTIVE_FARM}</span>
-          <MainNav position="top" />
+          <Suspense fallback={null}><MainNav position="top" /></Suspense>
         </header>
         <main>{children}</main>
-        <MainNav position="bottom" />
+        <Suspense fallback={null}><MainNav position="bottom" /></Suspense>
       </body>
     </html>
   );
