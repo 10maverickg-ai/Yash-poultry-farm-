@@ -91,6 +91,7 @@ export interface PeriodSale {
   amount: number | null; // null = unpriced
   grade: string; // 'big' | 'small' | other
   channel: "farmfresh" | "local";
+  buyer?: string | null;
 }
 export interface PeriodExtras {
   sales: PeriodSale[];
@@ -177,6 +178,7 @@ export interface PeriodSummary {
     revenueByChannel: Record<string, number>;
     eggsByChannel: Record<string, number>;
     eggsByGrade: Record<string, number>;
+    byBuyer: { buyer: string; eggs: number; revenue: number }[]; // largest first; "(not recorded)" when blank
     avgPricePerEgg: number | null; // revenue / priced eggs
     birdSaleRevenue: number;
     cost: { feed: number; electricity: number; labour: number; packing: number; diesel: number; medicine: number; other: number; total: number };
@@ -274,6 +276,15 @@ export function summarizePeriod(ctx: Ctx, cost: CostInput, extras: PeriodExtras,
     revenueByChannel: by(priced, (s) => s.channel, (s) => s.amount!),
     eggsByChannel: by(sales, (s) => s.channel, (s) => s.eggs),
     eggsByGrade: by(sales, (s) => s.grade, (s) => s.eggs),
+    byBuyer: Object.values(
+      sales.reduce<Record<string, { buyer: string; eggs: number; revenue: number }>>((o, x) => {
+        const k = (x.buyer ?? "").trim() || "(not recorded)";
+        const e = (o[k] ??= { buyer: k, eggs: 0, revenue: 0 });
+        e.eggs += x.eggs;
+        e.revenue += x.amount ?? 0;
+        return o;
+      }, {})
+    ).sort((a, b) => b.revenue - a.revenue),
     avgPricePerEgg: pricedEggs > 0 ? revenue / pricedEggs : null,
     birdSaleRevenue: sum(extras.birdSales.filter((b) => b.date >= from && b.date <= to).map((b) => b.amount ?? 0)),
     cost: costObj,

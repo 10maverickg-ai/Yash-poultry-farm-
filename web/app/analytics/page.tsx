@@ -19,6 +19,8 @@ import { markAlertReviewed, saveAlertFeedback } from "./actions";
 import { pool } from "@/lib/db";
 import { ACTIVE_FARM } from "@/lib/farm";
 import { loadCostInput } from "@/lib/costs/load";
+import { loadPeriodExtras } from "@/lib/analytics/periodLoad";
+import { PeriodView, ViewSwitch } from "@/components/PeriodView";
 import { dayEconomics, monthEconomics, rangeEconomics, flockMonthEconomics } from "@/lib/costs/engine";
 
 export const dynamic = "force-dynamic";
@@ -91,11 +93,22 @@ const SPARK_COLOR: Record<CardStatus, string> = {
 export default async function AnalyticsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ date?: string; month?: string }>;
+  searchParams: Promise<{ date?: string; month?: string; view?: string; p?: string }>;
 }) {
   const sp = await searchParams;
   const [engineInput, costInput] = await Promise.all([loadEngineInput(), loadCostInput()]);
   const ctx = buildCtx(engineInput);
+  const view = sp.view === "week" || sp.view === "month" || sp.view === "year" ? sp.view : "day";
+
+  if (view !== "day" && ctx.dates.length > 0) {
+    const extras = await loadPeriodExtras();
+    return (
+      <>
+        <h1>Analytics</h1>
+        <PeriodView input={engineInput} cost={costInput} extras={extras} kind={view} p={sp.p} />
+      </>
+    );
+  }
 
   if (ctx.dates.length === 0) {
     return (
@@ -152,6 +165,7 @@ export default async function AnalyticsPage({
         <Link href="/flagged">{"Review flags →"}</Link>
       </p>
 
+      <ViewSwitch view="day" anchor={asOf} />
       <form method="get" className="card an-picker">
         <label className="field">
           <span>Show the board as of</span>
