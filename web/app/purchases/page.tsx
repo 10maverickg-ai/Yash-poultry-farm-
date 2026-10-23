@@ -76,7 +76,7 @@ export default async function PurchasesPage({ searchParams }: { searchParams: Pr
         return (
           <div key={m} className="card">
             <h3 style={{ marginTop: 0 }}>{monthName(m)}</h3>
-            <table className="an-table" style={{ minWidth: 0 }}>
+            <div style={{ overflowX: "auto" }}><table className="an-table" style={{ minWidth: 0 }}>
               <tbody>
                 <tr><td>Feed</td><td className="num">₹{inr(e.cost.feed)}</td></tr>
                 <tr><td>Electricity</td><td className="num">{e.missing.some((x) => x.startsWith("electricity")) ? <span className="badge badge-flagged">missing: not entered</span> : `₹${inr(e.cost.electricity)}`}</td></tr>
@@ -91,7 +91,7 @@ export default async function PurchasesPage({ searchParams }: { searchParams: Pr
                 <tr><td>Egg revenue (priced sales)</td><td className="num">{e.revenue ? `₹${inr(e.revenue)}` : "—"}</td></tr>
                 <tr><th>Estimated profit{e.missing.length ? " — INCOMPLETE" : ""} <span className="muted an-tiny">estimate</span></th><th className="num">{e.revenue ? `₹${inr(e.profit)}` : "—"}</th></tr>
               </tfoot>
-            </table>
+            </table></div>
             {e.chickPurchases > 0 && <p className="muted an-tiny">Chick purchases this month (not in the total): ₹{inr(e.chickPurchases)}</p>}
             {e.birdSaleRevenue > 0 && <p className="muted an-tiny">Bird sales this month (not in egg revenue): ₹{inr(e.birdSaleRevenue)}</p>}
             <Checklist month={m} items={checklists.get(m) ?? []} />
