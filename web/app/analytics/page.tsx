@@ -15,6 +15,7 @@ import {
   type FlockCard,
 } from "@/lib/analytics/engine";
 import { markAlertReviewed } from "./actions";
+import { extraHenDayRefs, type ExtraRef } from "@/lib/analytics/extraRefs";
 import { loadCostInput } from "@/lib/costs/load";
 import { dayEconomics, monthEconomics, rangeEconomics, flockMonthEconomics } from "@/lib/costs/engine";
 
@@ -121,6 +122,10 @@ export default async function AnalyticsPage({
   const live = cards.filter((c) => c.status !== "left");
   const gone = cards.filter((c) => c.status === "left");
   const watch = watchList(ctx, asOf);
+  const extraByFlock = new Map<string, ExtraRef[]>();
+  for (const c of live) {
+    if (c.ageWeeks != null && c.status !== "no_reference") extraByFlock.set(c.flockId, await extraHenDayRefs(c.ageWeeks, c.breed));
+  }
   const money = dayEconomics(costInput, asOf);
   const week = rangeEconomics(costInput, addDays(asOf, -6), asOf);
   const monthMoney = monthEconomics(costInput, month);
@@ -258,7 +263,7 @@ export default async function AnalyticsPage({
         </p>
         <div className="an-cards">
           {live.map((c) => (
-            <FlockCardView key={c.flockId} c={c} />
+            <FlockCardView key={c.flockId} c={c} extras={extraByFlock.get(c.flockId) ?? []} />
           ))}
         </div>
         {gone.length > 0 && (
@@ -402,7 +407,7 @@ function AlertCard({ a, returnTo, compact }: { a: Alert; returnTo: string; compa
   );
 }
 
-function FlockCardView({ c }: { c: FlockCard }) {
+function FlockCardView({ c, extras }: { c: FlockCard; extras: ExtraRef[] }) {
   return (
     <div className={`card an-flock an-${c.status}`}>
       <div className="an-flock-head">
@@ -436,6 +441,16 @@ function FlockCardView({ c }: { c: FlockCard }) {
         <Spark values={c.hdSeries} color={SPARK_COLOR[c.status]} />
       </div>
       <p className="an-note">{c.statusNote}</p>
+      {extras.length > 0 && (
+        <ul className="an-extra">
+          {extras.map((x) => (
+            <li key={x.entryId} className="muted an-tiny">
+              Extra reference (does not change the colour): {x.company}{x.breed ? ` ${x.breed}` : ""} {x.value}% at week {c.ageWeeks}
+              {x.sameBreed ? "" : " — a different breed"} · <Link href={`/knowledge/${x.entryId}`}>source</Link>
+            </li>
+          ))}
+        </ul>
+      )}
       {c.formerLabels.length > 0 && <p className="muted an-tiny">Earlier register labels: {c.formerLabels.join(", ")}</p>}
     </div>
   );

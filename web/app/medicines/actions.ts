@@ -79,18 +79,34 @@ export async function fillScheduleFromLibrary(formData: FormData) {
   let added = 0;
   await withTransaction(async (client) => {
     const { rows } = await client.query(`SELECT metric, age_weeks, unit FROM knowledge_standards WHERE entry_id = $1 AND metric LIKE 'vaccine:%' ORDER BY age_weeks`, [entryId]);
+    const { rows: src } = await client.query(
+      `SELECT d.company, d.title, e.notes FROM knowledge_entries e JOIN knowledge_documents d ON d.id = e.document_id WHERE e.id = $1`,
+      [entryId]
+    );
+    const example = /example/i.test(String(src[0]?.title ?? "")) || /example program/i.test(String(src[0]?.notes ?? ""));
+    // The stored age is the EARLIEST week of a printed range; ranges and the
+    // caveat go in the note so the owner/vet can adjust the date.
+    const note = `From the library: ${src[0]?.company ?? ""} — ${src[0]?.title ?? ""}. ${example ? "EXAMPLE PROGRAMME, not a prescription: confirm every date with your vet. " : ""}Due date = the earliest week of the printed range; change it if needed.`;
     for (const r of rows) {
       const due = new Date(Date.parse(start! + "T00:00:00Z") + r.age_weeks * 7 * 86400000).toISOString().slice(0, 10);
       const name = String(r.metric).slice("vaccine:".length);
       const res = await client.query(
-        `INSERT INTO vaccination_schedule (farm_code, flock_internal_id, chick_batch_id, vaccine, due_date, route, source_entry_id)
-         SELECT $1,$2,$3,$4,$5,$6,$7
+        `INSERT INTO vaccination_schedule (farm_code, flock_internal_id, chick_batch_id, vaccine, due_date, route, source_entry_id, note)
+         SELECT $1,$2,$3,$4,$5,$6,$7,$8
           WHERE NOT EXISTS (SELECT 1 FROM vaccination_schedule v WHERE v.farm_code = $1 AND v.vaccine = $4 AND v.due_date = $5
                               AND v.flock_internal_id IS NOT DISTINCT FROM $2 AND v.chick_batch_id IS NOT DISTINCT FROM $3)`,
-        [ACTIVE_FARM, target!.flock, target!.batch, name, due, r.unit ?? null, entryId]
+        [ACTIVE_FARM, target!.flock, target!.batch, name, due, r.unit ?? null, entryId, note]
       );
       added += res.rowCount ?? 0;
     }
   });
   back(added ? `Added ${added} vaccination${added === 1 ? "" : "s"} from the library.` : "Nothing new to add (that entry has no vaccine rows, or they are already scheduled).", added > 0);
+}
+
+// The owner or the vet can move a due date (library dates are only a starting point).
+export async function changeVaccinationDue(id: number, formData: FormData) {
+  const due = String(formData.get("due_date") ?? "");
+  if (!iso.test(due)) back("Choose the new due date.");
+  await pool.query(`UPDATE vaccination_schedule SET due_date = $2 WHERE id = $1 AND farm_code = $3`, [id, due, ACTIVE_FARM]);
+  back("Due date changed.", true);
 }
