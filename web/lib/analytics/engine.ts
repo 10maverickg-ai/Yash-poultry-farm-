@@ -16,9 +16,17 @@
 
 export interface FlockRef {
   id: string;
-  label: string; // flocks.display_label (can be stale; display only as a fallback)
+  label: string; // flocks.display_label: the REAL flock name (register labels shift)
   breed: string | null;
   placementDate: string | null;
+  placementConfirmed: boolean; // false for the 2026-01-01 placeholders
+}
+
+export interface MoultPeriod {
+  flockId: string;
+  start: string;
+  end: string | null;
+  confirmed: boolean;
 }
 
 export interface ProdRow {
@@ -79,15 +87,19 @@ export interface EngineInput {
   egg: EggSummary[];
   feedBoxes: FeedBox[];
   chick: { date: string; deaths: number }[];
+  moulting: MoultPeriod[]; // recorded moulting_periods (owner-entered or pre-filled)
   std: StdRow[]; // bv300_standard_laying (guide_version 2023)
 }
 
 // ---- tunable rules (the owner's brief, plus the few choices it left open) --
 export const RULES = {
-  dropPoints: 3, // production drop: >= 3 points below own 7-day average
+  dropPoints: 5, // production drop: >= 5 points below own 7-day average ...
+  dropPointsTwoDay: 3, // ... or >= 3 points on 2 consecutive days
   mortMultiple: 2, // high mortality: > 2x own 7-day average ...
   mortMinShare: 0.001, // ... and > 0.1% of the flock
-  feedDaysMin: 3, // low feed stock: under 3 days
+  mortMinDeaths: 5, // ... and at least 5 deaths that day
+  feedDaysMin: 0.5, // low feed: closing stock under 0.5 day of consumption (the mill delivers daily; ~1 day is normal)
+  feedShortfallDays: 3, // ... or feed received below consumption 3 days in a row
   eggDaysMax: 3, // egg build-up: over 3 days of production unsold
   birdTolerance: 2, // bird-count chain: |residual| <= 2 is register rounding
   // Choices the brief did not specify (flagged in the PR description):
@@ -126,7 +138,8 @@ export interface Alert {
   kind: AlertKind;
   date: string;
   flockId: string | null;
-  flockLabel: string | null; // register label that day
+  flockLabel: string | null; // the real flock name
+  registerLabel: string | null; // label written in the register that day (secondary)
   flockTag: string | null; // stable identity, e.g. "placed May 2025" (labels shift)
   reason: string; // plain words WITH the numbers
   // The record this alert is about, when it has a reviewed_by_owner column.
@@ -200,6 +213,12 @@ function labelOn(ctx: Ctx, flockId: string, date: string): string {
   for (const r of rs) if (r.date <= date) best = r;
   return best?.label ?? ctx.flockById.get(flockId)?.label ?? "flock";
 }
+export function flockName(ctx: Ctx, flockId: string, fallback = "flock"): string {
+  return ctx.flockById.get(flockId)?.label ?? fallback;
+}
+export function isPlaceholderAge(f: FlockRef | undefined): boolean {
+  return !!f && !f.placementConfirmed && f.placementDate === "2026-01-01";
+}
 export function flockTag(ctx: Ctx, flockId: string): string | null {
   const p = ctx.flockById.get(flockId)?.placementDate;
   if (!p) return null;
@@ -210,23 +229,41 @@ export function registerLabel(ctx: Ctx, flockId: string, date: string): string {
   return labelOn(ctx, flockId, date);
 }
 
-// --- moulting (INFERRED: there is no moult table or marker in the database) --
+// --- moulting ---------------------------------------------------------------
 //
-// A flock is treated as moulting on date D when, within the previous
-// `moultMaxDays`, its feed fell to <= 25% of its own prior 7-day average
-// (feed withdrawal) AND its HD% on D is still below 80% of the HD% it had
-// before that withdrawal. It stops being "moulting" once HD% is back to 80%
-// of the pre-moult level. On the real data this marks BAB-5's flock (d6b2…)
-// from 17 Aug to 26 Sep. If the owner records moults explicitly later, this
-// function is the single place to swap in the real marker.
+// 1) RECORDED: a moulting_periods row for the flock (the owner enters the
+//    start date; BAB-5's Aug 15 2026 row is pre-filled as "inferred, owner to
+//    confirm"). The flock is moulting from the start date until the end date,
+//    or - when no end date is set - until HD% is back to 80% of the HD% it
+//    had in the 7 rows before the start (and at least 14 days have passed).
+// 2) INFERRED (only for a flock with NO recorded period): feed fell to <= 25%
+//    of its own prior 7-day average within the last 60 days AND HD% is still
+//    below 80% of its pre-withdrawal level.
+// No zero-feed or production-drop alerts fire while a flock is moulting.
 export interface Moult {
   startedOn: string;
   baselineHd: number;
+  recorded: boolean;
 }
 export function moultOn(ctx: Ctx, flockId: string, date: string): Moult | null {
   const rs = ctx.byFlock.get(flockId) ?? [];
   const today = rs.find((r) => r.date === date);
-  if (!today || today.hd == null) return null;
+  if (!today) return null;
+  const periods = ctx.input.moulting.filter((m) => m.flockId === flockId);
+  if (periods.length > 0) {
+    for (const m of periods) {
+      if (date < m.start || (m.end && date > m.end)) continue;
+      const prior = priorRowsBefore(ctx, flockId, m.start, 7);
+      const baseline = mean(prior.map((p) => p.hd).filter((x): x is number => x != null)) ?? 0;
+      if (!m.end) {
+        const recovered = today.hd != null && baseline > 0 && today.hd >= RULES.moultRecoveredFraction * baseline && diffDays(date, m.start) >= 14;
+        if (recovered) continue;
+      }
+      return { startedOn: m.start, baselineHd: baseline, recorded: true };
+    }
+    return null;
+  }
+  if (today.hd == null) return null;
   for (let i = 0; i < rs.length; i++) {
     const r = rs[i];
     if (r.date > date) break;
@@ -238,11 +275,19 @@ export function moultOn(ctx: Ctx, flockId: string, date: string): Moult | null {
     const baseline = mean(prior.map((p) => p.hd).filter((x): x is number => x != null));
     if (baseline == null) continue;
     if (today.hd < RULES.moultRecoveredFraction * baseline) {
-      return { startedOn: r.date, baselineHd: baseline };
+      return { startedOn: r.date, baselineHd: baseline, recorded: false };
     }
     return null; // withdrawal happened but production never collapsed / has recovered
   }
   return null;
+}
+
+/** The flock's rows strictly before `date` (no 14-day cut-off), newest first, at most n. */
+function priorRowsBefore(ctx: Ctx, flockId: string, date: string, n: number): ProdRow[] {
+  const rs = ctx.byFlock.get(flockId) ?? [];
+  const out: ProdRow[] = [];
+  for (let i = rs.length - 1; i >= 0 && out.length < n; i--) if (rs[i].date < date) out.push(rs[i]);
+  return out;
 }
 
 /** Date of a feed-withdrawal day (feed <= 25% of own prior 7-day average) in the last 60 days, if any. */
@@ -317,7 +362,8 @@ export type CardStatus = "green" | "amber" | "red" | "moult" | "no_reference" | 
 
 export interface FlockCard {
   flockId: string;
-  label: string; // register label on the as-of date (or its last reporting day)
+  label: string; // the real flock name
+  registerLabel: string; // label written in the register on the as-of date (or last reporting day)
   formerLabels: string[]; // earlier register labels in the data window, oldest first
   placementDate: string | null;
   breed: string | null;
@@ -346,7 +392,9 @@ function lastRows(ctx: Ctx, flockId: string, asOf: string, n: number): ProdRow[]
 }
 
 export function stdFor(ctx: Ctx, flock: FlockRef | undefined, asOf: string): { std: number | null; age: number | null; why: string } {
-  if (!flock?.placementDate) return { std: null, age: null, why: "no reference loaded (no placement date)" };
+  if (!flock?.placementDate) return { std: null, age: null, why: "age unknown, no standard check (no placement date)" };
+  if (isPlaceholderAge(flock))
+    return { std: null, age: null, why: `age unknown, no standard check — the placement date ${flock.placementDate} is a placeholder; set the real date on the Flocks screen` };
   const age = Math.floor(diffDays(asOf, flock.placementDate) / 7);
   if ((flock.breed ?? "").toUpperCase() !== "BV300")
     return { std: null, age, why: `no reference loaded (${flock.breed ?? "unknown breed"}; only BV300 is loaded)` };
@@ -379,7 +427,8 @@ export function flockCards(ctx: Ctx, asOf: string): FlockCard[] {
       note = `Last reported ${last.date}; not on the register since.`;
     } else if (moult) {
       status = "moult";
-      note = `Moulting (inferred): feed was withdrawn ${moult.startedOn}; HD ${hd7 != null ? round(hd7) : "–"}% vs ${round(moult.baselineHd)}% before.`;
+      const day = diffDays(asOf, moult.startedOn) + 1;
+      note = `Moulting, day ${day} (since ${moult.startedOn}${moult.recorded ? "" : ", inferred"}); HD ${hd7 != null ? round(hd7) : "–"}% vs ${round(moult.baselineHd)}% before.`;
     } else if (std == null) {
       status = "no_reference";
       note = why;
@@ -395,7 +444,8 @@ export function flockCards(ctx: Ctx, asOf: string): FlockCard[] {
     }
     cards.push({
       flockId,
-      label: last.label,
+      label: flockName(ctx, flockId, last.label),
+      registerLabel: last.label,
       formerLabels: labels.slice(0, -1),
       placementDate: flock?.placementDate ?? null,
       breed: flock?.breed ?? null,
@@ -449,7 +499,7 @@ export function monthView(ctx: Ctx, month: string): { rows: MonthRow[]; total: M
     const lastInMonth = m[m.length - 1];
     rows.push({
       flockId,
-      label: labels[labels.length - 1],
+      label: flockName(ctx, flockId, labels[labels.length - 1]),
       labels,
       days: m.length,
       eggs,
@@ -486,6 +536,15 @@ export function lastDayOfData(ctx: Ctx): string {
 }
 
 // --- alerts ------------------------------------------------------------------
+
+function boxTotalsFull(ctx: Ctx, date: string) {
+  const bs = ctx.boxByDate.get(date) ?? [];
+  if (bs.length === 0) return null;
+  return {
+    received: bs.reduce((s, b) => s + (b.produced ?? 0), 0),
+    consumed: bs.reduce((s, b) => s + (b.consumed ?? 0), 0),
+  };
+}
 
 function boxTotals(ctx: Ctx, date: string) {
   const bs = ctx.boxByDate.get(date) ?? [];
@@ -525,34 +584,58 @@ export function eggStockDays(ctx: Ctx, date: string): { days: number; closing: n
   return { days: closing / perDay, closing, perDay, sections: es.length };
 }
 
+/** HD points under the flock's own 7-day average on `date` (positive = below), or null if not enough history. */
+function hdDrop(ctx: Ctx, flockId: string, date: string): { drop: number; avg: number; hd: number } | null {
+  const row = rowOn(ctx, flockId, date);
+  if (!row || row.hd == null) return null;
+  const prior = priorRows(ctx, flockId, date, 7);
+  const avg = mean(prior.map((p) => p.hd).filter((x): x is number => x != null));
+  if (avg == null || prior.length < 4) return null;
+  return { drop: avg - row.hd, avg, hd: row.hd };
+}
+
+/** Rows dated before this are the cleared August register: never flagged for data-quality reasons. */
+export const NEVER_FLAG_BEFORE = "2026-09-01";
+
 export function alertsFor(ctx: Ctx, date: string): Alert[] {
   const out: Alert[] = [];
   const rows = ctx.byDate.get(date) ?? [];
 
   for (const r of rows) {
-    const lbl = r.label;
-    const base = { date, flockId: r.flockId, flockLabel: lbl, flockTag: flockTag(ctx, r.flockId), source: { table: "production" as const, id: r.id } };
+    const base = { date, flockId: r.flockId, flockLabel: flockName(ctx, r.flockId, r.label), registerLabel: r.label, flockTag: flockTag(ctx, r.flockId), source: { table: "production" as const, id: r.id } };
     const prior = priorRows(ctx, r.flockId, date, 7);
     const moult = moultOn(ctx, r.flockId, date);
 
-    // production drop
+    // production drop: >= 5 points under own 7-day average, or >= 3 points on 2 consecutive days
     if (r.hd != null && !r.reviewed && !moult) {
-      const avg = mean(prior.map((p) => p.hd).filter((x): x is number => x != null));
-      if (avg != null && prior.length >= 4 && avg - r.hd >= RULES.dropPoints) {
-        const mv = movesOn(ctx, r.flockId, date).reduce((s, m) => s + m.change, 0);
-        out.push({
-          ...base,
-          kind: "production_drop",
-          reason: `HD ${round(r.hd)}% vs its own 7-day average ${round(avg)}% (−${round(avg - r.hd)} points, ${fmt(r.eggs ?? 0)} eggs${mv ? `; bird count also moved ${mv > 0 ? "+" : "−"}${fmt(Math.abs(mv))} that day` : ""}).`,
-        });
+      const d0 = hdDrop(ctx, r.flockId, date);
+      if (d0 && d0.drop >= RULES.dropPointsTwoDay) {
+        const yesterday = priorRows(ctx, r.flockId, date, 1)[0];
+        const d1 = yesterday && diffDays(date, yesterday.date) === 1 ? hdDrop(ctx, r.flockId, yesterday.date) : null;
+        const big = d0.drop >= RULES.dropPoints;
+        const twoDays = !!d1 && d1.drop >= RULES.dropPointsTwoDay;
+        if (big || twoDays) {
+          const mv = movesOn(ctx, r.flockId, date).reduce((s, m) => s + m.change, 0);
+          out.push({
+            ...base,
+            kind: "production_drop",
+            reason:
+              `HD ${round(r.hd)}% vs its own 7-day average ${round(d0.avg)}% (−${round(d0.drop)} points, ${fmt(r.eggs ?? 0)} eggs` +
+              `${mv ? `; bird count also moved ${mv > 0 ? "+" : "−"}${fmt(Math.abs(mv))} that day` : ""})` +
+              `${!big && twoDays ? `, and −${round(d1!.drop)} points the day before as well` : ""}.`,
+          });
+        }
       }
     }
 
-    // high mortality
+    // high mortality: > 2x own average AND > 0.1% of the flock AND >= 5 deaths
     if (r.mort != null && r.pop != null && !r.reviewed) {
       const avg = mean(prior.map((p) => p.mort).filter((x): x is number => x != null));
       const flockSize = r.pop + r.mort;
-      if (avg != null && prior.length >= 4 && r.mort > RULES.mortMultiple * avg && r.mort > RULES.mortMinShare * flockSize) {
+      if (
+        avg != null && prior.length >= 4 && r.mort >= RULES.mortMinDeaths &&
+        r.mort > RULES.mortMultiple * avg && r.mort > RULES.mortMinShare * flockSize
+      ) {
         out.push({
           ...base,
           kind: "high_mortality",
@@ -591,7 +674,7 @@ export function alertsFor(ctx: Ctx, date: string): Alert[] {
 
   // feed anomaly (b): feed box consumed vs sum of the flock rows it covers
   for (const b of ctx.boxByDate.get(date) ?? []) {
-    if (b.reviewed || b.consumed == null) continue;
+    if (b.reviewed || b.consumed == null || date < NEVER_FLAG_BEFORE) continue;
     const sum = b.flockIds.reduce((s, id) => s + (rowOn(ctx, id, date)?.feed ?? 0), 0);
     if (b.flockIds.length > 0 && sum !== b.consumed) {
       out.push({
@@ -599,6 +682,7 @@ export function alertsFor(ctx: Ctx, date: string): Alert[] {
         date,
         flockId: null,
         flockLabel: null,
+        registerLabel: null,
         flockTag: null,
         source: { table: "feed_bag_stock", id: b.id },
         reason: `Feed box "${b.group}" consumed ${b.consumed} bags but its ${b.flockIds.length} flock rows add up to ${sum} (${b.consumed - sum > 0 ? "+" : "−"}${Math.abs(b.consumed - sum)}).`,
@@ -606,7 +690,9 @@ export function alertsFor(ctx: Ctx, date: string): Alert[] {
     }
   }
 
-  // low feed stock
+  // low feed stock: closing (mill + shed) under 0.5 day of consumption, or feed
+  // received below consumption on 3 days in a row. (The farm's own mill delivers
+  // every day, so stock around 1 day is normal and is not an alert.)
   const fd = feedDaysLeft(ctx, date);
   if (fd && fd.days < RULES.feedDaysMin) {
     out.push({
@@ -614,9 +700,27 @@ export function alertsFor(ctx: Ctx, date: string): Alert[] {
       date,
       flockId: null,
       flockLabel: null,
+      registerLabel: null,
       flockTag: null,
       source: null,
-      reason: `${fmt(fd.closing)} bags in stock at ${round(fd.perDay)} bags/day = ${round(fd.days)} days (alert under ${RULES.feedDaysMin}).`,
+      reason: `${fmt(fd.closing)} bags in stock at ${round(fd.perDay)} bags/day = ${round(fd.days, 2)} days (alert under ${RULES.feedDaysMin}).`,
+    });
+  }
+  const short: string[] = [];
+  for (let i = 0; i < RULES.feedShortfallDays; i++) {
+    const t = boxTotalsFull(ctx, addDays(date, -i));
+    if (t && t.consumed > 0 && t.received < t.consumed) short.push(`${addDays(date, -i).slice(5)}: ${t.received} in vs ${t.consumed} used`);
+  }
+  if (short.length === RULES.feedShortfallDays) {
+    out.push({
+      kind: "low_feed_stock",
+      date,
+      flockId: null,
+      flockLabel: null,
+      registerLabel: null,
+      flockTag: null,
+      source: null,
+      reason: `Feed received was below consumption ${RULES.feedShortfallDays} days in a row (${short.reverse().join("; ")}).`,
     });
   }
 
@@ -628,6 +732,7 @@ export function alertsFor(ctx: Ctx, date: string): Alert[] {
       date,
       flockId: null,
       flockLabel: null,
+      registerLabel: null,
       flockTag: null,
       source: null,
       reason: `${fmt(es.closing)} eggs (${fmt(es.closing / 30)} trays) in stock vs ${fmt(es.perDay)} laid/day = ${round(es.days)} days unsold (alert over ${RULES.eggDaysMax})${es.sections < 2 ? "; only one ledger section was recorded that day" : ""}.`,
@@ -639,7 +744,7 @@ export function alertsFor(ctx: Ctx, date: string): Alert[] {
   if (first && date > first) {
     const hasAny = rows.length > 0;
     if (!hasAny) {
-      out.push({ kind: "missing_day", date, flockId: null, flockLabel: null, flockTag: null, source: null, reason: `No Daily Production rows at all for ${date}.` });
+      out.push({ kind: "missing_day", date, flockId: null, flockLabel: null, registerLabel: null, flockTag: null, source: null, reason: `No Daily Production rows at all for ${date}.` });
     } else {
       const prevDate = addDays(date, -1);
       for (const p of ctx.byDate.get(prevDate) ?? []) {
@@ -650,10 +755,11 @@ export function alertsFor(ctx: Ctx, date: string): Alert[] {
           kind: "missing_day",
           date,
           flockId: p.flockId,
-          flockLabel: p.label,
+          flockLabel: flockName(ctx, p.flockId, p.label),
+          registerLabel: p.label,
           flockTag: flockTag(ctx, p.flockId),
           source: null,
-          reason: `${p.label} reported ${fmt(p.pop ?? 0)} birds on ${prevDate} but has no row on ${date} and no movement record says it left.`,
+          reason: `${flockName(ctx, p.flockId, p.label)} reported ${fmt(p.pop ?? 0)} birds on ${prevDate} but has no row on ${date} and no movement record says it left.`,
         });
       }
       const eggs = ctx.eggByDate.get(date) ?? [];
@@ -664,13 +770,14 @@ export function alertsFor(ctx: Ctx, date: string): Alert[] {
           date,
           flockId: null,
           flockLabel: null,
+          registerLabel: null,
           flockTag: null,
           source: null,
           reason: `Egg stock ledger has ${eggs.length} of ${usual} sections for ${date}${eggs[0] ? ` (only "${eggs[0].section}")` : " (none)"}.`,
         });
       }
       if (!(ctx.boxByDate.get(date) ?? []).length && ctx.boxByDate.size > 0) {
-        out.push({ kind: "missing_day", date, flockId: null, flockLabel: null, flockTag: null, source: null, reason: `No feed bag box row for ${date}.` });
+        out.push({ kind: "missing_day", date, flockId: null, flockLabel: null, registerLabel: null, flockTag: null, source: null, reason: `No feed bag box row for ${date}.` });
       }
     }
   }

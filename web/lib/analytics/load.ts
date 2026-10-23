@@ -10,9 +10,9 @@ import type { EngineInput } from "./engine";
 const num = (x: unknown): number | null => (x == null ? null : Number(x));
 
 export async function loadEngineInput(): Promise<EngineInput> {
-  const [flocks, prod, mov, egg, box, junction, chick, std] = await Promise.all([
+  const [flocks, prod, mov, egg, box, junction, chick, std, moult] = await Promise.all([
     pool.query(
-      `SELECT flock_internal_id, display_label, breed, placement_date
+      `SELECT flock_internal_id, display_label, breed, placement_date, placement_date_confirmed
          FROM flocks WHERE farm_code = $1`,
       [ACTIVE_FARM]
     ),
@@ -61,6 +61,12 @@ export async function loadEngineInput(): Promise<EngineInput> {
       `SELECT age_weeks, std_hdp_percent
          FROM bv300_standard_laying WHERE guide_version = '2023'`
     ),
+    pool.query(
+      `SELECT m.flock_internal_id, m.start_date, m.end_date, m.confirmed_by_owner
+         FROM moulting_periods m JOIN flocks f USING (flock_internal_id)
+        WHERE f.farm_code = $1`,
+      [ACTIVE_FARM]
+    ),
   ]);
 
   const flockIdsByBox = new Map<number, string[]>();
@@ -75,6 +81,7 @@ export async function loadEngineInput(): Promise<EngineInput> {
       label: f.display_label,
       breed: f.breed,
       placementDate: f.placement_date ? String(f.placement_date).slice(0, 10) : null,
+      placementConfirmed: f.placement_date_confirmed === true,
     })),
     prod: prod.rows.map((r) => ({
       id: Number(r.id),
@@ -117,6 +124,12 @@ export async function loadEngineInput(): Promise<EngineInput> {
       closing: num(b.closing_balance_bags),
       reviewed: b.reviewed_by_owner,
       flockIds: flockIdsByBox.get(Number(b.id)) ?? [],
+    })),
+    moulting: moult.rows.map((m) => ({
+      flockId: m.flock_internal_id,
+      start: String(m.start_date).slice(0, 10),
+      end: m.end_date ? String(m.end_date).slice(0, 10) : null,
+      confirmed: m.confirmed_by_owner,
     })),
     chick: chick.rows.map((c) => ({ date: c.date, deaths: Number(c.deaths) })),
     std: std.rows.map((s) => ({ age: s.age_weeks, hdp: Number(s.std_hdp_percent) })),

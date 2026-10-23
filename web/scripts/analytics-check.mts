@@ -7,7 +7,7 @@
 //
 // Needs Node >= 22.18 (runs the TypeScript engine directly, no build step).
 /* eslint-disable @typescript-eslint/no-explicit-any -- fixture rows are untyped JSON dumps */
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import {
   buildCtx,
   alertsFor,
@@ -32,6 +32,7 @@ const input: EngineInput = {
     label: f.display_label,
     breed: f.breed,
     placementDate: f.placement_date,
+    placementConfirmed: false,
   })),
   prod: j("dp").map((r: any) => ({
     id: r.id,
@@ -75,6 +76,7 @@ const input: EngineInput = {
     reviewed: b.reviewed_by_owner,
     flockIds: junction.filter((x) => x.feed_bag_stock_id === b.id).map((x) => x.flock_internal_id),
   })),
+  moulting: existsSync(`${dir}/moulting.json`) ? j("moulting").map((m: any) => ({ flockId: m.flock_internal_id, start: m.start_date, end: m.end_date, confirmed: m.confirmed_by_owner })) : [],
   chick: j("chick").map((c: any) => ({ date: c.date, deaths: Number(c.d) })),
   std: j("bv").map((b: any) => ({ age: b.age_weeks, hdp: Number(b.std_hdp_percent) })),
 };
@@ -101,19 +103,23 @@ if (process.argv.includes("--selftest")) {
   const row = (i: EngineInput, flock: string, date: string) => i.prod.find((r) => r.flockId === flock && r.date === date)!;
   run("bird-count anomaly: drop the Aug 28 sale record (-2,967)", (i) => { i.movements = i.movements.filter((m) => !(m.flockId === BAB2OLD && m.date === "2026-08-28")); }, "2026-08-28", "bird_count_anomaly");
   run("bird-count anomaly: change a count by 40 with no movement", (i) => { row(i, "0d0bedaf-f96a-49fa-ac15-d711483d700f", "2026-09-20").pop! -= 40; }, "2026-09-20", "bird_count_anomaly");
-  run("high mortality: 40 deaths on a 0.1%+ flock", (i) => { row(i, "0d0bedaf-f96a-49fa-ac15-d711483d700f", "2026-09-20").mort = 40; }, "2026-09-20", "high_mortality");
+  run("high mortality: 40 deaths on a 0.1%+ flock (>= 5 deaths)", (i) => { row(i, "0d0bedaf-f96a-49fa-ac15-d711483d700f", "2026-09-20").mort = 40; }, "2026-09-20", "high_mortality");
   absent("high mortality: same spike suppressed once reviewed_by_owner", (i) => { const r = row(i, "0d0bedaf-f96a-49fa-ac15-d711483d700f", "2026-09-20"); r.mort = 40; r.reviewed = true; }, "2026-09-20", "high_mortality");
+  absent("high mortality: 4 deaths on a tiny flock is under the 5-death floor (BAB-9 flock 2.8x)", (i) => { row(i, "a5ad04ae-0b5b-4a7b-aa55-4f334394c625", "2026-08-30").mort = 4; }, "2026-08-30", "high_mortality", "a5ad04ae-0b5b-4a7b-aa55-4f334394c625");
   absent("high mortality: 2.3x own average but only 0.06% of an 11,000-bird flock (7 deaths)", (i) => { row(i, "0d0bedaf-f96a-49fa-ac15-d711483d700f", "2026-09-20").mort = 7; }, "2026-09-20", "high_mortality");
   run("feed anomaly: 0 bags with live birds, not moulting", (i) => { row(i, "0d0bedaf-f96a-49fa-ac15-d711483d700f", "2026-09-12").feed = 0; }, "2026-09-12", "feed_anomaly");
   absent("feed anomaly: 0 bags suppressed while the flock is moulting (d6b2, Sep 12)", (i) => { row(i, MOULTER, "2026-09-12").feed = 0; }, "2026-09-12", "feed_anomaly", MOULTER);
   run("feed anomaly: feed box consumed vs flock rows", (i) => { const b = i.feedBoxes.find((x) => x.date === "2026-09-12")!; b.consumed! += 9; }, "2026-09-12", "feed_anomaly");
+  run("production drop: 3 points on 2 consecutive days", (i) => { for (const d of ["2026-09-19", "2026-09-20"]) { const r = row(i, "0d0bedaf-f96a-49fa-ac15-d711483d700f", d); r.hd = r.hd! - 4; } }, "2026-09-20", "production_drop");
+  absent("production drop: a single 3.5-point dip is not an alert", (i) => { const r = row(i, "0d0bedaf-f96a-49fa-ac15-d711483d700f", "2026-09-20"); r.hd = r.hd! - 3.5; }, "2026-09-20", "production_drop", "0d0bedaf-f96a-49fa-ac15-d711483d700f");
   run("production drop: HD down 10 points", (i) => { const r = row(i, "0d0bedaf-f96a-49fa-ac15-d711483d700f", "2026-09-20"); r.hd = r.hd! - 10; }, "2026-09-20", "production_drop");
   absent("production drop: BAB-5's flock during its moult (Aug 18-26)", () => {}, "2026-08-18", "production_drop", MOULTER);
   run("missing day: a live flock has no row on Sep 12", (i) => { i.prod = i.prod.filter((r) => !(r.flockId === "0d0bedaf-f96a-49fa-ac15-d711483d700f" && r.date === "2026-09-12")); }, "2026-09-12", "missing_day");
   run("missing day: no rows at all on Sep 12", (i) => { i.prod = i.prod.filter((r) => r.date !== "2026-09-12"); }, "2026-09-12", "missing_day");
   absent("missing day: a flock that left (movement to zero) is not 'missing' (BAB-2 old flock, Sep 4)", () => {}, "2026-09-04", "missing_day", BAB2OLD);
-  run("low feed stock: 169 bags at 157/day is < 3 days", () => {}, "2026-09-30", "low_feed_stock");
-  absent("low feed stock: 600 bags in stock is fine", (i) => { for (const b of i.feedBoxes.filter((x) => x.date === "2026-09-30")) b.closing = 600; }, "2026-09-30", "low_feed_stock");
+  run("low feed stock: 60 bags at 157/day is < 0.5 day", (i) => { for (const b of i.feedBoxes.filter((x) => x.date === "2026-09-30")) b.closing = 60; }, "2026-09-30", "low_feed_stock");
+  absent("low feed stock: ~1 day of stock (169 bags at 157/day) is normal for this farm", () => {}, "2026-09-30", "low_feed_stock");
+  run("low feed stock: feed received below consumption 3 days running", (i) => { for (const b of i.feedBoxes.filter((x) => ["2026-09-28", "2026-09-29", "2026-09-30"].includes(x.date))) b.produced = 50; }, "2026-09-30", "low_feed_stock");
   run("egg build-up: 242k eggs vs 50k/day", () => {}, "2026-09-30", "egg_buildup");
   absent("egg build-up: 80k eggs in stock is fine", (i) => { for (const e of i.egg.filter((x) => x.date === "2026-09-30")) e.closing = 40000; }, "2026-09-30", "egg_buildup");
   process.exit(process.exitCode ?? 0);

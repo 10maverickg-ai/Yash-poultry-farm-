@@ -32,7 +32,7 @@ function Item({ item }: { item: ReviewItem }) {
       return (
         <div className="card fr-item">
           <h3 style={{ margin: 0 }}>
-            {item.label} <span className="muted">· Daily Production{item.tag ? ` · ${item.tag}` : ""}</span>
+            {item.label} <span className="muted">· Daily Production{item.registerLabel && item.registerLabel !== item.label ? ` · register ${item.registerLabel}` : ""}{item.tag ? ` · ${item.tag}` : ""}</span>
           </h3>
           <Read
             value={cell}
@@ -99,7 +99,7 @@ function Item({ item }: { item: ReviewItem }) {
       return (
         <div className="card fr-item">
           <h3 style={{ margin: 0 }}>
-            {item.label} <span className="muted">· bird {out ? "departure" : "arrival"}{item.tag ? ` · ${item.tag}` : ""}</span>
+            {item.label} <span className="muted">· bird {out ? "departure" : "arrival"}{item.registerLabel && item.registerLabel !== item.label ? ` · register ${item.registerLabel}` : ""}{item.tag ? ` · ${item.tag}` : ""}</span>
           </h3>
           <Read
             value={`${out ? "−" : "+"}${n(Math.abs(item.change))} birds${item.before != null ? ` (${n(item.before)} → ${item.after != null ? n(item.after) : "gone from the register"})` : ""}`}

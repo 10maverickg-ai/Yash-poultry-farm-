@@ -12,10 +12,10 @@ Gate per item: `tsc`, `eslint`, `next build` pass. Status: todo / built / debugg
 | 2.1 | HD% display | built | calculated HD large+read-only on production form, new /day page (flock rows + day total); written % small optional |
 | 2.2 | Sales page (Aug sales, Sep lines, bird sales) | built | 26 Aug sales shown; 27 Sept sale/local lines listed as "waiting for a rate" (no guessing); bird sales table from flock_movements (4 rows at ₹73 exist live); links to /sales/rates (item 4.1) |
 | 2.3 | Navigation: seven sections | todo | |
-| 3.1 | Alert rules (owner-decided) | todo | |
-| 3.2 | Placeholder-age flocks: no standard check | todo | |
+| 3.1 | Alert rules (owner-decided) | built | rules in `web/lib/analytics/engine.ts` RULES; never-flag filter in `web/lib/neverFlag.ts`; 22 self-tests pass (`node web/scripts/analytics-check.mts <fixtures> --selftest`). Counts on real data: Aug prod-drop 12, mort 4, low-feed 12, egg 9; Sep prod-drop 8, mort 2, low-feed 5, egg 23, missing 1 |
+| 3.2 | Placeholder-age flocks: no standard check | built | flocks with placement 2026-01-01 and placement_date_confirmed not true show "age unknown, no standard check"; real flock name (flocks.display_label) everywhere with register label secondary |
 | 3.3 | Revenue / cost / profit on analytics | todo | needs 4, 5 |
-| 3.4 | Drop `_stage_dp` | todo | |
+| 3.4 | Drop `_stage_dp` | todo (blocked) | verified no views/FKs/functions depend on it (100 rows); `DROP TABLE` via Supabase tool times out at 60 s because destructive SQL waits for a confirmation I cannot give. SQL in Needs owner |
 | 4.1 | BAFTA rate entry | todo | |
 | 4.2 | Sales rows from ledger lines when rates exist | todo | |
 | 5.1 | Cost settings | todo | |
@@ -51,10 +51,14 @@ Gate per item: `tsc`, `eslint`, `next build` pass. Status: todo / built / debugg
 - Knowledge content files.
 - RLS decision (RLS is OFF on all public tables; not changed).
 - Costs not yet given: September electricity, diesel, medicine purchase prices.
+- Item 3.4: run in the Supabase SQL editor: `DROP TABLE public._stage_dp;` (owner agreed; verified nothing depends on it; the MCP tool times out waiting for confirmation on destructive SQL).
 - First non-zero BAFTA subsidy: confirm effective rate = rate − subsidy/100.
 
 ## Could not test
 (none yet)
 
 ## Decisions
-(none yet)
+- `flocks.display_label` IS the real flock name (V5 §2: Sep 9 register shows DB flocks BAB-3,4,5,6,7,10,9,8). My earlier PR #17 note calling it stale was wrong; analytics and the review screen now show it first and the register label as secondary text.
+- Moulting: recorded `moulting_periods` rows win; without one the data-based inference (feed ≤25% of own average, HD <80% of before) is used. End of an open period = HD back to 80% of pre-moult after ≥14 days.
+- Never-flag filter is read-time only (no rows edited): rows before 2026-09-01, Sep 8/9 feed cells, Sep 15 BAB-3 eggs, Sep 15 breakage 890/390, Sep 20 subtotal, Sep 25 ledger opening, unlabelled ledger lines.
+- The old typed `/production` form still exists (needed to correct a day); the new `/day` page is read-only and is the Daily production entry point in the nav.

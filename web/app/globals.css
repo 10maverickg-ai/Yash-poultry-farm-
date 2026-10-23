@@ -568,3 +568,21 @@ button:hover,
 .day-hd { text-align: right; }
 .day-nums { display: flex; flex-wrap: wrap; gap: 0.3rem 1rem; font-size: 0.9rem; margin-top: 0.3rem; }
 .day-flagged { border-left: 5px solid var(--an-amber); }
+
+/* --- section navigation: bottom bar on phones, header links on wide screens --- */
+.top-sections { display: none; }
+.top-sections a.on { border-bottom-color: #fff; font-weight: 700; opacity: 1; }
+.sub-nav { display: flex; gap: 0.4rem; overflow-x: auto; padding: 0.5rem 1rem; background: #e6ebef; border-bottom: 1px solid var(--line); white-space: nowrap; -webkit-overflow-scrolling: touch; }
+.sub-nav a { text-decoration: none; color: var(--ink); font-size: 0.9rem; padding: 0.4rem 0.8rem; border-radius: 999px; background: #fff; border: 1px solid var(--line); min-height: 36px; display: inline-flex; align-items: center; }
+.sub-nav a.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+.bottom-nav { position: fixed; left: 0; right: 0; bottom: 0; z-index: 50; display: grid; grid-template-columns: repeat(7, 1fr); background: #fff; border-top: 1px solid var(--line); padding-bottom: env(safe-area-inset-bottom); }
+.bottom-nav a { display: grid; justify-items: center; gap: 0; padding: 0.35rem 0 0.3rem; text-decoration: none; color: var(--muted); min-height: 52px; align-content: center; }
+.bottom-nav a.on { color: var(--accent); font-weight: 700; }
+.bn-icon { font-size: 1.15rem; line-height: 1.2; }
+.bn-label { font-size: 0.62rem; }
+main { padding-bottom: 5.5rem; }
+@media (min-width: 900px) {
+  .top-sections { display: flex; }
+  .bottom-nav { display: none; }
+  main { padding-bottom: 1rem; }
+}

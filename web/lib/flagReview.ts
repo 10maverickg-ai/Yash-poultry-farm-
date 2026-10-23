@@ -1,6 +1,12 @@
 import { pool } from "@/lib/db";
 import { ACTIVE_FARM } from "@/lib/farm";
 import type { DateFilter } from "@/lib/records";
+import {
+  isNeverFlaggedProduction,
+  isNeverFlaggedLedgerGap,
+  isNeverFlaggedEggEntry,
+  isNeverFlaggedPageIssue,
+} from "@/lib/neverFlag";
 
 // Everything open on /flagged, regrouped by DAY for the review screen. Read
 // only: each item names the one existing action that clears it (all of them
@@ -24,7 +30,8 @@ export type ReviewItem =
       kind: "production";
       id: number;
       date: string;
-      label: string;
+      label: string; // real flock name
+      registerLabel: string | null;
       tag: string | null;
       focus: "feed" | "eggs" | "mortality" | "birds" | null;
       cells: { feed: number | null; eggs: number | null; mortality: number | null; birds: number | null; hd: string | null };
@@ -51,7 +58,8 @@ export type ReviewItem =
       kind: "movement";
       id: number;
       date: string;
-      label: string;
+      label: string; // real flock name
+      registerLabel: string | null;
       tag: string | null;
       change: number;
       before: number | null;
@@ -117,7 +125,7 @@ export async function loadFlagReview(filter: DateFilter = {}): Promise<{ days: R
           AND ($2::date IS NULL OR date >= $2) AND ($3::date IS NULL OR date <= $3)`,
       [ACTIVE_FARM, from, to]
     ),
-    pool.query(`SELECT flock_internal_id, placement_date FROM flocks WHERE farm_code = $1`, [ACTIVE_FARM]),
+    pool.query(`SELECT flock_internal_id, display_label, placement_date FROM flocks WHERE farm_code = $1`, [ACTIVE_FARM]),
     pool.query(
       `SELECT count(*)::int AS n FROM unresolved_extractions
         WHERE farm_code = $1 AND resolved_at IS NULL AND deleted_at IS NULL`,
@@ -134,6 +142,7 @@ export async function loadFlagReview(filter: DateFilter = {}): Promise<{ days: R
     flocks.rows.map((f) => [f.flock_internal_id, f.placement_date ? String(f.placement_date).slice(0, 10) : null])
   );
   const tag = (flockId: string) => tagOf(placement.get(flockId) ?? null);
+  const realName = new Map<string, string>(flocks.rows.map((f) => [f.flock_internal_id, f.display_label]));
 
   // Register label + bird counts for the movement rows' flocks.
   const flockIds = [...new Set(movements.rows.map((m) => m.flock_internal_id))];
@@ -163,11 +172,13 @@ export async function loadFlagReview(filter: DateFilter = {}): Promise<{ days: R
 
   for (const r of prod.rows) {
     const reason: string = r.flag_reason ?? "flagged";
+    if (isNeverFlaggedProduction(r.date, reason)) continue;
     push(r.date, {
       kind: "production",
       id: Number(r.id),
       date: r.date,
-      label: r.label ?? "unknown flock",
+      label: realName.get(r.flock_internal_id) ?? r.label ?? "unknown flock",
+      registerLabel: r.label ?? null,
       tag: tag(r.flock_internal_id),
       focus: focusOf(reason),
       cells: { feed: r.feed_bags, eggs: r.eggs_total, mortality: r.mortality, birds: r.bird_population, hd: r.hd_percent },
@@ -176,6 +187,7 @@ export async function loadFlagReview(filter: DateFilter = {}): Promise<{ days: R
   }
 
   for (const m of movements.rows) {
+    if (m.date < "2026-09-01") continue;
     const rows = history.rows.filter((h) => h.flock_internal_id === m.flock_internal_id);
     const onDay = rows.find((h) => h.date === m.date);
     const before = [...rows].reverse().find((h) => h.date < m.date);
@@ -184,7 +196,8 @@ export async function loadFlagReview(filter: DateFilter = {}): Promise<{ days: R
       kind: "movement",
       id: Number(m.id),
       date: m.date,
-      label: lastKnown?.label ?? "flock",
+      label: realName.get(m.flock_internal_id) ?? lastKnown?.label ?? "flock",
+      registerLabel: lastKnown?.label ?? null,
       tag: tag(m.flock_internal_id),
       change: m.birds_change,
       before: before?.bird_population ?? null,
@@ -193,11 +206,12 @@ export async function loadFlagReview(filter: DateFilter = {}): Promise<{ days: R
       type: m.movement_type,
       others: dayRows.rows
         .filter((d) => d.date === m.date && d.flock_internal_id !== m.flock_internal_id)
-        .map((d) => ({ id: d.flock_internal_id, label: d.label, tag: tag(d.flock_internal_id) })),
+        .map((d) => ({ id: d.flock_internal_id, label: realName.get(d.flock_internal_id) ?? d.label, tag: tag(d.flock_internal_id) })),
     });
   }
 
   for (const e of entries.rows) {
+    if (isNeverFlaggedEggEntry(e.date, e.label_as_written ?? "")) continue;
     push(e.date, {
       kind: "egg_entry",
       id: Number(e.id),
@@ -222,6 +236,7 @@ export async function loadFlagReview(filter: DateFilter = {}): Promise<{ days: R
     const prev = idx.get(key(d, s.section ?? ""));
     if (!prev || prev.closing_balance_eggs == null) continue;
     if (prev.closing_balance_eggs !== s.opening_balance_eggs) {
+      if (isNeverFlaggedLedgerGap(s.date, s.section ?? "", s.opening_balance_eggs - prev.closing_balance_eggs)) continue;
       push(s.date, {
         kind: "ledger_gap",
         id: Number(s.id),
@@ -233,7 +248,7 @@ export async function loadFlagReview(filter: DateFilter = {}): Promise<{ days: R
     }
   }
 
-  for (const p of pageIssues.rows) push(p.date, { kind: "page_issue", id: Number(p.id), date: p.date, text: p.issue_text });
+  for (const p of pageIssues.rows) if (!isNeverFlaggedPageIssue(p.date)) push(p.date, { kind: "page_issue", id: Number(p.id), date: p.date, text: p.issue_text });
 
   const order = { production: 0, movement: 1, ledger_gap: 2, egg_entry: 3, page_issue: 4 } as const;
   const days: ReviewDay[] = [...byDay.entries()]

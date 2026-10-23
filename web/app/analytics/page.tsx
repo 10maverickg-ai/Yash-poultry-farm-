@@ -349,6 +349,7 @@ function AlertCard({ a, returnTo, compact }: { a: Alert; returnTo: string; compa
         {a.flockLabel && (
           <strong>
             {a.flockLabel}
+            {a.registerLabel && a.registerLabel !== a.flockLabel ? <span className="muted an-tiny"> · register {a.registerLabel}</span> : null}
             {a.flockTag ? <span className="muted an-tiny"> · {a.flockTag}</span> : null}
           </strong>
         )}
@@ -373,6 +374,7 @@ function FlockCardView({ c }: { c: FlockCard }) {
         <div>
           <strong className="an-flock-name">{c.label}</strong>
           <div className="muted an-tiny">
+            {c.registerLabel !== c.label ? `register label ${c.registerLabel} · ` : ""}
             {c.tag ?? ""}
             {c.ageWeeks != null ? ` · week ${c.ageWeeks}` : ""}
             {c.breed ? ` · ${c.breed}` : ""}
