@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { pool } from "@/lib/db";
 import { ACTIVE_FARM } from "@/lib/farm";
+import { breedKey } from "@/lib/analytics/engine";
 
 export const dynamic = "force-dynamic";
 
@@ -30,14 +31,14 @@ export default async function KnowledgeEntryPage({ params }: { params: Promise<{
   const hasHd = byMetric.has("hen_day_percent");
   const flocks = hasHd && e.breed
     ? await pool.query(
-        `SELECT f.display_label, f.placement_date, f.placement_date_confirmed,
+        `SELECT f.display_label, f.breed, f.placement_date, f.placement_date_confirmed,
                 (SELECT avg(hd) FROM (SELECT hd_percent AS hd FROM daily_production
                    WHERE flock_internal_id = f.flock_internal_id AND deleted_at IS NULL ORDER BY date DESC LIMIT 7) x) AS hd7
            FROM flocks f
-          WHERE f.farm_code = $1 AND f.status = 'active' AND upper(f.breed) = upper($2)
+          WHERE f.farm_code = $1 AND f.status = 'active'
           ORDER BY f.display_label`,
-        [ACTIVE_FARM, e.breed]
-      )
+        [ACTIVE_FARM]
+      ).then((r) => ({ rows: r.rows.filter((f) => breedKey(f.breed) === breedKey(e.breed)) })) // "Bowan" and "Bovans White" are one breed
     : { rows: [] as { display_label: string; placement_date: string | null; placement_date_confirmed: boolean | null; hd7: string | null }[] };
   const hdStd = new Map((byMetric.get("hen_day_percent") ?? []).map((s) => [s.age, s.value]));
   const today = new Date().toISOString().slice(0, 10);

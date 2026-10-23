@@ -3,6 +3,7 @@ import { loadEngineInput } from "@/lib/analytics/load";
 import {
   addDays,
   alertsFor,
+  breedName,
   buildCtx,
   farmToday,
   flockCards,
@@ -15,7 +16,6 @@ import {
   type FlockCard,
 } from "@/lib/analytics/engine";
 import { markAlertReviewed } from "./actions";
-import { extraHenDayRefs, type ExtraRef } from "@/lib/analytics/extraRefs";
 import { loadCostInput } from "@/lib/costs/load";
 import { dayEconomics, monthEconomics, rangeEconomics, flockMonthEconomics } from "@/lib/costs/engine";
 
@@ -122,10 +122,6 @@ export default async function AnalyticsPage({
   const live = cards.filter((c) => c.status !== "left");
   const gone = cards.filter((c) => c.status === "left");
   const watch = watchList(ctx, asOf);
-  const extraByFlock = new Map<string, ExtraRef[]>();
-  for (const c of live) {
-    if (c.ageWeeks != null && c.status !== "no_reference") extraByFlock.set(c.flockId, await extraHenDayRefs(c.ageWeeks, c.breed));
-  }
   const money = dayEconomics(costInput, asOf);
   const week = rangeEconomics(costInput, addDays(asOf, -6), asOf);
   const monthMoney = monthEconomics(costInput, month);
@@ -257,13 +253,13 @@ export default async function AnalyticsPage({
 
       {/* ---- Flock cards ---- */}
       <section aria-labelledby="an-flocks-h">
-        <h2 id="an-flocks-h">Flocks vs BV300 standard</h2>
+        <h2 id="an-flocks-h">Flocks vs their own breed standard</h2>
         <p className="muted an-sub">
           Green: 7-day HD at least 90% of the standard for the flock&apos;s age; amber 80–90%; red under 80%. A flock is identified by the database, not the register label — labels shift when a flock leaves.
         </p>
         <div className="an-cards">
           {live.map((c) => (
-            <FlockCardView key={c.flockId} c={c} extras={extraByFlock.get(c.flockId) ?? []} />
+            <FlockCardView key={c.flockId} c={c} />
           ))}
         </div>
         {gone.length > 0 && (
@@ -407,7 +403,7 @@ function AlertCard({ a, returnTo, compact }: { a: Alert; returnTo: string; compa
   );
 }
 
-function FlockCardView({ c, extras }: { c: FlockCard; extras: ExtraRef[] }) {
+function FlockCardView({ c }: { c: FlockCard }) {
   return (
     <div className={`card an-flock an-${c.status}`}>
       <div className="an-flock-head">
@@ -417,7 +413,7 @@ function FlockCardView({ c, extras }: { c: FlockCard; extras: ExtraRef[] }) {
             {c.registerLabel !== c.label ? `register label ${c.registerLabel} · ` : ""}
             {c.tag ?? ""}
             {c.ageWeeks != null ? ` · week ${c.ageWeeks}` : ""}
-            {c.breed ? ` · ${c.breed}` : ""}
+            {c.breed ? ` · ${breedName(c.breed)}` : ""}
           </div>
         </div>
         <span className={`an-pill an-pill-${c.status}`}>{STATUS_LABEL[c.status]}</span>
@@ -441,16 +437,6 @@ function FlockCardView({ c, extras }: { c: FlockCard; extras: ExtraRef[] }) {
         <Spark values={c.hdSeries} color={SPARK_COLOR[c.status]} />
       </div>
       <p className="an-note">{c.statusNote}</p>
-      {extras.length > 0 && (
-        <ul className="an-extra">
-          {extras.map((x) => (
-            <li key={x.entryId} className="muted an-tiny">
-              Extra reference (does not change the colour): {x.company}{x.breed ? ` ${x.breed}` : ""} {x.value}% at week {c.ageWeeks}
-              {x.sameBreed ? "" : " — a different breed"} · <Link href={`/knowledge/${x.entryId}`}>source</Link>
-            </li>
-          ))}
-        </ul>
-      )}
       {c.formerLabels.length > 0 && <p className="muted an-tiny">Earlier register labels: {c.formerLabels.join(", ")}</p>}
     </div>
   );

@@ -1,6 +1,6 @@
 import { pool } from "@/lib/db";
 import { ACTIVE_FARM } from "@/lib/farm";
-import type { EngineInput } from "./engine";
+import { breedKey, type EngineInput } from "./engine";
 import { isNeverFlaggedProduction } from "@/lib/neverFlag";
 
 // Read-only. Pulls everything the analytics engine needs in one round of
@@ -11,7 +11,7 @@ import { isNeverFlaggedProduction } from "@/lib/neverFlag";
 const num = (x: unknown): number | null => (x == null ? null : Number(x));
 
 export async function loadEngineInput(): Promise<EngineInput> {
-  const [flocks, prod, mov, egg, box, junction, chick, std, moult, ff] = await Promise.all([
+  const [flocks, prod, mov, egg, box, junction, chick, std, moult, ff, kstd] = await Promise.all([
     pool.query(
       `SELECT flock_internal_id, display_label, breed, placement_date, placement_date_confirmed
          FROM flocks WHERE farm_code = $1`,
@@ -74,7 +74,19 @@ export async function loadEngineInput(): Promise<EngineInput> {
         WHERE s.farm_code = $1 AND s.deleted_at IS NULL AND e.category = 'sale'`,
       [ACTIVE_FARM]
     ),
+    // Other breeds' hen-day standards come from the knowledge library (entries that name a breed).
+    pool.query(
+      `SELECT e.breed, s.age_weeks, s.value
+         FROM knowledge_standards s JOIN knowledge_entries e ON e.id = s.entry_id
+        WHERE s.metric = 'hen_day_percent' AND e.breed IS NOT NULL`
+    ),
   ]);
+  const stdByBreed: Record<string, { age: number; hdp: number }[]> = {};
+  for (const r of kstd.rows) {
+    const k = breedKey(r.breed);
+    if (!k || k === "BV300") continue; // BV300 uses its own loaded table
+    (stdByBreed[k] ??= []).push({ age: Number(r.age_weeks), hdp: Number(r.value) });
+  }
 
   const flockIdsByBox = new Map<number, string[]>();
   for (const j of junction.rows) {
@@ -142,5 +154,6 @@ export async function loadEngineInput(): Promise<EngineInput> {
     })),
     chick: chick.rows.map((c) => ({ date: c.date, deaths: Number(c.deaths) })),
     std: std.rows.map((s) => ({ age: s.age_weeks, hdp: Number(s.std_hdp_percent) })),
+    stdByBreed,
   };
 }

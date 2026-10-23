@@ -93,6 +93,8 @@ export interface EngineInput {
   farmfreshDates: string[]; // days with a Farmfresh sale line in the egg ledger (category 'sale')
   moulting: MoultPeriod[]; // recorded moulting_periods (owner-entered or pre-filled)
   std: StdRow[]; // bv300_standard_laying (guide_version 2023)
+  // hen-day standards for other breeds, from the knowledge library (breed key -> rows). Missing = "no reference loaded".
+  stdByBreed?: Record<string, StdRow[]>;
 }
 
 // ---- tunable rules (the owner's brief, plus the few choices it left open) --
@@ -161,6 +163,7 @@ export interface Ctx {
   eggByDate: Map<string, EggSummary[]>;
   boxByDate: Map<string, FeedBox[]>;
   stdByAge: Map<number, number>;
+  stdByBreed: Map<string, Map<number, number>>;
 }
 
 export function buildCtx(input: EngineInput): Ctx {
@@ -190,6 +193,7 @@ export function buildCtx(input: EngineInput): Ctx {
     eggByDate,
     boxByDate,
     stdByAge: new Map(input.std.map((s) => [s.age, s.hdp])),
+    stdByBreed: new Map(Object.entries(input.stdByBreed ?? {}).map(([k, rows]) => [k, new Map(rows.map((r) => [r.age, r.hdp]))])),
   };
 }
 
@@ -396,16 +400,38 @@ function lastRows(ctx: Ctx, flockId: string, asOf: string, n: number): ProdRow[]
   return out.reverse();
 }
 
+// Each flock is compared only with the reference for ITS OWN breed (flocks.breed).
+// Spellings are normalised: "Bowan" / "Bovans" / "Bovans White" all mean Bovans White
+// (the farm's one Bovans flock is white-egg). BV300 is the farm's main breed.
+export function breedKey(breed: string | null | undefined): string | null {
+  const k = (breed ?? "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+  if (!k) return null;
+  if (k.startsWith("BV300")) return "BV300";
+  if (k.startsWith("BOVAN") || k.startsWith("BOWAN")) return "BOVANS_WHITE";
+  return k;
+}
+export function breedName(breed: string | null | undefined): string {
+  const key = breedKey(breed);
+  if (key === "BV300") return "BV300";
+  if (key === "BOVANS_WHITE") return "Bovans White";
+  return (breed ?? "").trim() || "unknown breed";
+}
+
 export function stdFor(ctx: Ctx, flock: FlockRef | undefined, asOf: string): { std: number | null; age: number | null; why: string } {
   if (!flock?.placementDate) return { std: null, age: null, why: "age unknown, no standard check (no placement date)" };
   if (isPlaceholderAge(flock))
     return { std: null, age: null, why: `age unknown, no standard check — the placement date ${flock.placementDate} is a placeholder; set the real date on the Flocks screen` };
   const age = Math.floor(diffDays(asOf, flock.placementDate) / 7);
-  if ((flock.breed ?? "").toUpperCase() !== "BV300")
-    return { std: null, age, why: `no reference loaded (${flock.breed ?? "unknown breed"}; only BV300 is loaded)` };
-  const s = ctx.stdByAge.get(age);
-  if (s == null)
-    return { std: null, age, why: `no reference loaded (age ${age} wks; the BV300 table covers weeks 19–100)` };
+  const key = breedKey(flock.breed);
+  const name = breedName(flock.breed);
+  const table = key === "BV300" ? ctx.stdByAge : key ? ctx.stdByBreed.get(key) : undefined;
+  if (!table || table.size === 0)
+    return { std: null, age, why: `no reference loaded for ${name}; this flock is not compared with another breed's standard (its own 7-day-average alerts still apply)` };
+  const s = table.get(age);
+  if (s == null) {
+    const ages = [...table.keys()];
+    return { std: null, age, why: `no reference loaded (age ${age} wks; the ${name} table covers weeks ${Math.min(...ages)}–${Math.max(...ages)})` };
+  }
   return { std: s, age, why: "" };
 }
 
@@ -443,7 +469,7 @@ export function flockCards(ctx: Ctx, asOf: string): FlockCard[] {
     } else {
       const ratio = hd7! / std;
       status = ratio >= RULES.greenMinRatio ? "green" : ratio >= RULES.amberMinRatio ? "amber" : "red";
-      note = `7-day HD ${round(hd7!)}% vs BV300 standard ${round(std)}% at week ${age} (${round(ratio * 100, 0)}% of standard, ${gap > 0 ? "−" : "+"}${round(Math.abs(gap))} points).`;
+      note = `7-day HD ${round(hd7!)}% vs ${breedName(flock?.breed)} standard ${round(std)}% at week ${age} (${round(ratio * 100, 0)}% of standard, ${gap > 0 ? "−" : "+"}${round(Math.abs(gap))} points).`;
       const w = recentFeedWithdrawal(ctx, flockId, asOf);
       if (w) note += ` Feed was withdrawn ${w}, so this flock is recovering from a moult; the standard assumes none.`;
     }

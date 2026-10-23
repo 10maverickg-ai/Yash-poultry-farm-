@@ -76,3 +76,39 @@ Gate per item: `tsc`, `eslint`, `next build` pass. Status: todo / built / debugg
 - Moulting: recorded `moulting_periods` rows win; without one the data-based inference (feed ≤25% of own average, HD <80% of before) is used. End of an open period = HD back to 80% of pre-moult after ≥14 days.
 - Never-flag filter is read-time only (no rows edited): rows before 2026-09-01, Sep 8/9 feed cells, Sep 15 BAB-3 eggs, Sep 15 breakage 890/390, Sep 20 subtotal, Sep 25 ledger opening, unlabelled ledger lines.
 - The old typed `/production` form still exists (needed to correct a day); the new `/day` page is read-only and is the Daily production entry point in the nav.
+
+---
+# V6 (same branch `claude/v5-integration`)
+
+Facts that changed (do not redo): all 30 Sept BAFTA rates + 27 Sept sales rows are in the DB (13,46,850 eggs, ₹71,84,492.40; the extra ₹3 is the Sep 23 90-egg lot re-typed local at 5.38). Pricing: Farmfresh big or small = rate − 0.03; local (local line / label says local / person's name / lot ≤150 eggs) = rate + 0.01. Two breeds: BV300 (nine flocks) and Bovans White (BAB-6, stored as "Bowan").
+
+| ID | Title | Status | Notes |
+|---|---|---|---|
+| G1 | Merge `claude/f8-breed-standard`; stdFor regression test | built | merged; 1 conflict (load.ts) resolved; my F7 "extra reference" lines removed because F8 says every flock compares only with its own breed; `node web/scripts/std-for-check.mts` 21 checks; local run: BAB-6 "no reference loaded for Bovans White", BV300 flocks colour normally; a Bovans guide loaded later as `knowledge/bovans-white-*.json` (breed "Bovans White", metric `hen_day_percent`) is picked up with no code change |
+| G2 | Vercel build + runtime logs | todo | |
+| G3 | Alert review table + `alert_feedback` | todo | |
+| G4 | Excel/CSV export | todo | |
+| G5 | Backup zip | todo | |
+| G6 | Bird sales + Anil farm lists | todo | |
+| G7 | Costs honesty + missing-inputs checklist | todo | |
+| G8 | Today screen | todo | |
+| G9 | Reader benchmark (budget USD 5) | todo | last; tiny call first |
+| G10 | Phase Z for G1–G8 | todo | |
+
+## V6 Known bugs
+(none yet)
+
+## V6 Needs owner
+1. Run in the Supabase SQL editor: `DROP TABLE public._stage_dp;` and `ALTER TABLE public.daily_egg_rates DROP COLUMN small_rate;` (the tool cannot run destructive SQL).
+2. Bovans White management guide / performance table (owner's assistant is getting it) → `knowledge/bovans-white-*.json`.
+3. Real placement dates of BAB-8, 9, 10; confirm BAB-5 moult start (Aug 15 inferred).
+4. September electricity, diesel, medicines.
+5. RLS decision (off on all tables).
+6. Mark alerts real/noise after G3.
+7. Add Anthropic credits only after G1–G8 are verified.
+
+## V6 Could not test
+(none yet)
+
+## V6 Decisions
+- G1: the F7 extra-reference lines (other breeds' hen-day % on the flock cards) were removed: F8's rule is "own breed only".
