@@ -594,3 +594,6 @@ main { padding-bottom: 5.5rem; }
 .rate-nums { display: grid; gap: 0.15rem; font-size: 0.92rem; }
 .rate-confirm { display: flex; gap: 0.5rem; align-items: start; }
 textarea { width: 100%; font: inherit; padding: 0.55rem 0.7rem; border: 1px solid var(--line); border-radius: 8px; }
+
+.check-row { display: flex; gap: 0.6rem; align-items: start; min-height: 44px; font-size: 0.92rem; }
+.check-row input { margin-top: 0.2rem; width: 1.2rem; height: 1.2rem; }

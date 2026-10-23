@@ -39,3 +39,11 @@ but not used in comparisons.
 
 Run: `DATABASE_URL=… node web/scripts/import-knowledge.mts` (Node ≥ 22.18, from the repo root),
 add `--dry-run` to only validate the files.
+
+## Vaccination schedules
+
+An entry whose standards are named `vaccine:<name>` (for example `vaccine:Marek's`) at an age in
+weeks (`age_weeks`, counted from hatch/placement) is a vaccination schedule. The Medicines screen
+can create dated vaccinations for a chick batch or flock from it (due date = arrival/placement
+date + weeks). Put the route (e.g. "eye drop", "injection") in `unit`; `value` is not used (use 1).
+Nothing is added unless a document you supply contains it.

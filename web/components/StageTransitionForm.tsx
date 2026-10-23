@@ -3,7 +3,7 @@
 import { useActionState } from "react";
 import { transitionStage } from "@/app/flocks/actions";
 
-const STAGE_ORDER = ["chick", "grower", "layer"] as const;
+const STAGE_ORDER = ["chick", "grower", "pre_lay", "layer"] as const;
 
 export function StageTransitionForm({
   flockId,

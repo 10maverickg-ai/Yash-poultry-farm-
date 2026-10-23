@@ -2,7 +2,7 @@ import { pool } from "@/lib/db";
 import { ACTIVE_FARM } from "@/lib/farm";
 import { compareLabels } from "@/lib/naturalSort";
 
-export type FlockStage = "chick" | "grower" | "layer";
+export type FlockStage = "chick" | "grower" | "pre_lay" | "layer" | "moulting";
 export type FlockStatus = "active" | "depleted";
 
 export interface Flock {
@@ -21,6 +21,9 @@ export interface Flock {
   status: FlockStatus;
   depletion_date: string | null;
   notes: string | null;
+  placement_is_chick_date: boolean | null;
+  placement_date_confirmed: boolean | null;
+  chick_batch_id: number | null;
   created_at: Date;
   updated_at: Date;
 }

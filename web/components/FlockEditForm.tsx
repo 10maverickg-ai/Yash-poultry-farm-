@@ -13,6 +13,8 @@ export interface FlockEditValues {
   current_bird_count: number | null;
   current_shed: string | null;
   notes: string | null;
+  placement_is_chick_date: boolean | null;
+  placement_date_confirmed: boolean | null;
 }
 
 export function FlockEditForm({
@@ -63,6 +65,14 @@ export function FlockEditForm({
           />
         </label>
       </div>
+      <label className="check-row">
+        <input type="checkbox" name="placement_is_chick_date" defaultChecked={flock.placement_is_chick_date === true} />
+        <span>This is the day the flock was placed as day-old chicks (lay starts about 18 weeks later)</span>
+      </label>
+      <label className="check-row">
+        <input type="checkbox" name="placement_date_confirmed" defaultChecked={flock.placement_date_confirmed === true} />
+        <span>This is the real date (not a placeholder) — tick to switch on the standard check</span>
+      </label>
       <div className="row2">
         <label className="field">
           <span>Source hatchery</span>

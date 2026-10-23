@@ -22,10 +22,10 @@ Gate per item: `tsc`, `eslint`, `next build` pass. Status: todo / built / debugg
 | 5.2 | Daily/monthly profit | built | engine `web/lib/costs/engine.ts` (day/month/range/per-flock), `node web/scripts/costs-check.mts <fixtures>` 7 checks pass on real Aug rows (Aug revenue ₹10,153,565, cost ₹8,113,574, est. profit ₹2,039,991); Sept electricity shown as missing, not guessed; shown on /purchases (analytics integration = 3.3) |
 | 6.1 | Knowledge tables + screens | built | /knowledge (search, topic buttons, source link) and /knowledge/[id] (standards by week + your flocks vs the standard; age unknown for placeholder flocks; missing week = "no reference loaded"). Sample loaded in live DB (16 values, taken only from the existing bv300 table) |
 | 6.2 | Knowledge importer + sample | built | `node web/scripts/import-knowledge.mts [--dry-run]`, schema in `knowledge/README.md`, sample `knowledge/sample-bv300-2023.json`; run twice on local DB: counts unchanged (idempotent). Live import was done by equivalent SQL (no DATABASE_URL in the sandbox) |
-| 7.1 | Flocks screen / lifecycle | todo | |
-| 7.2 | Moulting | todo | |
-| 7.3 | Chick batches | todo | |
-| 7.4 | Medicines / vaccines | todo | |
+| 7.1 | Flocks screen / lifecycle | built | flock page: stage timeline + add stage (chick/grower/pre-lay/layer/moulting/sold/depleted; flock_stage_history), placement date with "day-old chick date" and "real date" ticks (turns the standard check on), age, movements list (reason, buyer, price/bird), other flocks that used the same label; list shows age / "age unknown"; enum gained pre_lay |
+| 7.2 | Moulting | built | /flocks/moulting: periods, "moulting day N" with expected g/bird and bags next to register bags (BAB-5 day 7 expects 7.7 bags vs 8 in register), confirm/edit dates; BAB-5 Aug 15 pre-filled as inferred (migration 0031, applied live); analytics suppresses alerts from the recorded period |
+| 7.3 | Chick batches | built | /flocks/batches: 3 batches seeded from owner's facts (23 May 19,980; 6 Jun 10,000 with 9,263 to Anil farm; 18 Sep 16,000), left/right/row deaths, cumulative % (row 4 = 966 deaths = 6.04% of 16,000 since 19 Sep), BV300 phase + 10-day changeover (3/3/3/1 split assumed), add batch, link to flock |
+| 7.4 | Medicines / vaccines | built | /medicines: purchases (cost counted on buy day), vaccination schedule with overdue + mark given, fill from knowledge library (tested locally with a throwaway entry, then removed); live library has no vaccine content yet |
 | 8.1 | Multi-photo upload queue | todo | |
 | 8.2 | Review screen | todo | |
 | 8.3 | Date rule | todo | |
@@ -48,13 +48,15 @@ Gate per item: `tsc`, `eslint`, `next build` pass. Status: todo / built / debugg
 - September BAFTA rates.
 - Real placement dates of BAB-8, 9, 10 (placeholder 2026-01-01).
 - Exact BAB-5 moulting start date (pre-filled Aug 15 2026, inferred).
-- Knowledge content files.
+- Knowledge content files (including any vaccination schedule).
+- Chick-batch details I do not have: source hatcheries, which shed side, link of the 23 May batch to the flock(s) "BAB 10 and 11" (not in the flocks table yet), chick deaths before 12 Aug.
 - RLS decision (RLS is OFF on all public tables; not changed).
 - Costs not yet given: September electricity, diesel, medicine purchase prices.
 - Item 3.4: run in the Supabase SQL editor: `DROP TABLE public._stage_dp;` (owner agreed; verified nothing depends on it; the MCP tool times out waiting for confirmation on destructive SQL).
 - First non-zero BAFTA subsidy: confirm effective rate = rate − subsidy/100.
 
 ## Could not test
+- Vaccination fill from the library on live data: no vaccine content in the live knowledge library; tested only on a local throwaway entry.
 - Rate screenshot reading (vision): needs ANTHROPIC_API_KEY; code path written, not run.
 
 ## Decisions
