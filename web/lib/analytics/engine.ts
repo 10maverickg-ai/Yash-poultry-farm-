@@ -41,6 +41,9 @@ export interface ProdRow {
   hd: number | null;
   flagged: boolean;
   reviewed: boolean;
+  // Owner-confirmed "never flag" row (V5 section 3: Sep 8/9 feed cells, Sep 15
+  // BAB-3 eggs…). Row-level alerts skip it.
+  neverFlag?: boolean;
 }
 
 export interface Movement {
@@ -87,6 +90,7 @@ export interface EngineInput {
   egg: EggSummary[];
   feedBoxes: FeedBox[];
   chick: { date: string; deaths: number }[];
+  farmfreshDates: string[]; // days with a Farmfresh sale line in the egg ledger (category 'sale')
   moulting: MoultPeriod[]; // recorded moulting_periods (owner-entered or pre-filled)
   std: StdRow[]; // bv300_standard_laying (guide_version 2023)
 }
@@ -100,7 +104,8 @@ export const RULES = {
   mortMinDeaths: 5, // ... and at least 5 deaths that day
   feedDaysMin: 0.5, // low feed: closing stock under 0.5 day of consumption (the mill delivers daily; ~1 day is normal)
   feedShortfallDays: 3, // ... or feed received below consumption 3 days in a row
-  eggDaysMax: 3, // egg build-up: over 3 days of production unsold
+  eggDaysMax: 5, // egg build-up: closing stock (big + small) above 5 days of production (the farm normally holds 3-6 days; Farmfresh collects every 3-4 days)
+  eggNoSaleDays: 4, // ... or 4+ days with no Farmfresh sale
   birdTolerance: 2, // bird-count chain: |residual| <= 2 is register rounding
   // Choices the brief did not specify (flagged in the PR description):
   greenMinRatio: 0.9, // flock card green: 7-day HD >= 90% of the BV300 standard for its age
@@ -569,6 +574,14 @@ export function feedDaysLeft(ctx: Ctx, date: string): { days: number; closing: n
   return { days: t.closing / perDay, closing: t.closing, perDay };
 }
 
+/** The latest Farmfresh sale on or before `date`, or null if none is known in the data. */
+function lastFarmfreshOnOrBefore(ctx: Ctx, date: string): string | null {
+  let best: string | null = null;
+  for (const d of ctx.input.farmfreshDates) if (d <= date && (best == null || d > best)) best = d;
+  // Without any earlier sale in the data we cannot say how long it has been.
+  return best;
+}
+
 /** Closing egg stock (all sections recorded that day) / average daily eggs laid over the last 7 days. */
 export function eggStockDays(ctx: Ctx, date: string): { days: number; closing: number; perDay: number; sections: number } | null {
   const es = ctx.eggByDate.get(date) ?? [];
@@ -597,11 +610,15 @@ function hdDrop(ctx: Ctx, flockId: string, date: string): { drop: number; avg: n
 /** Rows dated before this are the cleared August register: never flagged for data-quality reasons. */
 export const NEVER_FLAG_BEFORE = "2026-09-01";
 
-export function alertsFor(ctx: Ctx, date: string): Alert[] {
+export function alertsFor(ctx: Ctx, date: string, opts: { includeCleared?: boolean } = {}): Alert[] {
+  // V5 section 3: all August rows were cleared (2026-10-19) — never alert on them.
+  // `includeCleared` exists only so a rule can be evaluated on August in scripts.
+  if (date < NEVER_FLAG_BEFORE && !opts.includeCleared) return [];
   const out: Alert[] = [];
   const rows = ctx.byDate.get(date) ?? [];
 
   for (const r of rows) {
+    if (r.neverFlag) continue; // owner-confirmed: never alert on this row
     const base = { date, flockId: r.flockId, flockLabel: flockName(ctx, r.flockId, r.label), registerLabel: r.label, flockTag: flockTag(ctx, r.flockId), source: { table: "production" as const, id: r.id } };
     const prior = priorRows(ctx, r.flockId, date, 7);
     const moult = moultOn(ctx, r.flockId, date);
@@ -724,19 +741,31 @@ export function alertsFor(ctx: Ctx, date: string): Alert[] {
     });
   }
 
-  // egg stock build-up
+  // egg stock build-up: closing stock (big + small) above 5 days of production, OR
+  // 4 or more days with no Farmfresh sale. The farm normally holds eggs 3-6 days
+  // because Farmfresh collects every 3-4 days, so 3-5 days alone is not an alert.
   const es = eggStockDays(ctx, date);
-  if (es && es.days > RULES.eggDaysMax && !(ctx.eggByDate.get(date) ?? []).every((e) => e.reviewed)) {
-    out.push({
-      kind: "egg_buildup",
-      date,
-      flockId: null,
-      flockLabel: null,
-      registerLabel: null,
-      flockTag: null,
-      source: null,
-      reason: `${fmt(es.closing)} eggs (${fmt(es.closing / 30)} trays) in stock vs ${fmt(es.perDay)} laid/day = ${round(es.days)} days unsold (alert over ${RULES.eggDaysMax})${es.sections < 2 ? "; only one ledger section was recorded that day" : ""}.`,
-    });
+  const eggRows = ctx.eggByDate.get(date) ?? [];
+  if (es && !eggRows.every((e) => e.reviewed)) {
+    const last = lastFarmfreshOnOrBefore(ctx, date);
+    const gap = last ? diffDays(date, last) : null;
+    const tooMuch = es.days > RULES.eggDaysMax;
+    const noSale = gap != null && gap >= RULES.eggNoSaleDays;
+    if (tooMuch || noSale) {
+      const parts: string[] = [];
+      if (tooMuch) parts.push(`${fmt(es.closing)} eggs (${fmt(es.closing / 30)} trays) in stock vs ${fmt(es.perDay)} laid/day = ${round(es.days, 2)} days (alert above ${RULES.eggDaysMax})`);
+      if (noSale) parts.push(`${gap} days since the last Farmfresh sale (${last}; alert at ${RULES.eggNoSaleDays}+)`);
+      out.push({
+        kind: "egg_buildup",
+        date,
+        flockId: null,
+        flockLabel: null,
+        registerLabel: null,
+        flockTag: null,
+        source: null,
+        reason: `${parts.join("; ")}${noSale && !tooMuch ? `; stock is ${fmt(es.closing)} eggs = ${round(es.days)} days` : ""}${es.sections < 2 ? "; only one ledger section was recorded that day" : ""}.`,
+      });
+    }
   }
 
   // missing day
@@ -762,9 +791,12 @@ export function alertsFor(ctx: Ctx, date: string): Alert[] {
           reason: `${flockName(ctx, p.flockId, p.label)} reported ${fmt(p.pop ?? 0)} birds on ${prevDate} but has no row on ${date} and no movement record says it left.`,
         });
       }
+      // The egg ledger is complete when BOTH a big and a small section exist for the day
+      // (a small section with no entries and nothing produced is still a recorded section).
       const eggs = ctx.eggByDate.get(date) ?? [];
-      const usual = Math.max(0, ...[...ctx.eggByDate.values()].map((x) => x.length));
-      if (eggs.length < usual) {
+      const have = new Set(eggs.map((e) => e.section));
+      const lacking = ["big", "small"].filter((sec) => !have.has(sec));
+      if (lacking.length > 0) {
         out.push({
           kind: "missing_day",
           date,
@@ -773,7 +805,7 @@ export function alertsFor(ctx: Ctx, date: string): Alert[] {
           registerLabel: null,
           flockTag: null,
           source: null,
-          reason: `Egg stock ledger has ${eggs.length} of ${usual} sections for ${date}${eggs[0] ? ` (only "${eggs[0].section}")` : " (none)"}.`,
+          reason: `Egg stock ledger has no "${lacking.join('" or "')}" section for ${date}${eggs[0] ? ` (only "${eggs[0].section}" was saved)` : " (none saved)"}.`,
         });
       }
       if (!(ctx.boxByDate.get(date) ?? []).length && ctx.boxByDate.size > 0) {

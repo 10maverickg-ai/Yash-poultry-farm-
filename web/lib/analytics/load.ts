@@ -1,6 +1,7 @@
 import { pool } from "@/lib/db";
 import { ACTIVE_FARM } from "@/lib/farm";
 import type { EngineInput } from "./engine";
+import { isNeverFlaggedProduction } from "@/lib/neverFlag";
 
 // Read-only. Pulls everything the analytics engine needs in one round of
 // queries; soft-deleted rows are excluded exactly like every other query in
@@ -10,7 +11,7 @@ import type { EngineInput } from "./engine";
 const num = (x: unknown): number | null => (x == null ? null : Number(x));
 
 export async function loadEngineInput(): Promise<EngineInput> {
-  const [flocks, prod, mov, egg, box, junction, chick, std, moult] = await Promise.all([
+  const [flocks, prod, mov, egg, box, junction, chick, std, moult, ff] = await Promise.all([
     pool.query(
       `SELECT flock_internal_id, display_label, breed, placement_date, placement_date_confirmed
          FROM flocks WHERE farm_code = $1`,
@@ -19,7 +20,7 @@ export async function loadEngineInput(): Promise<EngineInput> {
     pool.query(
       `SELECT id, date, flock_internal_id, display_label_as_written, mortality,
               feed_bags, eggs_total, bird_population, hd_percent, flagged,
-              reviewed_by_owner
+              reviewed_by_owner, flag_reason
          FROM daily_production
         WHERE farm_code = $1 AND deleted_at IS NULL
         ORDER BY date, id`,
@@ -67,6 +68,12 @@ export async function loadEngineInput(): Promise<EngineInput> {
         WHERE f.farm_code = $1`,
       [ACTIVE_FARM]
     ),
+    pool.query(
+      `SELECT DISTINCT s.date FROM daily_egg_stock_entries e
+         JOIN daily_egg_stock_summary s ON s.id = e.egg_stock_summary_id
+        WHERE s.farm_code = $1 AND s.deleted_at IS NULL AND e.category = 'sale'`,
+      [ACTIVE_FARM]
+    ),
   ]);
 
   const flockIdsByBox = new Map<number, string[]>();
@@ -95,6 +102,7 @@ export async function loadEngineInput(): Promise<EngineInput> {
       hd: num(r.hd_percent),
       flagged: r.flagged,
       reviewed: r.reviewed_by_owner,
+      neverFlag: r.flagged ? isNeverFlaggedProduction(r.date, r.flag_reason) : false,
     })),
     movements: mov.rows.map((m) => ({
       id: Number(m.id),
@@ -125,6 +133,7 @@ export async function loadEngineInput(): Promise<EngineInput> {
       reviewed: b.reviewed_by_owner,
       flockIds: flockIdsByBox.get(Number(b.id)) ?? [],
     })),
+    farmfreshDates: ff.rows.map((r) => String(r.date).slice(0, 10)),
     moulting: moult.rows.map((m) => ({
       flockId: m.flock_internal_id,
       start: String(m.start_date).slice(0, 10),

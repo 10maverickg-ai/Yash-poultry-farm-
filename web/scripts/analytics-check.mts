@@ -21,6 +21,7 @@ import {
 } from "../lib/analytics/engine.ts";
 
 const dir = process.argv[2];
+const INCLUDE_CLEARED = process.argv.includes("--include-cleared");
 if (!dir) throw new Error("usage: analytics-check.mts <fixture-dir> [from] [to]");
 const j = (n: string) => JSON.parse(readFileSync(`${dir}/${n}.json`, "utf8"));
 const num = (x: unknown) => (x == null ? null : Number(x));
@@ -46,6 +47,8 @@ const input: EngineInput = {
     hd: num(r.hd_percent),
     flagged: r.flagged,
     reviewed: r.reviewed_by_owner,
+    // owner-confirmed never-flag rows (V5 section 3): Sep 8/9 feed cells, Sep 15 BAB-3 eggs
+    neverFlag: !!r.flagged && (r.date === "2026-09-08" || r.date === "2026-09-09" || r.id === 727),
   })),
   movements: j("movements").map((m: any) => ({
     id: m.id,
@@ -76,6 +79,7 @@ const input: EngineInput = {
     reviewed: b.reviewed_by_owner,
     flockIds: junction.filter((x) => x.feed_bag_stock_id === b.id).map((x) => x.flock_internal_id),
   })),
+  farmfreshDates: j("farmfresh"),
   moulting: existsSync(`${dir}/moulting.json`) ? j("moulting").map((m: any) => ({ flockId: m.flock_internal_id, start: m.start_date, end: m.end_date, confirmed: m.confirmed_by_owner })) : [],
   chick: j("chick").map((c: any) => ({ date: c.date, deaths: Number(c.d) })),
   std: j("bv").map((b: any) => ({ age: b.age_weeks, hdp: Number(b.std_hdp_percent) })),
@@ -87,14 +91,14 @@ if (process.argv.includes("--selftest")) {
   const run = (name: string, mutate: (i: EngineInput) => void, date: string, kind: string, expectLabel?: string) => {
     const i: EngineInput = structuredClone(input);
     mutate(i);
-    const hits = alertsFor(buildCtx(i), date).filter((a) => a.kind === kind && (!expectLabel || a.flockLabel === expectLabel));
+    const hits = alertsFor(buildCtx(i), date, { includeCleared: true }).filter((a) => a.kind === kind && (!expectLabel || a.flockLabel === expectLabel));
     console.log(`${hits.length > 0 ? "PASS" : "FAIL"}  ${name}${hits[0] ? "\n        " + hits[0].reason : ""}`);
     if (!hits.length) process.exitCode = 1;
   };
   const absent = (name: string, mutate: (i: EngineInput) => void, date: string, kind: string, flockId?: string) => {
     const i: EngineInput = structuredClone(input);
     mutate(i);
-    const hits = alertsFor(buildCtx(i), date).filter((a) => a.kind === kind && (!flockId || a.flockId === flockId));
+    const hits = alertsFor(buildCtx(i), date, { includeCleared: true }).filter((a) => a.kind === kind && (!flockId || a.flockId === flockId));
     console.log(`${hits.length === 0 ? "PASS" : "FAIL"}  ${name}`);
     if (hits.length) process.exitCode = 1;
   };
@@ -120,8 +124,21 @@ if (process.argv.includes("--selftest")) {
   run("low feed stock: 60 bags at 157/day is < 0.5 day", (i) => { for (const b of i.feedBoxes.filter((x) => x.date === "2026-09-30")) b.closing = 60; }, "2026-09-30", "low_feed_stock");
   absent("low feed stock: ~1 day of stock (169 bags at 157/day) is normal for this farm", () => {}, "2026-09-30", "low_feed_stock");
   run("low feed stock: feed received below consumption 3 days running", (i) => { for (const b of i.feedBoxes.filter((x) => ["2026-09-28", "2026-09-29", "2026-09-30"].includes(x.date))) b.produced = 50; }, "2026-09-30", "low_feed_stock");
-  run("egg build-up: 242k eggs vs 50k/day", () => {}, "2026-09-30", "egg_buildup");
-  absent("egg build-up: 80k eggs in stock is fine", (i) => { for (const e of i.egg.filter((x) => x.date === "2026-09-30")) e.closing = 40000; }, "2026-09-30", "egg_buildup");
+  const setClosing = (i: EngineInput, date: string, total: number) => { for (const e of i.egg.filter((x) => x.date === date)) e.closing = e.section === "big" ? total : 0; };
+  run("egg build-up: stock above 5 days (400k eggs vs ~50k/day)", (i) => setClosing(i, "2026-09-30", 400000), "2026-09-30", "egg_buildup");
+  absent("egg build-up: 4.8 days of stock is normal for this farm (Sep 30, 242k eggs, a Farmfresh sale that day)", () => {}, "2026-09-30", "egg_buildup");
+  run("egg build-up: 4 days with no Farmfresh sale (last sale Sep 26, today Sep 30)", (i) => { i.farmfreshDates = i.farmfreshDates.filter((d) => d < "2026-09-27"); }, "2026-09-30", "egg_buildup");
+  absent("egg build-up: only 3 days since the last Farmfresh sale is fine", (i) => { i.farmfreshDates = i.farmfreshDates.filter((d) => d !== "2026-09-30"); }, "2026-09-30", "egg_buildup");
+  absent("egg build-up: reviewed ledger rows never alert", (i) => { for (const e of i.egg.filter((x) => x.date === "2026-09-30")) { e.closing = 400000; e.reviewed = true; } }, "2026-09-30", "egg_buildup");
+  absent("missing day: Sep 3 has BOTH a big and a small ledger row (small = 31,440 in and out, no entries) -> not missing", () => {}, "2026-09-03", "missing_day");
+  run("missing day: a day with only the big ledger section", (i) => { i.egg = i.egg.filter((e) => !(e.date === "2026-09-12" && e.section === "small")); }, "2026-09-12", "missing_day");
+  absent("never-flag: Sep 9 feed cell rows never alert even when zero feed", (i) => { const r = row(i, "5cccebde-31c1-43b0-936c-11feac54b986", "2026-09-09"); r.feed = 0; }, "2026-09-09", "feed_anomaly", "5cccebde-31c1-43b0-936c-11feac54b986");
+  {
+    const n = alertsFor(buildCtx(input), "2026-08-13").length;
+    const m = alertsFor(buildCtx(input), "2026-08-13", { includeCleared: true }).length;
+    console.log(`${n === 0 && m > 0 ? "PASS" : "FAIL"}  never-flag: August (cleared) gives no alerts by default (${n}); the same day evaluated for rule testing gives ${m}`);
+    if (!(n === 0 && m > 0)) process.exitCode = 1;
+  }
   process.exit(process.exitCode ?? 0);
 }
 
@@ -131,7 +148,7 @@ const to = process.argv[4] ?? ctx.dates[ctx.dates.length - 1];
 
 const counts: Record<string, number> = {};
 for (let d = from; d <= to; d = addDays(d, 1)) {
-  for (const a of alertsFor(ctx, d)) {
+  for (const a of alertsFor(ctx, d, { includeCleared: INCLUDE_CLEARED })) {
     counts[a.kind] = (counts[a.kind] ?? 0) + 1;
     console.log(`${d} ${a.kind.padEnd(18)} ${(a.flockLabel ?? "farm").padEnd(7)} ${a.reason}`);
   }
