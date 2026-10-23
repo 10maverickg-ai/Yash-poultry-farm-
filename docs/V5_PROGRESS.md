@@ -7,7 +7,7 @@ Gate per item: `tsc`, `eslint`, `next build` pass. Status: todo / built / debugg
 ## Items
 | ID | Title | Status | Notes |
 |---|---|---|---|
-| 1.1 | Tracker + docs, branch, merge PR #17 branch | todo | |
+| 1.1 | Tracker + docs, branch, merge PR #17 branch | built | PR #17 branch merged cleanly (no conflicts) |
 | 1.2 | Additive migrations | todo | |
 | 2.1 | HD% display | todo | |
 | 2.2 | Sales page (Aug sales, Sep lines, bird sales) | todo | |
