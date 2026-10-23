@@ -553,3 +553,18 @@ button:hover,
 .fr-answers { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; }
 .fr-answers form { display: flex; gap: 0.4rem; align-items: center; }
 .fr-answers .btn, .fr-answers button { min-height: 44px; }
+
+/* --- HD% display: calculated large + read-only, written small + optional --- */
+.hd-calc { display: grid; align-content: center; gap: 0.1rem; }
+.hd-calc-label { font-size: 0.75rem; color: var(--muted); }
+.hd-calc-value { font-size: 1.6rem; font-weight: 700; line-height: 1.1; }
+.hd-written { max-width: 11rem; }
+.hd-written input { font-size: 0.9rem; padding: 0.35rem 0.5rem; }
+
+/* --- /day --- */
+.day-nav { display: flex; gap: 0.5rem; align-items: center; justify-content: space-between; margin-bottom: 0.8rem; }
+.day-pick { display: flex; gap: 0.4rem; }
+.day-flock-head { display: flex; justify-content: space-between; align-items: start; gap: 0.5rem; }
+.day-hd { text-align: right; }
+.day-nums { display: flex; flex-wrap: wrap; gap: 0.3rem 1rem; font-size: 0.9rem; margin-top: 0.3rem; }
+.day-flagged { border-left: 5px solid var(--an-amber); }

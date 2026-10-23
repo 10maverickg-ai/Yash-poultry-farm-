@@ -9,7 +9,7 @@ Gate per item: `tsc`, `eslint`, `next build` pass. Status: todo / built / debugg
 |---|---|---|---|
 | 1.1 | Tracker + docs, branch, merge PR #17 branch | built | PR #17 branch merged cleanly (no conflicts) |
 | 1.2 | Additive migrations | built | 0025–0029 applied to live Supabase (5 migrations: v5_rates_subsidy, v5_flock_lifecycle_enum, v5_flock_lifecycle_tables, v5_costs_purchases, v5_knowledge_library incl. vaccination_schedule) and to a local Postgres |
-| 2.1 | HD% display | todo | |
+| 2.1 | HD% display | built | calculated HD large+read-only on production form, new /day page (flock rows + day total); written % small optional |
 | 2.2 | Sales page (Aug sales, Sep lines, bird sales) | todo | |
 | 2.3 | Navigation: seven sections | todo | |
 | 3.1 | Alert rules (owner-decided) | todo | |
