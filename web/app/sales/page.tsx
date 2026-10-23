@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Fragment } from "react";
 import { listSales } from "@/lib/eggstock";
 import type { SaleRow } from "@/lib/eggstock-types";
+import { listUnpricedLedgerSales, listBirdSales } from "@/lib/salesExtra";
 
 export const dynamic = "force-dynamic";
 
@@ -51,8 +52,12 @@ export default async function SalesPage({
   searchParams: Promise<{ saved?: string }>;
 }) {
   const { saved } = await searchParams;
-  const sales = await listSales();
+  const [sales, unpriced, birdSales] = await Promise.all([listSales(), listUnpricedLedgerSales(), listBirdSales()]);
   const { byDay, byMonth } = groupTotals(sales);
+  const unpricedByMonth = new Map<string, number>();
+  for (const u of unpriced) unpricedByMonth.set(monthKey(u.date), (unpricedByMonth.get(monthKey(u.date)) ?? 0) + u.eggs);
+  const months = [...new Set([...byMonth.keys(), ...unpricedByMonth.keys()])].sort().reverse();
+  const birdTotal = birdSales.reduce((t, b) => t + (b.amount ?? 0), 0);
 
   return (
     <>
@@ -63,6 +68,12 @@ export default async function SalesPage({
         on paper).
       </p>
       {saved && <div className="saved-banner">Sale details saved.</div>}
+
+      <div className="actions-bar">
+        <Link href="/sales/rates" className="btn">
+          Enter BAFTA rates
+        </Link>
+      </div>
 
       {sales.length === 0 ? (
         <p className="card muted">
@@ -77,18 +88,24 @@ export default async function SalesPage({
               <thead>
                 <tr>
                   <th>Month</th>
-                  <th>Eggs</th>
+                  <th>Eggs priced</th>
                   <th>Revenue (INR)</th>
+                  <th>Eggs waiting for a rate</th>
                 </tr>
               </thead>
               <tbody>
-                {[...byMonth.entries()].map(([mk, t]) => (
-                  <tr key={mk}>
-                    <td>{monthLabel(mk)}</td>
-                    <td>{t.eggs.toLocaleString("en-IN")}</td>
-                    <td>{inr(t.amount)}</td>
-                  </tr>
-                ))}
+                {months.map((mk) => {
+                  const t = byMonth.get(mk) ?? { eggs: 0, amount: 0 };
+                  const waiting = unpricedByMonth.get(mk) ?? 0;
+                  return (
+                    <tr key={mk}>
+                      <td>{monthLabel(mk)}</td>
+                      <td>{t.eggs.toLocaleString("en-IN")}</td>
+                      <td>{t.amount ? inr(t.amount) : "—"}</td>
+                      <td>{waiting ? waiting.toLocaleString("en-IN") : "—"}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -144,6 +161,79 @@ export default async function SalesPage({
             </table>
           </div>
         </>
+      )}
+      {unpriced.length > 0 && (
+        <>
+          <h2>Sale lines waiting for a rate ({unpriced.length})</h2>
+          <p className="muted">
+            These ledger lines are sales, but no BAFTA rate has been entered for their day, so no price or
+            amount is shown — nothing is guessed. Enter the rates and the sales rows are created.
+          </p>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Buyer (as written)</th>
+                  <th>Type</th>
+                  <th>Grade</th>
+                  <th>Eggs</th>
+                  <th>Rate</th>
+                </tr>
+              </thead>
+              <tbody>
+                {unpriced.map((u) => (
+                  <tr key={u.entryId}>
+                    <td>{u.date}</td>
+                    <td>{u.label}</td>
+                    <td>{u.category === "local_sale" ? "local" : "Farmfresh / wholesaler"}</td>
+                    <td>{u.section}</td>
+                    <td>{u.eggs.toLocaleString("en-IN")}</td>
+                    <td>{u.hasRate ? "entered — open Rates to create the row" : "not entered"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+
+      <h2>Bird sales</h2>
+      {birdSales.length === 0 ? (
+        <p className="card muted">No bird sales recorded.</p>
+      ) : (
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Flock</th>
+                <th>Birds</th>
+                <th>₹ / bird</th>
+                <th>Amount (INR)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {birdSales.map((b) => (
+                <tr key={b.id}>
+                  <td>{b.date}</td>
+                  <td>{b.flockName}</td>
+                  <td>{b.birds.toLocaleString("en-IN")}</td>
+                  <td>{b.pricePerBird ?? "—"}</td>
+                  <td>{b.amount != null ? inr(b.amount) : "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr>
+                <th colSpan={2}>Total</th>
+                <th>{birdSales.reduce((t, b) => t + b.birds, 0).toLocaleString("en-IN")}</th>
+                <th></th>
+                <th>{inr(birdTotal)}</th>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
       )}
     </>
   );
