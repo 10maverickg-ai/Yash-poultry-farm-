@@ -38,8 +38,9 @@ export async function buildXlsx(ds: Dataset): Promise<Buffer> {
     ws.addRow(values);
   });
   const last = first + ds.rows.length - 1;
-  if (ds.rows.length > 0 && ds.columns.some((c) => c.total)) {
-    const totals = ws.addRow(ds.columns.map((c, i) => (i === 0 ? "Total" : c.total ? ({ formula: `SUM(${colLetter(i)}${first}:${colLetter(i)}${last})` } as ExcelJS.CellFormulaValue) : null)));
+  if (ds.rows.length > 0 && ds.columns.some((c) => c.total || c.totalFormula)) {
+    const letters = Object.fromEntries(ds.columns.map((c, i) => [c.key, colLetter(i)]));
+    const totals = ws.addRow(ds.columns.map((c, i) => (i === 0 ? "Total" : c.totalFormula ? ({ formula: c.totalFormula(first, last, letters) } as ExcelJS.CellFormulaValue) : c.total ? ({ formula: `SUM(${colLetter(i)}${first}:${colLetter(i)}${last})` } as ExcelJS.CellFormulaValue) : null)));
     totals.font = { bold: true };
     totals.eachCell((c) => { c.border = { top: { style: "thin" } }; });
   }

@@ -124,7 +124,7 @@ Facts that changed (do not redo): all 30 Sept BAFTA rates + 27 Sept sales rows a
 | H2 | Week view UI | built | `/analytics?view=week&p=<date>`; headline cards with change vs previous week, eggs bar + HD% line (inline SVG), day table linking to /day, per-flock table, comparison, alerts, what can go wrong next. |
 | H3 | Month view UI | built | `?view=month`; daily series (eggs, HD%, deaths, feed), week-by-week table, sales by buyer/grade/channel, costs with missing inputs and link to the checklist, profit labelled estimate. |
 | H4 | Year view UI | built | `?view=year`; month-by-month table + 7 charts, best/worst month, per-flock year summary (months, HD%, deaths %, birds sold), run-rate line only with ≥2 full months, "data since 1 Aug 2026". |
-| H5 | Excel/CSV period summaries | todo | |
+| H5 | Excel/CSV period summaries | built | `/export/download?kind=week|month|year&p=…&format=xlsx|csv`; export page section; per-day (week, month) or per-month (year) rows, real dates/numbers, HD% formula per row, pooled HD% and profit formulas in the totals row, notes on estimates and missing inputs. Re-read with exceljs. |
 | H6 | Navigation switch, home/Today links, DECISIONS.md | todo | |
 | H7 | Verification | todo | |
 

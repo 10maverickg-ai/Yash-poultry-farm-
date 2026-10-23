@@ -492,7 +492,7 @@ export function PeriodView({
           <Alerts s={s} />
           <Next ctx={ctx} s={s} />
           <p className="muted an-foot">
-            <Link href={`/export?${kind}=${range.from}`}>Download this {kind} to Excel →</Link>
+            <a href={`/export/download?kind=${kind}&p=${kind === "year" ? range.from.slice(0, 4) : kind === "month" ? range.from.slice(0, 7) : range.from}&format=xlsx`} download>Download this {kind} to Excel →</a>
           </p>
         </>
       )}

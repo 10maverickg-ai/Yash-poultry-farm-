@@ -19,6 +19,13 @@ export default async function ExportPage({ searchParams }: { searchParams: Promi
   );
   const months: string[] = rows.map((r) => r.m);
   const month = months.includes(sp.month ?? "") ? sp.month! : months[0] ?? new Date().toISOString().slice(0, 7);
+  const weeks: string[] = [];
+  const { weekStart } = await import("@/lib/analytics/period");
+  const dateRows = await pool.query(`SELECT DISTINCT date FROM daily_production WHERE farm_code = $1 AND deleted_at IS NULL ORDER BY date DESC`, [ACTIVE_FARM]);
+  for (const r of dateRows.rows) {
+    const w = weekStart(String(r.date).slice(0, 10));
+    if (!weeks.includes(w)) weeks.push(w);
+  }
   return (
     <>
       <h1>Download to Excel</h1>
@@ -40,6 +47,28 @@ export default async function ExportPage({ searchParams }: { searchParams: Promi
           </div>
         </div>
       ))}
+      <section className="card stack" aria-label="Period summaries">
+        <h3 style={{ margin: 0 }}>Week, month and year summaries</h3>
+        <p className="muted" style={{ margin: 0 }}>One row per day (week, month) or per month (year), with HD% as a formula, a pooled HD% in the totals row, and the missing-input notes. Estimates are labelled.</p>
+        <form method="get" action="/export/download" className="stack">
+          <label className="field"><span>Week (Monday to Sunday)</span>
+            <select name="p" defaultValue={weeks[0]}>{weeks.map((w) => <option key={w} value={w}>{w}</option>)}</select>
+          </label>
+          <input type="hidden" name="kind" value="week" />
+          <div className="actions-bar" style={{ marginBottom: 0 }}>
+            <button type="submit" name="format" value="xlsx">Week — Excel</button>
+            <button type="submit" name="format" value="csv" className="btn-secondary">CSV</button>
+          </div>
+        </form>
+        <div className="actions-bar" style={{ marginBottom: 0 }}>
+          <a className="btn" href={`/export/download?kind=month&p=${month}&format=xlsx`} download>Month {month} — Excel</a>
+          <a className="btn btn-secondary" href={`/export/download?kind=month&p=${month}&format=csv`} download>CSV</a>
+        </div>
+        <div className="actions-bar" style={{ marginBottom: 0 }}>
+          <a className="btn" href={`/export/download?kind=year&p=${month.slice(0, 4)}&format=xlsx`} download>Year {month.slice(0, 4)} — Excel</a>
+          <a className="btn btn-secondary" href={`/export/download?kind=year&p=${month.slice(0, 4)}&format=csv`} download>CSV</a>
+        </div>
+      </section>
       <p className="card muted">
         Want everything, for safekeeping? <Link href="/export/backup">Download the full backup (one zip)</Link>.
       </p>
