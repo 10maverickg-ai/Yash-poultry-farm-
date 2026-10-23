@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { pool } from "@/lib/db";
 import { ACTIVE_FARM } from "@/lib/farm";
 import { loadCostInput } from "@/lib/costs/load";
@@ -59,7 +60,7 @@ export default async function PurchasesPage({ searchParams }: { searchParams: Pr
             </table>
             {e.chickPurchases > 0 && <p className="muted an-tiny">Chick purchases this month (not in the total): ₹{inr(e.chickPurchases)}</p>}
             {e.birdSaleRevenue > 0 && <p className="muted an-tiny">Bird sales this month (not in egg revenue): ₹{inr(e.birdSaleRevenue)}</p>}
-            {e.unpricedEggsSold > 0 && <div className="flag-banner">{e.unpricedEggsSold.toLocaleString("en-IN")} eggs were sold without a BAFTA rate, so revenue and profit here are incomplete. <a href="/sales/rates">Enter the rates</a>.</div>}
+            {e.unpricedEggsSold > 0 && <div className="flag-banner">{e.unpricedEggsSold.toLocaleString("en-IN")} eggs were sold without a BAFTA rate, so revenue and profit here are incomplete. <Link href="/sales/rates">Enter the rates</Link>.</div>}
             {e.missing.length > 0 && <div className="flag-banner">Not entered: {e.missing.join(", ")}.</div>}
           </div>
         );
