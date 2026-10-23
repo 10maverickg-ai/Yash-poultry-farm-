@@ -3,6 +3,7 @@ import { loadEngineInput } from "@/lib/analytics/load";
 import {
   addDays,
   alertsFor,
+  breedName,
   buildCtx,
   farmToday,
   flockCards,
@@ -252,7 +253,7 @@ export default async function AnalyticsPage({
 
       {/* ---- Flock cards ---- */}
       <section aria-labelledby="an-flocks-h">
-        <h2 id="an-flocks-h">Flocks vs BV300 standard</h2>
+        <h2 id="an-flocks-h">Flocks vs their own breed standard</h2>
         <p className="muted an-sub">
           Green: 7-day HD at least 90% of the standard for the flock&apos;s age; amber 80–90%; red under 80%. A flock is identified by the database, not the register label — labels shift when a flock leaves.
         </p>
@@ -412,7 +413,7 @@ function FlockCardView({ c }: { c: FlockCard }) {
             {c.registerLabel !== c.label ? `register label ${c.registerLabel} · ` : ""}
             {c.tag ?? ""}
             {c.ageWeeks != null ? ` · week ${c.ageWeeks}` : ""}
-            {c.breed ? ` · ${c.breed}` : ""}
+            {c.breed ? ` · ${breedName(c.breed)}` : ""}
           </div>
         </div>
         <span className={`an-pill an-pill-${c.status}`}>{STATUS_LABEL[c.status]}</span>
