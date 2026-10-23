@@ -96,7 +96,7 @@ Facts that changed (do not redo): all 30 Sept BAFTA rates + 27 Sept sales rows a
 | G10 | Phase Z for G1–G8 | done (G2 blocked) | tsc clean; eslint clean; `next build` OK (incl. /today, /export, /export/backup); 13 regression scripts pass (via tsx); analytics selftest 28 PASS; rates-check, costs-check, std-for-check pass; 360 and 390 px sweep of 11 pages: no overflow (fixed a 3 px overflow on /purchases at 360) and no browser console errors. Vercel build/runtime logs NOT read (see G2). |
 
 ## V6 Known bugs
-(none yet)
+- Local test DB shows 33 alerts for September in the month view (live fixtures give 21): the local copy has different flags; not a code difference. Not investigated further.
 
 ## V6 Needs owner
 1. Run in the Supabase SQL editor: `DROP TABLE public._stage_dp;` and `ALTER TABLE public.daily_egg_rates DROP COLUMN small_rate;` (the tool cannot run destructive SQL).
@@ -126,7 +126,7 @@ Facts that changed (do not redo): all 30 Sept BAFTA rates + 27 Sept sales rows a
 | H4 | Year view UI | built | `?view=year`; month-by-month table + 7 charts, best/worst month, per-flock year summary (months, HD%, deaths %, birds sold), run-rate line only with ≥2 full months, "data since 1 Aug 2026". |
 | H5 | Excel/CSV period summaries | built | `/export/download?kind=week|month|year&p=…&format=xlsx|csv`; export page section; per-day (week, month) or per-month (year) rows, real dates/numbers, HD% formula per row, pooled HD% and profit formulas in the totals row, notes on estimates and missing inputs. Re-read with exceljs. |
 | H6 | Navigation switch, home/Today links, DECISIONS.md | built | Day / Week / Month / Year switch on every Analytics view (state in the URL); sub-nav entries with correct highlight; home and Today link to this week / month / year; `docs/DECISIONS.md` V7 section. MainNav wrapped in Suspense (useSearchParams). |
-| H7 | Verification | todo | |
+| H7 | Verification | done (preview logs not read) | `period-check` 44 PASS on real Aug/Sep rows (Sept 13,46,850 eggs sold, ₹71,84,492.40; weeks 7–13 Sep and 1–7 Sep; partial week 3 of 7; pooled vs mean HD% 68.65 vs 68.83); tsc, eslint, `next build` clean; 13 regression scripts, analytics self-test 28, rates/costs/std-for checks pass; 360 and 390 px sweep of week/month/year/empty-week/day views and 11 older pages: no overflow, no page errors. |
 
 ## V7 Known bugs
 (none yet)
@@ -135,4 +135,7 @@ Facts that changed (do not redo): all 30 Sept BAFTA rates + 27 Sept sales rows a
 Nothing new. Existing list unchanged (Bovans White guide, BAB-8/9/10 placement dates, BAB-5 moult start, September electricity/diesel/medicines, RLS decision, alert verdicts, credits, Vercel link).
 
 ## V7 Could not test
-(filled in at H7)
+- Preview deployment build/runtime logs: the Vercel connector still returns 403 for team yashfarm (access link not approved), so runtime logs were not read.
+- Period views were browser-tested against the local copy of the data, not the live database (live read queries are the same SQL as the existing Sales/Costs pages plus a ledger-deductions query that was run directly on live).
+- Excel formulas were checked by reading them back with exceljs, not by opening Excel/Numbers on a phone.
+- Same-month-last-year comparison is untested with real data (none exists before Aug 2026); only the empty case ('no earlier data') and the shifting arithmetic are tested.
