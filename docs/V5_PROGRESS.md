@@ -114,3 +114,25 @@ Facts that changed (do not redo): all 30 Sept BAFTA rates + 27 Sept sales rows a
 - G1: the F7 extra-reference lines (other breeds' hen-day % on the flock cards) were removed: F8's rule is "own breed only".
 
 - **G9 (owner):** the Anthropic key still reports "credit balance is too low" (checked 2026-10-23). Add credits, then re-run the benchmark; budget cap USD 5.
+
+---
+# V7 — Week / Month / Year views in Analytics
+
+| Item | What | Status | Notes |
+|---|---|---|---|
+| H1 | Period aggregation engine (pure, tested) | built | `lib/analytics/period.ts` (summarizePeriod, compare, rangeOf/shiftRange/lastYearRange, weeksWithin, monthsWithin, runRate). `scripts/period-check.mts`: 44 checks on real Aug/Sep rows (run with `npx tsx`). |
+| H2 | Week view UI | todo | |
+| H3 | Month view UI | todo | |
+| H4 | Year view UI | todo | |
+| H5 | Excel/CSV period summaries | todo | |
+| H6 | Navigation switch, home/Today links, DECISIONS.md | todo | |
+| H7 | Verification | todo | |
+
+## V7 Known bugs
+(none yet)
+
+## V7 Needs owner
+Nothing new. Existing list unchanged (Bovans White guide, BAB-8/9/10 placement dates, BAB-5 moult start, September electricity/diesel/medicines, RLS decision, alert verdicts, credits, Vercel link).
+
+## V7 Could not test
+(filled in at H7)
