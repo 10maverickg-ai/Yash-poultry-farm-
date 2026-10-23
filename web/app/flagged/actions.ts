@@ -40,6 +40,21 @@ export async function markReviewed(source: FlaggedSource, id: number) {
   redirect("/flagged");
 }
 
+// Egg-ledger lines (daily_egg_stock_entries) carry their own flagged /
+// reviewed_by_owner columns but have no farm_code, so the farm check goes
+// through the parent summary row. Same acknowledge-only semantics as
+// markReviewed above.
+export async function markEggEntryReviewed(id: number) {
+  await pool.query(
+    `UPDATE daily_egg_stock_entries SET reviewed_by_owner = true
+      WHERE id = $1
+        AND egg_stock_summary_id IN (SELECT id FROM daily_egg_stock_summary WHERE farm_code = $2)`,
+    [id, ACTIVE_FARM]
+  );
+  revalidatePath("/flagged");
+  redirect("/flagged");
+}
+
 // Page-level checksum issues (lib/extraction/pageChecksum.ts) belong to the
 // whole upload, not any one flock row — same reviewed/deleted lifecycle as
 // every other flagged thing in this app, just its own small table

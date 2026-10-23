@@ -31,6 +31,7 @@ export default function RootLayout({
             <Link href="/chick-batches">Chick Batches</Link>
             <Link href="/sheds">Sheds</Link>
             <Link href="/records">Records</Link>
+            <Link href="/analytics">Analytics</Link>
             <Link href="/flagged">Flagged</Link>
           </nav>
         </header>
