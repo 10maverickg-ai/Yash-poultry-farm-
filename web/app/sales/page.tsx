@@ -52,7 +52,7 @@ export default async function SalesPage({
   searchParams: Promise<{ saved?: string }>;
 }) {
   const { saved } = await searchParams;
-  const [sales, unpriced, birdSales] = await Promise.all([listSales(), listUnpricedLedgerSales(), listBirdSales()]);
+  const [sales, unpriced, birdSales] = await Promise.all([listSales(5000), listUnpricedLedgerSales(), listBirdSales()]);
   const { byDay, byMonth } = groupTotals(sales);
   const unpricedByMonth = new Map<string, number>();
   for (const u of unpriced) unpricedByMonth.set(monthKey(u.date), (unpricedByMonth.get(monthKey(u.date)) ?? 0) + u.eggs);
