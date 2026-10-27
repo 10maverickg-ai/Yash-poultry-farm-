@@ -2,7 +2,7 @@ import Link from "next/link";
 import { Fragment } from "react";
 import { listSales } from "@/lib/eggstock";
 import type { SaleRow } from "@/lib/eggstock-types";
-import { listUnpricedLedgerSales, listBirdSales, listAnilMovements } from "@/lib/salesExtra";
+import { listUnpricedLedgerSales, listBirdSales, listAnilMovements, youngStartDate } from "@/lib/salesExtra";
 import { setBirdSaleBuyer } from "./actions";
 import { ExportLinks } from "@/components/ExportLinks";
 
@@ -54,7 +54,25 @@ export default async function SalesPage({
   searchParams: Promise<{ saved?: string }>;
 }) {
   const { saved } = await searchParams;
-  const [sales, unpriced, birdSales, anil] = await Promise.all([listSales(5000), listUnpricedLedgerSales(), listBirdSales(), listAnilMovements()]);
+  const [sales, unpriced, birdSales, anil, youngFrom] = await Promise.all([listSales(5000), listUnpricedLedgerSales(), listBirdSales(), listAnilMovements(), youngStartDate()]);
+  // big eggs = main flocks; small eggs = young flocks from the day they start, before that the main flocks' graded small eggs
+  const groupOf = (s: SaleRow): "main" | "young" => (s.grade === "small" && youngFrom != null && s.date >= youngFrom ? "young" : "main");
+  const localByMonth = new Map<string, { eggs: number; amount: number }>();
+  for (const s of sales) {
+    if (s.transaction_type === "sale_farmfresh") continue;
+    const l = localByMonth.get(monthKey(s.date)) ?? { eggs: 0, amount: 0 };
+    l.eggs += s.eggs_quantity ?? 0;
+    l.amount += num(s.amount);
+    localByMonth.set(monthKey(s.date), l);
+  }
+  const byMonthGroup = new Map<string, { main: { eggs: number; amount: number }; young: { eggs: number; amount: number } }>();
+  for (const s of sales) {
+    const m = byMonthGroup.get(monthKey(s.date)) ?? { main: { eggs: 0, amount: 0 }, young: { eggs: 0, amount: 0 } };
+    const g = m[groupOf(s)];
+    g.eggs += s.eggs_quantity ?? 0;
+    g.amount += num(s.amount);
+    byMonthGroup.set(monthKey(s.date), m);
+  }
   const anilOut = anil.filter((m) => m.birds < 0).reduce((t, m) => t - m.birds, 0);
   const anilIn = anil.filter((m) => m.birds > 0).reduce((t, m) => t + m.birds, 0);
   const { byDay, byMonth } = groupTotals(sales);
@@ -97,8 +115,14 @@ export default async function SalesPage({
               <thead>
                 <tr>
                   <th>Month</th>
-                  <th>Eggs priced</th>
-                  <th>Revenue (INR)</th>
+                  <th>Main: big eggs</th>
+                  <th>Main: INR</th>
+                  <th>Young: small eggs</th>
+                  <th>Young: INR</th>
+                  <th>Whole farm: eggs</th>
+                  <th>Whole farm: INR</th>
+                  <th>of which local: eggs</th>
+                  <th>of which local: INR</th>
                   <th>Eggs waiting for a rate</th>
                 </tr>
               </thead>
@@ -106,11 +130,19 @@ export default async function SalesPage({
                 {months.map((mk) => {
                   const t = byMonth.get(mk) ?? { eggs: 0, amount: 0 };
                   const waiting = unpricedByMonth.get(mk) ?? 0;
+                  const g = byMonthGroup.get(mk) ?? { main: { eggs: 0, amount: 0 }, young: { eggs: 0, amount: 0 } };
+                  const same = g.main.eggs + g.young.eggs === t.eggs && Math.abs(g.main.amount + g.young.amount - t.amount) < 0.5;
                   return (
                     <tr key={mk}>
                       <td>{monthLabel(mk)}</td>
-                      <td>{t.eggs.toLocaleString("en-IN")}</td>
+                      <td>{g.main.eggs.toLocaleString("en-IN")}</td>
+                      <td>{g.main.amount ? inr(g.main.amount) : "—"}</td>
+                      <td>{g.young.eggs ? g.young.eggs.toLocaleString("en-IN") : "—"}</td>
+                      <td>{g.young.amount ? inr(g.young.amount) : "—"}</td>
+                      <td>{t.eggs.toLocaleString("en-IN")}{same ? "" : " ⚠"}</td>
                       <td>{t.amount ? inr(t.amount) : "—"}</td>
+                      <td>{localByMonth.get(mk)?.eggs ? localByMonth.get(mk)!.eggs.toLocaleString("en-IN") : "—"}</td>
+                      <td>{localByMonth.get(mk)?.amount ? inr(localByMonth.get(mk)!.amount) : "—"}</td>
                       <td>{waiting ? waiting.toLocaleString("en-IN") : "—"}</td>
                     </tr>
                   );
@@ -118,6 +150,10 @@ export default async function SalesPage({
               </tbody>
             </table>
           </div>
+
+          <p className="muted an-sub">
+            Big eggs are sold from the main flocks, small eggs from the young flocks (from {youngFrom ?? "the day a young flock starts"}; before that the small eggs were the main flocks&apos; graded small eggs). Check: main + young = whole farm in every month{months.every((mk) => { const t = byMonth.get(mk) ?? { eggs: 0, amount: 0 }; const g = byMonthGroup.get(mk); return !g || (g.main.eggs + g.young.eggs === t.eggs && Math.abs(g.main.amount + g.young.amount - t.amount) < 0.5); }) ? " ✓" : " — ⚠ a month does not add up"}.
+          </p>
 
           <h2>Sales</h2>
           <div className="table-wrap">
