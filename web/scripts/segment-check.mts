@@ -34,6 +34,10 @@ for (let d = "2026-10-01"; d <= D; d = addDays(d, 1)) {
 }
 console.log(`\nOctober 1–26: main ${n(oct.main, 0)} eggs HD ${n(oct.main / oct.birdsMain * 100)}% | young ${n(oct.young, 0)} eggs HD ${n(oct.young / oct.birdsYoung * 100)}% | whole farm ${n(oct.all, 0)} eggs HD ${n(oct.all / oct.birdsAll * 100)}%`);
 ok("October: segment eggs add to the whole farm", oct.main + oct.young === oct.all);
+// the same numbers from a direct SQL sum on the live database (V8 S0.7)
+ok("October SQL: main 1,426,830 / young 223,800 / total 1,650,630 eggs", oct.main === 1426830 && oct.young === 223800 && oct.all === 1650630, `${oct.main}/${oct.young}/${oct.all}`);
+ok("October SQL: bird-days 1,740,898 / 639,023 / 2,379,921; deaths 601 / 173 / 774", oct.birdsMain === 1740898 && oct.birdsYoung === 639023 && oct.birdsAll === 2379921 && oct.mMain === 601 && oct.mYoung === 173 && oct.mAll === 774);
+ok("26 Oct SQL: main 52,860 eggs 66,663 birds 29 deaths 137 bags; young 15,930 / 27,708 / 11; total 68,790 / 94,371 / 40", main.eggs === 52860 && main.birds === 66663 && main.mort === 29 && main.feed === 137 && young.eggs === 15930 && young.birds === 27708 && young.mort === 11 && all.eggs === 68790 && all.birds === 94371 && all.mort === 40);
 ok("October: segment bird-days add to the whole farm", oct.birdsMain + oct.birdsYoung === oct.birdsAll);
 ok("October: segment deaths add to the whole farm", oct.mMain + oct.mYoung === oct.mAll);
 

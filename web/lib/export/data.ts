@@ -18,7 +18,7 @@ export const validMonth = (m: string) => /^\d{4}-(0[1-9]|1[0-2])$/.test(m);
 export async function productionDataset(month: string): Promise<Dataset> {
   const { from, to } = bounds(month);
   const { rows } = await pool.query(
-    `SELECT dp.date, f.display_label AS flock, dp.display_label_as_written AS reg, dp.bird_population AS birds,
+    `SELECT dp.date, f.display_label AS flock, f.segment, dp.display_label_as_written AS reg, dp.bird_population AS birds,
             dp.mortality, dp.feed_bags, dp.eggs_total
        FROM daily_production dp JOIN flocks f USING (flock_internal_id)
       WHERE dp.farm_code = $1 AND dp.deleted_at IS NULL AND dp.date BETWEEN $2 AND $3
@@ -32,6 +32,7 @@ export async function productionDataset(month: string): Promise<Dataset> {
     columns: [
       { key: "date", header: "Date", type: "date", width: 12 },
       { key: "flock", header: "Flock", type: "text", width: 10 },
+      { key: "segment", header: "Group", type: "text", width: 10 },
       { key: "reg", header: "Register label", type: "text", width: 14 },
       { key: "birds", header: "Birds (end of day)", type: "int", width: 16 },
       { key: "mortality", header: "Deaths", type: "int", width: 9, total: true },
@@ -40,11 +41,11 @@ export async function productionDataset(month: string): Promise<Dataset> {
       { key: "hd", header: "HD % (eggs ÷ birds)", type: "pct", width: 18 },
     ],
     rows: rows.map((r) => ({
-      date: String(r.date).slice(0, 10), flock: r.flock, reg: r.reg, birds: r.birds, mortality: r.mortality, feed: r.feed_bags, eggs: r.eggs_total,
+      date: String(r.date).slice(0, 10), flock: r.flock, segment: r.segment === "main" ? "Main" : r.segment === "young" ? "Young" : "not set", reg: r.reg, birds: r.birds, mortality: r.mortality, feed: r.feed_bags, eggs: r.eggs_total,
       hd: r.birds ? Math.round(((r.eggs_total ?? 0) / r.birds) * 10000) / 100 : null,
     })),
-    notes: ["HD % is calculated as eggs ÷ birds × 100 (not the supervisor's written %).", "Birds are the end-of-day count from the register."],
-    formulas: { hd: (row) => `IF(D${row}>0,ROUND(G${row}/D${row}*100,2),"")` },
+    notes: ["HD % is calculated as eggs ÷ birds × 100 (not the supervisor's written %).", "Group = Main (big eggs, right page) or Young (small eggs, left page). The totals row adds every flock; filter the Group column for per-group numbers.", "Birds are the end-of-day count from the register."],
+    formulas: { hd: (row) => `IF(E${row}>0,ROUND(H${row}/E${row}*100,2),"")` },
   };
 }
 

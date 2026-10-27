@@ -16,8 +16,10 @@ export async function GET(req: NextRequest) {
   if (kind === "week" || kind === "month" || kind === "year") {
     const p = q.get("p") ?? "";
     if (!validPeriod(kind, p)) return new Response("Choose a period like 2026-09-07, 2026-09 or 2026", { status: 400 });
-    const pds = await periodDataset(kind, p);
-    const pstem = `yash-farm-${kind}-summary-${p}`;
+    const sg = q.get("segment") ?? "all";
+    if (sg !== "all" && sg !== "main" && sg !== "young") return new Response("segment must be main, young or all", { status: 400 });
+    const pds = await periodDataset(kind, p, sg);
+    const pstem = `yash-farm-${kind}-summary-${p}-${sg === "all" ? "whole-farm" : sg}`;
     if (format === "csv") {
       return new Response(buildCsv(pds), { headers: { "Content-Type": "text/csv; charset=utf-8", "Content-Disposition": `attachment; filename="${pstem}.csv"`, "Cache-Control": "no-store" } });
     }

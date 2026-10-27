@@ -532,7 +532,10 @@ export function PeriodView({
             <Next ctx={ctx} s={s} />
           </section>
           <p className="muted an-foot">
-            <a href={`/export/download?kind=${kind}&p=${kind === "year" ? range.from.slice(0, 4) : kind === "month" ? range.from.slice(0, 7) : range.from}&format=xlsx`} download>Download this {kind} to Excel →</a>
+            Download this {kind} to Excel:{" "}
+            {(["main", "young", "all"] as const).map((g, i) => (
+              <span key={g}>{i > 0 ? " · " : ""}<a href={`/export/download?kind=${kind}&p=${kind === "year" ? range.from.slice(0, 4) : kind === "month" ? range.from.slice(0, 7) : range.from}&segment=${g}&format=xlsx`} download>{g === "all" ? "Whole farm" : g === "main" ? "Main" : "Young"}</a></span>
+            ))}
           </p>
         </>
       )}
