@@ -58,6 +58,14 @@ ok("departed flocks are 'left', not active cards", departed.length === 2 && depa
 const unknownAge = cards.filter((c) => ["BAB-6", "BAB-7", "BAB-8"].includes(c.label));
 ok("placeholder-age flocks: no standard check, no green/amber/red", unknownAge.length === 3 && unknownAge.every((c) => c.status === "no_reference" && /age unknown, no standard check/.test(c.statusNote)));
 
+// departed flocks: no alert, card or standard comparison after their last day (I2)
+{
+  const gone = input.flocks.filter((f) => /^Old BAB/.test(f.label));
+  let hits = 0;
+  for (let d = "2026-09-09"; d <= D; d = addDays(d, 1)) for (const a of alertsFor(ctx, d, { includeCleared: true })) if (gone.some((g) => g.id === a.flockId)) hits++;
+  ok("no alert on a departed flock after its last day (Old BAB-1 left 8 Sep, Old BAB-2 left 3 Sep)", hits === 0, `${hits} alerts`);
+  ok("departed flocks keep their history rows (69 and 64 days) for totals and sales", gone.every((g) => (ctx.byFlock.get(g.id) ?? []).length >= 64));
+}
 // alerts October
 const counts: Record<string, Record<string, number>> = { main: {}, young: {}, none: {} };
 let youngDrop = 0, nullFeedAlerts = 0;
@@ -86,5 +94,20 @@ const ctx2 = buildCtx(mv);
 ok("moved flock: young before 15 Oct, main from 15 Oct", segmentOn(ctx2, f9.id, "2026-10-14") === "young" && segmentOn(ctx2, f9.id, "2026-10-15") === "main");
 ok("moved flock: history keeps the old segment in old totals", dayTotals(ctx2, "2026-10-10", "young")!.flocks === 3 && dayTotals(ctx2, "2026-10-16", "young")!.flocks === 2);
 ok("moved flock: not ramping once main", rampingUp(ctx2, f9.id, "2026-10-16") == null);
+
+// ledger arithmetic (I4): the opening of a day ties to the previous day's closing, per ledger
+{
+  const gaps: string[] = [];
+  const by = new Map(input.egg.map((e) => [`${e.date}|${e.section}`, e]));
+  for (const e of input.egg) {
+    const prev = by.get(`${addDays(e.date, -1)}|${e.section}`);
+    if (prev && prev.closing != null && e.opening != null && prev.closing !== e.opening) gaps.push(`${e.date} ${e.section} ${e.opening - prev.closing > 0 ? "+" : ""}${e.opening - prev.closing}`);
+  }
+  console.log("Ledger opening gaps:", gaps.join(", "));
+  ok("only two opening gaps in Jul-Oct: 30 Jul big +30 and 25 Sep big -30 (the known one)", [...gaps].sort().join(",") === "2026-07-30 big +30,2026-09-25 big -30");
+  const t = (d: string, sec: string) => by.get(`${d}|${sec}`);
+  ok("28 Jul big opening ties to 27 Jul closing (176,190) after the 134,790-egg sale", t("2026-07-28", "big")?.opening === 176190 && t("2026-07-27", "big")?.closing === 176190);
+  ok("22 Oct small opening 2,520 ties to the 21 Oct closing 2,520 (the +600 late addition)", t("2026-10-22", "small")?.opening === 2520 && t("2026-10-21", "small")?.closing === 2520);
+}
 
 process.exit(bad ? 1 : 0);
