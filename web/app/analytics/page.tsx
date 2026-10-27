@@ -4,8 +4,9 @@ import {
   addDays,
   alertsFor,
   breedName,
+  SEGMENTS,
+  SEGMENT_NAME,
   buildCtx,
-  farmToday,
   flockCards,
   lastDayOfData,
   monthView,
@@ -21,6 +22,8 @@ import { ACTIVE_FARM } from "@/lib/farm";
 import { loadCostInput } from "@/lib/costs/load";
 import { loadPeriodExtras } from "@/lib/analytics/periodLoad";
 import { PeriodView, ViewSwitch } from "@/components/PeriodView";
+import { allSegmentPanels, farmCheck } from "@/lib/analytics/segments";
+import { FarmLine, SegmentPanelView } from "@/components/SegmentPanels";
 import { dayEconomics, monthEconomics, rangeEconomics, flockMonthEconomics } from "@/lib/costs/engine";
 
 export const dynamic = "force-dynamic";
@@ -36,6 +39,7 @@ const KIND_LABEL: Record<AlertKind, string> = {
 };
 
 const STATUS_LABEL: Record<CardStatus, string> = {
+  ramping: "Ramping up",
   green: "On standard",
   amber: "Below standard",
   red: "Well below",
@@ -49,20 +53,6 @@ const n0 = (x: number) => Math.round(x).toLocaleString("en-IN");
 const n1 = (x: number) => (Math.round(x * 10) / 10).toLocaleString("en-IN");
 const pretty = (d: string) =>
   new Date(d + "T00:00:00Z").toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
-
-function Delta({ now, vs, unit = "", invert = false, neutral = false, digits = 0 }: { now: number | null; vs: number | null | undefined; unit?: string; invert?: boolean; neutral?: boolean; digits?: number }) {
-  if (now == null || vs == null) return <span className="an-delta">–</span>;
-  const d = now - vs;
-  const f = (x: number) => (digits === 0 ? n0(Math.abs(x)) : n1(Math.abs(x)));
-  if (Math.abs(d) < 0.5 * 10 ** -digits) return <span className="an-delta">same</span>;
-  const good = invert ? d < 0 : d > 0;
-  return (
-    <span className={`an-delta ${neutral ? "" : good ? "an-up" : "an-down"}`}>
-      {d > 0 ? "▲" : "▼"} {f(d)}
-      {unit}
-    </span>
-  );
-}
 
 function Spark({ values, color }: { values: number[]; color: string }) {
   if (values.length < 2) return null;
@@ -81,6 +71,7 @@ function Spark({ values, color }: { values: number[]; color: string }) {
 }
 
 const SPARK_COLOR: Record<CardStatus, string> = {
+  ramping: "var(--an-blue)",
   green: "var(--an-green)",
   amber: "var(--an-amber)",
   red: "var(--an-red)",
@@ -124,8 +115,9 @@ export default async function AnalyticsPage({
   const month = /^\d{4}-\d{2}$/.test(sp.month ?? "") ? sp.month! : asOf.slice(0, 7);
   const months = [...new Set(ctx.dates.map((d) => d.slice(0, 7)))];
 
-  const ft = farmToday(ctx, asOf);
-  const t = ft.today;
+  const extras = await loadPeriodExtras();
+  const panels = allSegmentPanels(ctx, extras, asOf);
+  const chk = farmCheck(ctx, asOf);
   const alertsToday = alertsFor(ctx, asOf);
   const earlier: { date: string; alerts: Alert[] }[] = [];
   for (let i = 1; i <= 6; i++) {
@@ -139,7 +131,9 @@ export default async function AnalyticsPage({
   const cards = flockCards(ctx, asOf);
   const live = cards.filter((c) => c.status !== "left");
   const gone = cards.filter((c) => c.status === "left");
-  const watch = watchList(ctx, asOf);
+  const watchBySeg = { main: watchList(ctx, asOf, "main"), young: watchList(ctx, asOf, "young") };
+  const watch: ReturnType<typeof watchList> = [];
+  const watchFarm = watch;
   const money = dayEconomics(costInput, asOf);
   const week = rangeEconomics(costInput, addDays(asOf, -6), asOf);
   const monthMoney = monthEconomics(costInput, month);
@@ -153,6 +147,7 @@ export default async function AnalyticsPage({
     });
   }
   const mv = monthView(ctx, month);
+  const monthBySeg = { main: monthView(ctx, month, "main"), young: monthView(ctx, month, "young") };
   const returnTo = `/analytics?date=${asOf}&month=${month}`;
   const staleDays = Math.round((Date.parse(new Date().toISOString().slice(0, 10)) - Date.parse(latest)) / 86400000);
 
@@ -182,30 +177,11 @@ export default async function AnalyticsPage({
         </button>
       </form>
 
-      {/* ---- Farm today ---- */}
-      <section className="card an-today" aria-labelledby="an-today-h">
-        <h2 id="an-today-h">Farm — {pretty(asOf)}</h2>
-        {t ? (
-          <>
-            <p className="muted an-sub">
-              {t.flocks} flock{t.flocks === 1 ? "" : "s"} reporting
-              {ft.yesterday && ft.yesterday.flocks !== t.flocks ? ` (${ft.yesterday.flocks} yesterday)` : ""} · {n0(t.birds)} birds
-            </p>
-            <div className="an-grid">
-              <Metric title="Eggs" value={n0(t.eggs)} t={t.eggs} y={ft.yesterday?.eggs} a={ft.avg7?.eggs} />
-              <Metric title="Trays" value={n0(t.trays)} t={t.trays} y={ft.yesterday?.trays} a={ft.avg7?.trays} />
-              <Metric title="HD %" value={t.hd != null ? `${n1(t.hd)}%` : "–"} t={t.hd} y={ft.yesterday?.hd} a={ft.avg7?.hd} digits={1} unit=" pts" />
-              <Metric title="Deaths" value={n0(t.mort)} t={t.mort} y={ft.yesterday?.mort} a={ft.avg7?.mort} invert />
-              <Metric title="Feed (bags)" value={n0(t.feed)} t={t.feed} y={ft.yesterday?.feed} a={ft.avg7?.feed} neutral />
-            </div>
-            <p className="muted an-foot">
-              Each line: change vs yesterday · vs the 7-day average{ft.avg7 ? ` (${ft.avg7.days} days)` : ""}. Totals fall when a flock leaves the register — that is not a production drop.
-            </p>
-          </>
-        ) : (
-          <p className="muted">No production rows for this date.</p>
-        )}
-      </section>
+      {/* ---- One panel per segment, whole farm last ---- */}
+      {panels.map((p) => (
+        <SegmentPanelView key={p.segment} p={p} detailHref={`/analytics?date=${asOf}#alerts`} />
+      ))}
+      <FarmLine panels={panels} eggs={chk.all?.eggs ?? 0} birds={chk.all?.birds ?? 0} hd={chk.all?.hd ?? null} unassigned={chk.unassigned} ok={chk.ok} />
 
       {/* ---- Money (estimate) ---- */}
       <section className="card" aria-labelledby="an-money-h">
@@ -223,14 +199,21 @@ export default async function AnalyticsPage({
       </section>
 
       {/* ---- Alerts ---- */}
-      <section aria-labelledby="an-alerts-h">
+      <section aria-labelledby="an-alerts-h" id="alerts">
         <h2 id="an-alerts-h">
           Alerts <span className="badge badge-flagged">{alertsToday.length}</span>
         </h2>
         {alertsToday.length === 0 && <p className="card muted">Nothing to alert on for {pretty(asOf)}.</p>}
-        {alertsToday.map((a, i) => (
-          <AlertCard key={i} a={a} returnTo={returnTo} verdict={verdicts.get(a.key)} />
-        ))}
+        {[...SEGMENTS, null].map((g) => {
+          const list = alertsToday.filter((a) => a.segment === g);
+          if (list.length === 0) return null;
+          return (
+            <div key={g ?? "none"}>
+              <h3 className="an-daystamp">{g ? SEGMENT_NAME[g] : "Flocks with no segment set"} · {list.length}</h3>
+              {list.map((a) => <AlertCard key={a.key} a={a} returnTo={returnTo} verdict={verdicts.get(a.key)} />)}
+            </div>
+          );
+        })}
         {earlier.length > 0 && (
           <details className="card">
             <summary>
@@ -254,20 +237,32 @@ export default async function AnalyticsPage({
       {/* ---- What can go wrong next ---- */}
       <section aria-labelledby="an-next-h">
         <h2 id="an-next-h">What can go wrong next</h2>
-        <div className="card">
-          {watch.length === 0 ? (
-            <p className="muted" style={{ margin: 0 }}>No flock is trending below standard, no mortality creep, and feed days left could not be worked out.</p>
-          ) : (
-            <ul className="an-list">
-              {watch.map((w, i) => (
-                <li key={i}>
-                  <strong>{w.kind === "trending_below" ? "Trending below standard" : w.kind === "mortality_creeping" ? "Mortality creeping" : "Feed days left"}.</strong>{" "}
-                  {w.text}
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
+        {SEGMENTS.map((g) => {
+          const w = watchBySeg[g];
+          return (
+            <div className="card" key={g}>
+              <h3 style={{ marginTop: 0 }}>{SEGMENT_NAME[g]}</h3>
+              {w.length === 0 ? (
+                <p className="muted" style={{ margin: 0 }}>{g === "young" ? "Nothing to watch: no mortality creep. Young flocks are not compared with the standard while they ramp up." : "No flock is trending below standard, no mortality creep, and feed days left could not be worked out."}</p>
+              ) : (
+                <ul className="an-list">
+                  {w.map((x, i) => (
+                    <li key={i}>
+                      <strong>{x.kind === "trending_below" ? "Trending below standard" : x.kind === "mortality_creeping" ? "Mortality creeping" : "Feed days left"}.</strong>{" "}
+                      {x.text}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          );
+        })}
+        {watchFarm.length > 0 && (
+          <div className="card">
+            <h3 style={{ marginTop: 0 }}>Whole farm</h3>
+            <ul className="an-list">{watchFarm.map((x, i) => <li key={i}>{x.text}</li>)}</ul>
+          </div>
+        )}
       </section>
 
       {/* ---- Flock cards ---- */}
@@ -276,11 +271,18 @@ export default async function AnalyticsPage({
         <p className="muted an-sub">
           Green: 7-day HD at least 90% of the standard for the flock&apos;s age; amber 80–90%; red under 80%. A flock is identified by the database, not the register label — labels shift when a flock leaves.
         </p>
-        <div className="an-cards">
-          {live.map((c) => (
-            <FlockCardView key={c.flockId} c={c} />
-          ))}
-        </div>
+        {[...SEGMENTS, null].map((g) => {
+          const list = live.filter((c) => c.segment === g);
+          if (list.length === 0) return null;
+          return (
+            <div key={g ?? "none"}>
+              <h3 className="an-daystamp">{g ? SEGMENT_NAME[g] : "Segment not set"} · {list.length}</h3>
+              <div className="an-cards">
+                {list.map((c) => <FlockCardView key={c.flockId} c={c} />)}
+              </div>
+            </div>
+          );
+        })}
         {gone.length > 0 && (
           <details className="card">
             <summary>Flocks no longer on the register ({gone.length})</summary>
@@ -306,6 +308,30 @@ export default async function AnalyticsPage({
             </Link>
           ))}
         </div>
+        {SEGMENTS.map((g) => {
+          const m = monthBySeg[g];
+          if (m.rows.length === 0) return null;
+          return (
+            <div key={g}>
+              <h3 className="an-daystamp">{SEGMENT_NAME[g]}</h3>
+              <MonthTable mv={m} monthMoney={monthMoney} flockMoney={flockMoney} />
+            </div>
+          );
+        })}
+        <h3 className="an-daystamp">Whole farm (sum of the groups; mixes mature and young birds)</h3>
+        <MonthTable mv={mv} monthMoney={monthMoney} flockMoney={flockMoney} totalOnly />
+        <p className="muted an-foot">
+          Deaths % = deaths ÷ birds at the start of the flock&apos;s first day in the month. Chick-shed deaths this month: {n0(mv.chickDeaths)} (not in the table).
+          {monthMoney.revenue ? ` Farm: revenue ₹${n0(monthMoney.revenue)}, cost ₹${n0(monthMoney.cost.total)}, estimated profit ₹${n0(monthMoney.profit)}${monthMoney.revenuePerEgg != null && monthMoney.costPerEgg != null ? `; revenue per egg ₹${monthMoney.revenuePerEgg.toFixed(2)} vs cost per egg ₹${monthMoney.costPerEgg.toFixed(2)}` : ""}. Per-flock profit is an estimate (feed exact, other costs by bird count, revenue by eggs laid).` : " Revenue and profit are left out for this month: no BAFTA rates have been entered, so nothing is priced."}
+          {monthMoney.birdSaleRevenue > 0 ? ` Bird sales this month ₹${n0(monthMoney.birdSaleRevenue)} (not in egg revenue).` : ""}
+        </p>
+      </section>
+    </>
+  );
+}
+
+function MonthTable({ mv, monthMoney, flockMoney, totalOnly }: { mv: ReturnType<typeof monthView>; monthMoney: ReturnType<typeof monthEconomics>; flockMoney: Map<string, { profit: number }>; totalOnly?: boolean }) {
+  return (
         <div className="card an-scroll">
           <table className="an-table">
             <thead>
@@ -321,7 +347,7 @@ export default async function AnalyticsPage({
               </tr>
             </thead>
             <tbody>
-              {mv.rows.map((r) => (
+              {(totalOnly ? [] : mv.rows).map((r) => (
                 <tr key={r.flockId}>
                   <td>
                     <strong>{r.label}</strong>
@@ -340,59 +366,18 @@ export default async function AnalyticsPage({
             </tbody>
             <tfoot>
               <tr>
-                <th>Farm total</th>
+                <th>{mv.total.label}</th>
                 <th className="num">{mv.total.days}</th>
                 <th className="num">{n0(mv.total.eggs)}</th>
                 <th className="num">{mv.total.hd != null ? n1(mv.total.hd) : "–"}</th>
                 <th className="num">{n0(mv.total.feed)}</th>
                 <th className="num">{n0(mv.total.mort)}</th>
                 <th className="num">–</th>
-                <th className="num">{monthMoney.revenue ? n0(monthMoney.profit) : "–"}</th>
+                <th className="num">{monthMoney.revenue && mv.total.label === "Farm total" ? n0(monthMoney.profit) : "–"}</th>
               </tr>
             </tfoot>
           </table>
         </div>
-        <p className="muted an-foot">
-          Deaths % = deaths ÷ birds at the start of the flock&apos;s first day in the month. Chick-shed deaths this month: {n0(mv.chickDeaths)} (not in the table).
-          {monthMoney.revenue ? ` Farm: revenue ₹${n0(monthMoney.revenue)}, cost ₹${n0(monthMoney.cost.total)}, estimated profit ₹${n0(monthMoney.profit)}${monthMoney.revenuePerEgg != null && monthMoney.costPerEgg != null ? `; revenue per egg ₹${monthMoney.revenuePerEgg.toFixed(2)} vs cost per egg ₹${monthMoney.costPerEgg.toFixed(2)}` : ""}. Per-flock profit is an estimate (feed exact, other costs by bird count, revenue by eggs laid).` : " Revenue and profit are left out for this month: no BAFTA rates have been entered, so nothing is priced."}
-          {monthMoney.birdSaleRevenue > 0 ? ` Bird sales this month ₹${n0(monthMoney.birdSaleRevenue)} (not in egg revenue).` : ""}
-        </p>
-      </section>
-    </>
-  );
-}
-
-function Metric({
-  title,
-  value,
-  t,
-  y,
-  a,
-  unit,
-  invert,
-  neutral,
-  digits = 0,
-}: {
-  title: string;
-  value: string;
-  t: number | null;
-  y: number | null | undefined;
-  a: number | null | undefined;
-  unit?: string;
-  invert?: boolean;
-  neutral?: boolean;
-  digits?: number;
-}) {
-  return (
-    <div className="an-metric">
-      <div className="an-metric-title">{title}</div>
-      <div className="an-metric-value">{value}</div>
-      <div className="an-metric-cmp">
-        <Delta now={t} vs={y} unit={unit} invert={invert} neutral={neutral} digits={digits} />
-        <span className="an-dot">·</span>
-        <Delta now={t} vs={a} unit={unit} invert={invert} neutral={neutral} digits={digits} />
-      </div>
-    </div>
   );
 }
 
@@ -438,10 +423,12 @@ function FlockCardView({ c }: { c: FlockCard }) {
         <div>
           <strong className="an-flock-name">{c.label}</strong>
           <div className="muted an-tiny">
-            {c.registerLabel !== c.label ? `register label ${c.registerLabel} · ` : ""}
-            {c.tag ?? ""}
-            {c.ageWeeks != null ? ` · week ${c.ageWeeks}` : ""}
-            {c.breed ? ` · ${breedName(c.breed)}` : ""}
+            {[
+              c.registerLabel !== c.label && c.registerLabel ? `register label ${c.registerLabel}` : "",
+              c.placementDate ? (c.tag ?? "") : "placement date not set",
+              c.ageWeeks != null ? `week ${c.ageWeeks}` : "",
+              c.breed ? breedName(c.breed) : "",
+            ].filter(Boolean).join(" · ")}
           </div>
         </div>
         <span className={`an-pill an-pill-${c.status}`}>{STATUS_LABEL[c.status]}</span>
@@ -465,7 +452,7 @@ function FlockCardView({ c }: { c: FlockCard }) {
         <Spark values={c.hdSeries} color={SPARK_COLOR[c.status]} />
       </div>
       <p className="an-note">{c.statusNote}</p>
-      {c.formerLabels.length > 0 && <p className="muted an-tiny">Earlier register labels: {c.formerLabels.join(", ")}</p>}
+      {c.formerLabels.length > 0 && <p className="muted an-tiny">Written in the register on earlier days as: {c.formerLabels.join(", ")} (the register renumbered when flocks left; this flock is always {c.label} now)</p>}
     </div>
   );
 }
