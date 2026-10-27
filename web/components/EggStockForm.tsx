@@ -37,8 +37,8 @@ function runningBalances(totalLine: string, lines: Line[]): (number | null)[] {
 }
 
 const SECTION_TITLE: Record<EggStockSection, string> = {
-  big: "Big ledger (BAB-1..7)",
-  small: "Small ledger (BAB-8..10)",
+  big: "Big ledger — main flocks (right page, BAB-1..BAB-8)",
+  small: "Small ledger — young flocks (left page, BAB-9..BAB-11)",
 };
 
 // Two fixed section cards (owner request, 2026-10-19 — the register always

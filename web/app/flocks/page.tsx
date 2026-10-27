@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { listFlocks } from "@/lib/flocks";
 import { weeksSince } from "@/lib/ageWeeks";
+import { setFlockSegment } from "./segment-actions";
 
 export const dynamic = "force-dynamic";
 
@@ -27,6 +28,9 @@ export default async function FlocksPage() {
         </Link>
       </div>
 
+      <p className="muted an-sub">
+        <b>Segment</b> decides which group a flock is counted in on Analytics, Today and the exports. Main = right page of the register (big eggs, mature). Young = left page (small eggs, still ramping up). A flock with no segment is counted only in the whole-farm total; nothing is guessed. Moving a flock keeps its past in the old group.
+      </p>
       {flocks.length === 0 ? (
         <p className="card muted">
           No flocks yet. Add each currently running flock (BAB-I, BAB-II, …)
@@ -45,6 +49,7 @@ export default async function FlocksPage() {
                 <th>Placed</th>
                 <th>Age</th>
                 <th>Breed</th>
+                <th>Segment</th>
               </tr>
             </thead>
             <tbody>
@@ -68,6 +73,16 @@ export default async function FlocksPage() {
                       : `${weeksSince(f.placement_date)} wk`}
                   </td>
                   <td>{f.breed ?? "—"}</td>
+                  <td>
+                    <form action={setFlockSegment.bind(null, f.flock_internal_id)} className="seg-form">
+                      <select name="segment" defaultValue={f.segment ?? ""} aria-label={`Segment of ${f.display_label}`}>
+                        {!f.segment && <option value="" disabled>segment not set</option>}
+                        <option value="main">Main (big eggs)</option>
+                        <option value="young">Young (small eggs)</option>
+                      </select>
+                      <button type="submit" className="btn-secondary an-small">Set</button>
+                    </form>
+                  </td>
                 </tr>
               ))}
             </tbody>

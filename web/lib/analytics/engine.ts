@@ -14,12 +14,25 @@
 //   - Nothing here invents a figure: where a reference or input is missing
 //     the result says so ("no reference loaded", null).
 
+// The two groups of the farm. MAIN = right page of the register (big eggs, mature flocks);
+// YOUNG = left page (small eggs, young flocks still climbing to peak). A flock whose segment
+// is not set belongs to neither: it shows up in the whole-farm total only, never guessed.
+export type Segment = "main" | "young";
+export const SEGMENTS: Segment[] = ["main", "young"];
+export const SEGMENT_NAME: Record<Segment, string> = { main: "Main flocks (big eggs)", young: "Young flocks (small eggs)" };
+export const SEGMENT_SHORT: Record<Segment, string> = { main: "Main", young: "Young" };
+/** A young flock is "ramping up" until this many days after its first laying day. */
+export const RAMP_DAYS = 60;
+
 export interface FlockRef {
   id: string;
   label: string; // flocks.display_label: the REAL flock name (register labels shift)
   breed: string | null;
   placementDate: string | null;
   placementConfirmed: boolean; // false for the 2026-01-01 placeholders
+  segment?: Segment | null;
+  // When a flock moved between segments: history keeps the old segment, the new one counts from `from`.
+  segmentHistory?: { from: string; segment: Segment }[];
 }
 
 export interface MoultPeriod {
@@ -91,6 +104,7 @@ export interface EngineInput {
   feedBoxes: FeedBox[];
   chick: { date: string; deaths: number }[];
   farmfreshDates: string[]; // days with a Farmfresh sale line in the egg ledger (category 'sale')
+  farmfreshBySection?: { big: string[]; small: string[] }; // the same, per ledger section
   moulting: MoultPeriod[]; // recorded moulting_periods (owner-entered or pre-filled)
   std: StdRow[]; // bv300_standard_laying (guide_version 2023)
   // hen-day standards for other breeds, from the knowledge library (breed key -> rows). Missing = "no reference loaded".
@@ -142,6 +156,7 @@ export type AlertKind =
   | "missing_day";
 
 export interface Alert {
+  segment: Segment | null; // which group the alert is about (null = flock without a segment, or farm-wide)
   key: string; // stable id: '<rule>|<date>|<flock id or "farm">' (what alert_feedback is keyed on)
   kind: AlertKind;
   date: string;
@@ -196,6 +211,62 @@ export function buildCtx(input: EngineInput): Ctx {
     stdByAge: new Map(input.std.map((s) => [s.age, s.hdp])),
     stdByBreed: new Map(Object.entries(input.stdByBreed ?? {}).map(([k, rows]) => [k, new Map(rows.map((r) => [r.age, r.hdp]))])),
   };
+}
+
+// --- segments ----------------------------------------------------------------
+
+/** The segment a flock belonged to on `date` (history keeps the old one). null = not set. */
+export function segmentOn(ctx: Ctx, flockId: string, date: string): Segment | null {
+  const f = ctx.flockById.get(flockId);
+  if (!f) return null;
+  const h = f.segmentHistory;
+  if (h && h.length) {
+    let best: { from: string; segment: Segment } | null = null;
+    for (const x of h) if (x.from <= date && (!best || x.from > best.from)) best = x;
+    if (best) return best.segment;
+    // before the first recorded change: the earliest known segment
+    return [...h].sort((a, b) => (a.from < b.from ? -1 : 1))[0].segment;
+  }
+  return f.segment ?? null;
+}
+
+/** First day any young flock has a row; the small ledger belongs to YOUNG from then on. */
+export function firstYoungDate(ctx: Ctx): string | null {
+  for (const d of ctx.dates) for (const r of ctx.byDate.get(d) ?? []) if (segmentOn(ctx, r.flockId, d) === "young") return d;
+  return null;
+}
+
+/**
+ * Which segment an egg-ledger section belongs to on a date. Big = MAIN always. Small = YOUNG from
+ * the day the first young flock reports; before that the small ledger holds graded small eggs of
+ * the main flocks, so it belongs to MAIN (documented in docs/DECISIONS.md).
+ */
+export function ledgerSegment(ctx: Ctx, section: string, date: string): Segment {
+  if (section !== "small") return "main";
+  const fy = firstYoungDate(ctx);
+  return fy != null && date >= fy ? "young" : "main";
+}
+
+export type SegFilter = Segment | "all";
+const inSeg = (ctx: Ctx, r: { flockId: string; date: string }, seg: SegFilter) => seg === "all" || segmentOn(ctx, r.flockId, r.date) === seg;
+export function rowsOn(ctx: Ctx, date: string, seg: SegFilter = "all"): ProdRow[] {
+  return (ctx.byDate.get(date) ?? []).filter((r) => inSeg(ctx, r, seg));
+}
+
+/** First day with eggs for this flock, or null when it was already laying before the data starts. */
+export function firstLayDate(ctx: Ctx, flockId: string): string | null {
+  const rs = ctx.byFlock.get(flockId) ?? [];
+  const r = rs.find((x) => (x.eggs ?? 0) > 0);
+  if (!r || r.date <= ctx.dates[0]) return null;
+  return r.date;
+}
+/** A young flock is ramping up for RAMP_DAYS after its first laying day. */
+export function rampingUp(ctx: Ctx, flockId: string, date: string): { day: number; since: string } | null {
+  if (segmentOn(ctx, flockId, date) !== "young") return null;
+  const first = firstLayDate(ctx, flockId);
+  if (!first) return null;
+  const day = diffDays(date, first) + 1;
+  return day <= RAMP_DAYS ? { day, since: first } : null;
 }
 
 // --- small lookups -----------------------------------------------------------
@@ -320,14 +391,17 @@ export interface DayTotals {
   birds: number;
   hd: number | null;
   mort: number;
-  feed: number;
+  feed: number; // bags, from the rows that record feed
+  feedBirds: number; // birds of the rows that record feed (feed per bird uses only these)
+  feedRecorded: boolean; // false when no row of this group has a feed figure (left-page flocks)
   flocks: number;
 }
-export function dayTotals(ctx: Ctx, date: string): DayTotals | null {
-  const rs = ctx.byDate.get(date);
-  if (!rs || rs.length === 0) return null;
+export function dayTotals(ctx: Ctx, date: string, seg: SegFilter = "all"): DayTotals | null {
+  const rs = rowsOn(ctx, date, seg);
+  if (rs.length === 0) return null;
   const eggs = rs.reduce((s, r) => s + (r.eggs ?? 0), 0);
   const birds = rs.reduce((s, r) => s + (r.pop ?? 0), 0);
+  const withFeed = rs.filter((r) => r.feed != null);
   return {
     date,
     eggs,
@@ -335,7 +409,9 @@ export function dayTotals(ctx: Ctx, date: string): DayTotals | null {
     birds,
     hd: birds > 0 ? (eggs / birds) * 100 : null,
     mort: rs.reduce((s, r) => s + (r.mort ?? 0), 0),
-    feed: rs.reduce((s, r) => s + (r.feed ?? 0), 0),
+    feed: withFeed.reduce((s, r) => s + (r.feed ?? 0), 0),
+    feedBirds: withFeed.reduce((s, r) => s + (r.pop ?? 0), 0),
+    feedRecorded: withFeed.length > 0,
     flocks: rs.length,
   };
 }
@@ -345,12 +421,12 @@ export interface FarmToday {
   yesterday: DayTotals | null;
   avg7: { eggs: number; trays: number; hd: number | null; mort: number; feed: number; days: number } | null;
 }
-export function farmToday(ctx: Ctx, asOf: string): FarmToday {
-  const today = dayTotals(ctx, asOf);
-  const yesterday = dayTotals(ctx, addDays(asOf, -1));
+export function farmToday(ctx: Ctx, asOf: string, seg: SegFilter = "all"): FarmToday {
+  const today = dayTotals(ctx, asOf, seg);
+  const yesterday = dayTotals(ctx, addDays(asOf, -1), seg);
   const prev: DayTotals[] = [];
   for (let i = 1; i <= 7; i++) {
-    const t = dayTotals(ctx, addDays(asOf, -i));
+    const t = dayTotals(ctx, addDays(asOf, -i), seg);
     if (t) prev.push(t);
   }
   const avg7 = prev.length
@@ -368,9 +444,11 @@ export function farmToday(ctx: Ctx, asOf: string): FarmToday {
 
 // --- flock cards -------------------------------------------------------------
 
-export type CardStatus = "green" | "amber" | "red" | "moult" | "no_reference" | "left";
+export type CardStatus = "green" | "amber" | "red" | "moult" | "ramping" | "no_reference" | "left";
 
 export interface FlockCard {
+  segment: Segment | null;
+  rampDay: number | null; // day of lay (1-60) while a young flock is ramping up
   flockId: string;
   label: string; // the real flock name
   registerLabel: string; // label written in the register on the as-of date (or last reporting day)
@@ -389,6 +467,12 @@ export interface FlockCard {
   feed7: number | null; // bags/day, last 7 rows
   hdSeries: number[]; // last 14 rows, for the sparkline
   lastDate: string;
+}
+
+/** The flock's `n` rows strictly before `date`, oldest first. */
+function rowsBefore(ctx: Ctx, flockId: string, date: string, n: number): ProdRow[] {
+  const rs = (ctx.byFlock.get(flockId) ?? []).filter((r) => r.date < date);
+  return rs.slice(Math.max(0, rs.length - n));
 }
 
 function lastRows(ctx: Ctx, flockId: string, asOf: string, n: number): ProdRow[] {
@@ -454,9 +538,17 @@ export function flockCards(ctx: Ctx, asOf: string): FlockCard[] {
     let status: CardStatus;
     let note: string;
     const moult = left ? null : moultOn(ctx, flockId, asOf);
+    const ramp = left ? null : rampingUp(ctx, flockId, asOf);
     if (left) {
       status = "left";
       note = `Last reported ${last.date}; not on the register since.`;
+    } else if (ramp && !moult) {
+      status = "ramping";
+      const prev7 = rowsBefore(ctx, flockId, win.length ? win[0].date : asOf, 7);
+      const hdPrev = mean(prev7.map((r) => r.hd).filter((x): x is number => x != null));
+      note = `Ramping up: day ${ramp.day} of lay (first eggs ${ramp.since}); not compared with the standard until day ${RAMP_DAYS + 1}. ` +
+        (hd7 != null ? `Last 7 days HD ${round(hd7)}%` : "No HD% in the last 7 days") +
+        (hd7 != null && hdPrev != null ? ` vs ${round(hdPrev)}% the 7 days before (${hd7 - hdPrev >= 0 ? "+" : "−"}${round(Math.abs(hd7 - hdPrev))} points).` : ".");
     } else if (moult) {
       status = "moult";
       const day = diffDays(asOf, moult.startedOn) + 1;
@@ -475,6 +567,8 @@ export function flockCards(ctx: Ctx, asOf: string): FlockCard[] {
       if (w) note += ` Feed was withdrawn ${w}, so this flock is recovering from a moult; the standard assumes none.`;
     }
     cards.push({
+      segment: segmentOn(ctx, flockId, asOf),
+      rampDay: ramp ? ramp.day : null,
       flockId,
       label: flockName(ctx, flockId, last.label),
       registerLabel: last.label,
@@ -495,7 +589,7 @@ export function flockCards(ctx: Ctx, asOf: string): FlockCard[] {
       lastDate: last.date,
     });
   }
-  const order: Record<CardStatus, number> = { red: 0, amber: 1, moult: 2, green: 3, no_reference: 4, left: 5 };
+  const order: Record<CardStatus, number> = { red: 0, amber: 1, moult: 2, ramping: 3, green: 4, no_reference: 5, left: 6 };
   return cards.sort((a, b) => order[a.status] - order[b.status] || a.label.localeCompare(b.label, undefined, { numeric: true }));
 }
 
@@ -513,12 +607,12 @@ export interface MonthRow {
   hd: number | null; // eggs / sum of daily bird counts
   note: string | null;
 }
-export function monthView(ctx: Ctx, month: string): { rows: MonthRow[]; total: MonthRow; chickDeaths: number } {
+export function monthView(ctx: Ctx, month: string, seg: SegFilter = "all"): { rows: MonthRow[]; total: MonthRow; chickDeaths: number } {
   const inMonth = (d: string) => d.startsWith(month);
   const rows: MonthRow[] = [];
   let popDays = 0;
   for (const [flockId, rs] of ctx.byFlock) {
-    const m = rs.filter((r) => inMonth(r.date));
+    const m = rs.filter((r) => inMonth(r.date) && inSeg(ctx, r, seg));
     if (m.length === 0) continue;
     const labels: string[] = [];
     for (const r of m) if (labels[labels.length - 1] !== r.label) labels.push(r.label);
@@ -550,9 +644,9 @@ export function monthView(ctx: Ctx, month: string): { rows: MonthRow[]; total: M
   const mort = rows.reduce((s, r) => s + r.mort, 0);
   const total: MonthRow = {
     flockId: null,
-    label: "Farm total",
+    label: seg === "all" ? "Farm total" : `${SEGMENT_SHORT[seg]} total`,
     labels: [],
-    days: new Set(ctx.dates.filter(inMonth)).size,
+    days: new Set(ctx.dates.filter((d) => inMonth(d) && rowsOn(ctx, d, seg).length > 0)).size,
     eggs,
     feed: rows.reduce((s, r) => s + r.feed, 0),
     mort,
@@ -602,20 +696,24 @@ export function feedDaysLeft(ctx: Ctx, date: string): { days: number; closing: n
 }
 
 /** The latest Farmfresh sale on or before `date`, or null if none is known in the data. */
-function lastFarmfreshOnOrBefore(ctx: Ctx, date: string): string | null {
+function lastFarmfreshOnOrBefore(ctx: Ctx, date: string, seg: SegFilter = "all"): string | null {
   let best: string | null = null;
-  for (const d of ctx.input.farmfreshDates) if (d <= date && (best == null || d > best)) best = d;
+  // per ledger section when the data has it (big = main; small = young once young flocks report, else main)
+  const by = ctx.input.farmfreshBySection;
+  let list = ctx.input.farmfreshDates;
+  if (by && seg !== "all") list = seg === "main" ? (ledgerSegment(ctx, "small", date) === "main" ? [...by.big, ...by.small] : by.big) : by.small;
+  for (const d of list) if (d <= date && (best == null || d > best)) best = d;
   // Without any earlier sale in the data we cannot say how long it has been.
   return best;
 }
 
 /** Closing egg stock (all sections recorded that day) / average daily eggs laid over the last 7 days. */
-export function eggStockDays(ctx: Ctx, date: string): { days: number; closing: number; perDay: number; sections: number } | null {
-  const es = ctx.eggByDate.get(date) ?? [];
+export function eggStockDays(ctx: Ctx, date: string, seg: SegFilter = "all"): { days: number; closing: number; perDay: number; sections: number } | null {
+  const es = (ctx.eggByDate.get(date) ?? []).filter((e) => seg === "all" || ledgerSegment(ctx, e.section, date) === seg);
   if (es.length === 0) return null;
   const laid: number[] = [];
   for (let i = 0; i < 7; i++) {
-    const t = dayTotals(ctx, addDays(date, -i));
+    const t = dayTotals(ctx, addDays(date, -i), seg);
     if (t) laid.push(t.eggs);
   }
   const perDay = mean(laid);
@@ -637,25 +735,34 @@ function hdDrop(ctx: Ctx, flockId: string, date: string): { drop: number; avg: n
 /** Rows dated before this are the cleared August register: never flagged for data-quality reasons. */
 export const NEVER_FLAG_BEFORE = "2026-09-01";
 
-export function alertKey(a: { kind: AlertKind; date: string; flockId: string | null }, n = 0): string {
-  return `${a.kind}|${a.date}|${a.flockId ?? "farm"}${n ? `#${n}` : ""}`;
+export function alertKey(a: { kind: AlertKind; date: string; flockId: string | null; segment?: Segment | null }, n = 0): string {
+  // farm-wide alerts of the main segment keep the old "farm" key (saved verdicts stay valid); young adds a suffix
+  const who = a.flockId ?? (a.segment === "young" ? "farm-young" : "farm");
+  return `${a.kind}|${a.date}|${who}${n ? `#${n}` : ""}`;
 }
 
-export function alertsFor(ctx: Ctx, date: string, opts: { includeCleared?: boolean } = {}): Alert[] {
+type RawAlert = Omit<Alert, "key" | "segment"> & { segment?: Segment | null };
+
+export function alertsFor(ctx: Ctx, date: string, opts: { includeCleared?: boolean; segment?: SegFilter } = {}): Alert[] {
   const seen = new Map<string, number>();
-  return alertsForRaw(ctx, date, opts).map((a) => {
-    const base = alertKey(a);
+  const all: Alert[] = alertsForRaw(ctx, date, opts).map((a) => {
+    // flock alerts take the flock's segment on that date; farm-wide ones without one are feed alerts (feed is recorded for the main flocks only)
+    const segment = a.segment !== undefined ? a.segment : a.flockId ? segmentOn(ctx, a.flockId, date) : a.kind === "low_feed_stock" || a.kind === "feed_anomaly" ? "main" : null;
+    const withSeg = { ...a, segment };
+    const base = alertKey(withSeg);
     const n = seen.get(base) ?? 0;
     seen.set(base, n + 1);
-    return { ...a, key: alertKey(a, n) };
+    return { ...withSeg, key: alertKey(withSeg, n) };
   });
+  const want = opts.segment ?? "all";
+  return want === "all" ? all : all.filter((a) => a.segment === want);
 }
 
-function alertsForRaw(ctx: Ctx, date: string, opts: { includeCleared?: boolean } = {}): Omit<Alert, "key">[] {
+function alertsForRaw(ctx: Ctx, date: string, opts: { includeCleared?: boolean } = {}): RawAlert[] {
   // V5 section 3: all August rows were cleared (2026-10-19) — never alert on them.
   // `includeCleared` exists only so a rule can be evaluated on August in scripts.
   if (date < NEVER_FLAG_BEFORE && !opts.includeCleared) return [];
-  const out: Omit<Alert, "key">[] = [];
+  const out: RawAlert[] = [];
   const rows = ctx.byDate.get(date) ?? [];
 
   for (const r of rows) {
@@ -665,7 +772,8 @@ function alertsForRaw(ctx: Ctx, date: string, opts: { includeCleared?: boolean }
     const moult = moultOn(ctx, r.flockId, date);
 
     // production drop: >= 5 points under own 7-day average, or >= 3 points on 2 consecutive days
-    if (r.hd != null && !r.reviewed && !moult) {
+    // a young flock still climbing to peak (first 60 days of lay) raises no low-HD alert; its trend is shown on its card
+    if (r.hd != null && !r.reviewed && !moult && !rampingUp(ctx, r.flockId, date)) {
       const d0 = hdDrop(ctx, r.flockId, date);
       if (d0 && d0.drop >= RULES.dropPointsTwoDay) {
         const yesterday = priorRows(ctx, r.flockId, date, 1)[0];
@@ -782,29 +890,32 @@ function alertsForRaw(ctx: Ctx, date: string, opts: { includeCleared?: boolean }
     });
   }
 
-  // egg stock build-up: closing stock (big + small) above 5 days of production, OR
-  // 4 or more days with no Farmfresh sale. The farm normally holds eggs 3-6 days
-  // because Farmfresh collects every 3-4 days, so 3-5 days alone is not an alert.
-  const es = eggStockDays(ctx, date);
-  const eggRows = ctx.eggByDate.get(date) ?? [];
-  if (es && !eggRows.every((e) => e.reviewed)) {
-    const last = lastFarmfreshOnOrBefore(ctx, date);
+  // egg stock build-up, per segment (the farm does not pool mature and young birds):
+  // closing stock of the segment's own ledger above 5 days of ITS production, OR 4 or more days with
+  // no Farmfresh sale of that ledger section. The farm normally holds eggs 3-6 days because
+  // Farmfresh collects every 3-4 days, so 3-5 days alone is not an alert.
+  for (const seg of SEGMENTS) {
+    const es = eggStockDays(ctx, date, seg);
+    const eggRows = (ctx.eggByDate.get(date) ?? []).filter((e) => ledgerSegment(ctx, e.section, date) === seg);
+    if (!es || eggRows.every((e) => e.reviewed)) continue;
+    const last = lastFarmfreshOnOrBefore(ctx, date, seg);
     const gap = last ? diffDays(date, last) : null;
     const tooMuch = es.days > RULES.eggDaysMax;
     const noSale = gap != null && gap >= RULES.eggNoSaleDays;
     if (tooMuch || noSale) {
       const parts: string[] = [];
       if (tooMuch) parts.push(`${fmt(es.closing)} eggs (${fmt(es.closing / 30)} trays) in stock vs ${fmt(es.perDay)} laid/day = ${round(es.days, 2)} days (alert above ${RULES.eggDaysMax})`);
-      if (noSale) parts.push(`${gap} days since the last Farmfresh sale (${last}; alert at ${RULES.eggNoSaleDays}+)`);
+      if (noSale) parts.push(`${gap} days since the last Farmfresh sale of ${seg === "young" ? "small" : "big"} eggs (${last}; alert at ${RULES.eggNoSaleDays}+)`);
       out.push({
         kind: "egg_buildup",
+        segment: seg,
         date,
         flockId: null,
         flockLabel: null,
         registerLabel: null,
         flockTag: null,
         source: null,
-        reason: `${parts.join("; ")}${noSale && !tooMuch ? `; stock is ${fmt(es.closing)} eggs = ${round(es.days)} days` : ""}${es.sections < 2 ? "; only one ledger section was recorded that day" : ""}.`,
+        reason: `${SEGMENT_SHORT[seg]} flocks: ${parts.join("; ")}${noSale && !tooMuch ? `; stock is ${fmt(es.closing)} eggs = ${round(es.days)} days` : ""}.`,
       });
     }
   }
@@ -836,17 +947,19 @@ function alertsForRaw(ctx: Ctx, date: string, opts: { includeCleared?: boolean }
       // (a small section with no entries and nothing produced is still a recorded section).
       const eggs = ctx.eggByDate.get(date) ?? [];
       const have = new Set(eggs.map((e) => e.section));
+      // the small ledger only matters once a young flock reports (before that it is graded small eggs of the main flocks, recorded or not)
       const lacking = ["big", "small"].filter((sec) => !have.has(sec));
-      if (lacking.length > 0) {
+      for (const sec of lacking) {
         out.push({
           kind: "missing_day",
+          segment: ledgerSegment(ctx, sec, date),
           date,
           flockId: null,
           flockLabel: null,
           registerLabel: null,
           flockTag: null,
           source: null,
-          reason: `Egg stock ledger has no "${lacking.join('" or "')}" section for ${date}${eggs[0] ? ` (only "${eggs[0].section}" was saved)` : " (none saved)"}.`,
+          reason: `Egg stock ledger has no "${sec}" section for ${date}${eggs[0] ? ` (only "${eggs.map((e) => e.section).join('", "')}" was saved)` : " (none saved)"}.`,
         });
       }
       if (!(ctx.boxByDate.get(date) ?? []).length && ctx.boxByDate.size > 0) {
@@ -866,10 +979,15 @@ export interface WatchItem {
   text: string;
 }
 
-export function watchList(ctx: Ctx, asOf: string): WatchItem[] {
+export function watchList(ctx: Ctx, asOf: string, seg: SegFilter = "all"): WatchItem[] {
   const items: WatchItem[] = [];
   for (const c of flockCards(ctx, asOf)) {
     if (c.status === "left" || c.status === "moult") continue;
+    if (seg !== "all" && c.segment !== seg) continue;
+    if (c.status === "ramping") {
+      // no standard check while ramping; mortality creeping below still applies
+      c.stdHd = null;
+    }
     const rs = lastRows(ctx, c.flockId, asOf, 14);
     // trending below standard: the gap to standard grew week on week
     if (c.stdHd != null && rs.length >= 10) {
@@ -902,7 +1020,7 @@ export function watchList(ctx: Ctx, asOf: string): WatchItem[] {
       }
     }
   }
-  const fd = feedDaysLeft(ctx, asOf);
+  const fd = seg === "young" ? null : feedDaysLeft(ctx, asOf);
   if (fd) {
     items.push({
       kind: "feed_days",

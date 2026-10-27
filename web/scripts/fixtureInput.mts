@@ -14,6 +14,7 @@ export function loadInput(dir: string): EngineInput {
       breed: f.breed,
       placementDate: f.placement_date,
       placementConfirmed: false,
+      segment: f.segment ?? null,
     })),
     prod: j("dp").map((r: any) => ({
       id: r.id,
@@ -60,6 +61,7 @@ export function loadInput(dir: string): EngineInput {
       flockIds: junction.filter((x) => x.feed_bag_stock_id === b.id).map((x) => x.flock_internal_id),
     })),
     farmfreshDates: j("farmfresh"),
+    farmfreshBySection: existsSync(`${dir}/farmfresh_sec.json`) ? j("farmfresh_sec") : undefined,
     moulting: existsSync(`${dir}/moulting.json`) ? j("moulting").map((m: any) => ({ flockId: m.flock_internal_id, start: m.start_date, end: m.end_date, confirmed: m.confirmed_by_owner })) : [],
     chick: j("chick").map((c: any) => ({ date: c.date, deaths: Number(c.d) })),
     std: j("bv").map((b: any) => ({ age: b.age_weeks, hdp: Number(b.std_hdp_percent) })),

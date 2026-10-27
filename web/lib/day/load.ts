@@ -11,6 +11,7 @@ export interface DayFlockRow {
   flockName: string; // flocks.display_label: the real flock
   registerLabel: string | null; // as written in the register that day
   placement: string | null;
+  segment: "main" | "young" | null; // the flock's group on that day
   mortality: number | null;
   feed: number | null;
   eggs: number | null;
@@ -56,6 +57,7 @@ export async function loadDay(date: string): Promise<DayData> {
   const [prod, chick, mov, led, nav] = await Promise.all([
     pool.query(
       `SELECT dp.id, dp.flock_internal_id, f.display_label AS flock_name, f.placement_date,
+              COALESCE((SELECT h.segment FROM flock_segment_history h WHERE h.flock_internal_id = dp.flock_internal_id AND h.effective_from <= dp.date ORDER BY h.effective_from DESC LIMIT 1), f.segment) AS segment,
               dp.display_label_as_written, dp.mortality, dp.feed_bags, dp.eggs_total,
               dp.bird_population, dp.hd_percent_written, dp.flagged, dp.flag_reason,
               dp.reviewed_by_owner
@@ -95,6 +97,7 @@ export async function loadDay(date: string): Promise<DayData> {
       flockName: r.flock_name,
       registerLabel: r.display_label_as_written,
       placement: r.placement_date ? String(r.placement_date).slice(0, 10) : null,
+      segment: r.segment === "main" || r.segment === "young" ? r.segment : null,
       mortality: r.mortality,
       feed: r.feed_bags,
       eggs: r.eggs_total,

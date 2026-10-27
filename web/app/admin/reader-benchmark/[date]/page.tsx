@@ -517,7 +517,7 @@ export default async function ReaderBenchmarkDatePage({
       ) : (
         result.ledgers.map((l) => (
           <div className="card" key={l.section}>
-            <h3>{l.section === "big" ? "Big ledger (BAB-1..7)" : "Small ledger (BAB-8..10)"}</h3>
+            <h3>{l.section === "big" ? "Big ledger (right page)" : "Small ledger (left page)"}</h3>
             <p className="muted" style={{ margin: 0 }}>
               Checksum retry rounds: {result.ledgerRetryRounds[l.section] ?? 0}
             </p>

@@ -683,3 +683,10 @@ textarea { width: 100%; font: inherit; padding: 0.55rem 0.7rem; border: 1px soli
 .an-metric-value { font-size: clamp(1rem, 5.2vw, 1.35rem); white-space: nowrap; }
 .an-metric-cmp { overflow-wrap: anywhere; }
 .an-grid { min-width: 0; }
+
+/* --- segment panels --- */
+.seg-panel { border-left: 5px solid var(--accent); }
+.seg-young { border-left-color: var(--an-amber); }
+.an-pill-ramping { background: #efe6fb; color: #5b2fa0; }
+.seg-form { display: flex; gap: 0.3rem; align-items: center; }
+.seg-form select { min-width: 9rem; }

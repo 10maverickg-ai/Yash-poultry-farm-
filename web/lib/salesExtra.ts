@@ -25,6 +25,7 @@ export async function listUnpricedLedgerSales(): Promise<UnpricedLedgerSale[]> {
       WHERE s.farm_code = $1 AND s.deleted_at IS NULL
         AND e.category IN ('sale', 'local_sale')
         AND e.linked_sale_id IS NULL
+        AND NOT EXISTS (SELECT 1 FROM sales x WHERE x.source_ledger_entry_id = e.id)
       ORDER BY s.date DESC, e.id`,
     [ACTIVE_FARM]
   );
@@ -96,4 +97,14 @@ export async function listAnilMovements(): Promise<AnilMovement[]> {
     [ACTIVE_FARM]
   );
   return rows.map((r) => ({ id: Number(r.id), date: r.date, flockName: r.flock_name, birds: r.birds_change, reason: r.reason }));
+}
+
+/** First day a young-segment flock reports (the small ledger and small-egg sales belong to the young group from then on). */
+export async function youngStartDate(): Promise<string | null> {
+  const { rows } = await pool.query(
+    `SELECT min(d.date)::text AS d FROM daily_production d JOIN flocks f USING (flock_internal_id)
+      WHERE d.farm_code = $1 AND d.deleted_at IS NULL AND f.segment = 'young'`,
+    [ACTIVE_FARM]
+  );
+  return rows[0]?.d ?? null;
 }

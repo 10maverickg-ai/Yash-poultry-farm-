@@ -139,3 +139,50 @@ Nothing new. Existing list unchanged (Bovans White guide, BAB-8/9/10 placement d
 - Period views were browser-tested against the local copy of the data, not the live database (live read queries are the same SQL as the existing Sales/Costs pages plus a ledger-deductions query that was run directly on live).
 - Excel formulas were checked by reading them back with exceljs, not by opening Excel/Numbers on a phone.
 - Same-month-last-year comparison is untested with real data (none exists before Aug 2026); only the empty case ('no earlier data') and the shifting arithmetic are tested.
+
+
+---
+# V8 — analytics per segment, checks against July–October data (branch claude/v8, from main after PR #18)
+
+| Item | What | Status | Notes |
+|---|---|---|---|
+| S0.1 | `flocks.segment` + history + control on Flocks screen | built | Migrations 0036, 0037 (live + local). Backfilled: BAB-1..8 and the two departed flocks main; BAB-9, 10, 11 young. |
+| S0.2 | Engine: every aggregate takes a segment | built | `dayTotals`, `farmToday`, `eggStockDays`, `monthView`, `alertsFor`, `watchList`, `summarizePeriod`, exports. Whole farm = sum. |
+| S0.3 | One panel per segment on Analytics and Today | built | `components/SegmentPanels.tsx`, `lib/analytics/segments.ts`; week/month/year views are split per segment with the whole farm last. |
+| S0.4 | Ramping up (young, first 60 days of lay) | built | Status "Ramping up", no standard check, no low-HD alert, own-7-day trend. |
+| S0.5 | Alert rules get a segment; moves re-evaluate from the move date | built | `alertKey` for young farm-wide alerts ends `farm-young`. |
+| S0.6 | Sales and Egg Stock pages by group | built | Sales month table: main/young/whole farm + local; Egg Stock: group table with a check line. |
+| S0.7 | Read-only per-segment check vs SQL | done | `docs/SEGMENTS_CHECK.md`, `scripts/segment-check.mts`. |
+| S0.8 | DECISIONS.md | done | |
+| I1 | Check the app against July–October data | done | Day pages (2 Jul, 6 Jul, 27 Jul, 4 Oct, 21 Oct, 26 Oct): flock count, totals and both ledgers equal direct SQL. Sales month totals equal the reference SQL (Jul 19,20,270 eggs / ₹1,18,31,835 incl. 600 local; Aug 20,22,930 / ₹1,03,01,556; Sep 13,46,850 / ₹72,24,898; Oct 16,08,960 / ₹86,25,758). Export Jul and Oct (production, sales) equal SQL. ONE DIFFERENCE FOUND AND FIXED: the Sales page listed all July (1,920,270) and October (1,608,960) eggs as "waiting for a rate" because 49 ledger lines had linked_sale_id NULL (migration 0039). Year view says data starts 2 Jul 2026 and names the partial months (Jul 30 of 31 days, Oct 26 of 31). |
+| I2 | Departed flocks and unknown ages | done | Departed flocks are "left", no cards or alerts after their last day, still in history and sales. Unknown/placeholder age: "age unknown, no standard check". Stray dots fixed ("placement date not set"). |
+| I3 | Feed logic | done | Oct 1–26 alerts before (main engine) / after: low_feed_stock 1 / 1, production_drop 11 / 11, missing_day 2 / 2, feed_anomaly 0 / 0, egg_buildup 0 / 7 (new: young small-egg stock built to 8 days between 3 and 12 Oct, hidden before by the whole-farm pool). Null feed never fires "0 feed"; box check uses only its 8 linked flocks; feed per bird uses only rows that record feed. |
+| I4 | Ledger arithmetic | done | Every ledger row Jul–Oct ties (opening + produced/late additions − sales − breakage − other = closing), the ledger export gained a Late additions column and a closing check. Opening-to-previous-closing gaps: only 25 Sep big −30 (known) and 30 Jul big +30 (new question for the owner). 28 Jul and 22 Oct (2,520) tie. |
+| I5 | Daily upload flow from 27 Oct | blocked | Anthropic key: "credit balance is too low" (checked 27 Oct) — stopped as instructed. Prepared without credit: flock_label_history synced (migration 0038) so "BAB-1..11" match the right flocks and BAB-9..11 exist; flock cap in the schema is 20. NOT done: the reader prompts and ledger/feed-box labels still describe the old 7 + 3 layout (BAB-1..7 big, BAB-8..10 small, boxes "BAB-1-7"/"BAB-8-10"; the new page is 8 + 3 with one box "ALL") — change when credit allows so the change can be tested. |
+| I6 | Final checks | done | tsc, eslint, next build clean; 13 regression scripts; analytics self-test 28; rates, costs, std-for checks; period-check 50; segment-check 36; 360/390 px sweep of 20 pages: no overflow or errors. |
+
+## V8 Known bugs
+- FOUND AND FIXED: Sales page showed July and October ledger sales as "waiting for a rate" (49 lines with linked_sale_id NULL) — migration 0039, plus the query now also checks the sales row.
+- FOUND AND FIXED: flock_label_history still had the pre-27-Oct names, so a photo uploaded from 27 Oct would have been filed under the wrong flock, and BAB-9..11 had no label — migration 0038.
+- OPEN: 30 Jul big ledger opens 30 eggs over the previous closing (owner question).
+- OPEN: reader prompts and the feed-box group names still describe the old 7 + 3 layout (I5, needs credit to test).
+- OPEN: the young small-egg "no Farmfresh sale for 4+ days" rule uses the same 4-day limit as big eggs; small eggs sold 7 times in Oct only every 3–9 days, so it fires 7 times in October. Real build-up (8 days of stock on 11 Oct), but the limit may be too tight for small eggs — owner to decide.
+- Per-segment cost and profit are not computed (shared costs are not split); shown for the whole farm only.
+- The segment control cannot clear a segment back to "not set" (only change it).
+
+## V8 Needs owner
+1. Confirm the MAIN / YOUNG split (BAB-1..8 / BAB-9..11).
+2. Real placement dates for BAB-6, 7, 8 (placeholder 2026-01-01) and BAB-9, 10, 11 (none).
+3. BAB-4 (placed 9 Aug 2024, week 115): was it moulted, and when did its second cycle start? (The BV300 table stops at week 100, so it has no standard check until this is known.)
+4. Cost inputs: Sep and Oct electricity, diesel, medicines, chick costs.
+5. Open ledger questions listed in `claude/status-2026-10-27.md` (not in this repo; please paste them), plus: 30 Jul big opening is 30 over the previous closing.
+6. Vercel access approval (so I can read preview build and runtime logs).
+7. Anthropic credits (I5 and the reader benchmark).
+8. RLS decision.
+9. Is 4 days without a sale too tight for small eggs (7 young-group build-up alerts in October)?
+
+## V8 Could not test
+- I5: the daily photo upload (no Anthropic credit).
+- Vercel preview build and runtime logs (connector not authorised for team yashfarm); everything was tested on a local copy of the live data (refreshed 27 Oct) with Playwright, not on iPhone Safari or Android Chrome.
+- Migrations 0036–0039 were applied to live through the Supabase connector and verified with SQL; the app code was not run against the live database.
+- Moving a flock between groups was tested on the local copy only (BAB-9 main and back), not on live.

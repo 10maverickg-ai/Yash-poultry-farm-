@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { listProductionDates, loadDay, hdOf } from "@/lib/day/load";
 import { ExportLinks } from "@/components/ExportLinks";
+import { SEGMENT_NAME } from "@/lib/analytics/engine";
 
 export const dynamic = "force-dynamic";
 
@@ -31,6 +32,16 @@ export default async function DayPage({ searchParams }: { searchParams: Promise<
   const feed = d.rows.reduce((s, r) => s + (r.feed ?? 0), 0);
   const chickDeaths = d.chick.reduce((s, c) => s + c.deaths, 0);
   const hd = hdOf(d.rows.length ? eggs : null, birds);
+  // per group: a group's HD uses only its own eggs and birds (the whole farm mixes mature and young birds)
+  const groups = (["main", "young", null] as const)
+    .map((g) => {
+      const rs = d.rows.filter((r) => r.segment === g);
+      const e = rs.reduce((t, r) => t + (r.eggs ?? 0), 0);
+      const b = rs.reduce((t, r) => t + (r.birds ?? 0), 0);
+      const fedRows = rs.filter((r) => r.feed != null);
+      return { g, rs, eggs: e, birds: b, mort: rs.reduce((t, r) => t + (r.mortality ?? 0), 0), feed: fedRows.reduce((t, r) => t + (r.feed ?? 0), 0), fed: fedRows.length > 0, hd: hdOf(rs.length ? e : null, b) };
+    })
+    .filter((x) => x.rs.length > 0);
 
   return (
     <>
@@ -54,13 +65,23 @@ export default async function DayPage({ searchParams }: { searchParams: Promise<
         {d.rows.length === 0 ? (
           <p className="muted">No production rows saved for this day.</p>
         ) : (
-          <div className="an-grid">
-            <div className="an-metric"><div className="an-metric-title">HD % (eggs ÷ birds)</div><div className="an-metric-value">{hd != null ? `${hd.toFixed(1)}%` : "–"}</div></div>
-            <div className="an-metric"><div className="an-metric-title">Eggs</div><div className="an-metric-value">{n0(eggs)}</div><div className="an-metric-cmp">{n0(Math.round(eggs / 30))} trays</div></div>
-            <div className="an-metric"><div className="an-metric-title">Birds</div><div className="an-metric-value">{n0(birds)}</div></div>
-            <div className="an-metric"><div className="an-metric-title">Deaths</div><div className="an-metric-value">{n0(mort)}</div></div>
-            <div className="an-metric"><div className="an-metric-title">Feed (bags)</div><div className="an-metric-value">{n0(feed)}</div></div>
-          </div>
+          <>
+            {groups.map((x) => (
+              <div key={x.g ?? "none"} style={{ marginBottom: "0.8rem" }}>
+                <h3 className="an-daystamp" style={{ marginTop: 0 }}>{x.g ? SEGMENT_NAME[x.g] : "Segment not set"} · {x.rs.length} flock{x.rs.length === 1 ? "" : "s"}</h3>
+                <div className="an-grid">
+                  <div className="an-metric"><div className="an-metric-title">HD % (eggs ÷ birds)</div><div className="an-metric-value">{x.hd != null ? `${x.hd.toFixed(1)}%` : "–"}</div></div>
+                  <div className="an-metric"><div className="an-metric-title">Eggs</div><div className="an-metric-value">{n0(x.eggs)}</div><div className="an-metric-cmp">{n0(Math.round(x.eggs / 30))} trays</div></div>
+                  <div className="an-metric"><div className="an-metric-title">Birds</div><div className="an-metric-value">{n0(x.birds)}</div></div>
+                  <div className="an-metric"><div className="an-metric-title">Deaths</div><div className="an-metric-value">{n0(x.mort)}</div></div>
+                  <div className="an-metric"><div className="an-metric-title">Feed (bags)</div><div className="an-metric-value">{x.fed ? n0(x.feed) : "not recorded"}</div></div>
+                </div>
+              </div>
+            ))}
+            <p className="muted an-sub" style={{ marginBottom: 0 }}>
+              <b>Whole farm</b> (sum of the groups; it mixes mature and young birds, so its HD % describes neither): {n0(eggs)} eggs · {n0(birds)} birds · {n0(mort)} deaths · {n0(feed)} bags · HD {hd != null ? `${hd.toFixed(1)}%` : "–"}.
+            </p>
+          </>
         )}
         <div className="actions-bar" style={{ marginTop: "0.8rem", marginBottom: 0 }}>
           <Link className="btn btn-secondary" href={`/production?date=${date}`}>Correct this day</Link>
@@ -68,7 +89,10 @@ export default async function DayPage({ searchParams }: { searchParams: Promise<
         </div>
       </section>
 
-      {d.rows.map((r) => (
+      {groups.map((x) => (
+        <div key={x.g ?? "none"}>
+          <h2 className="an-daystamp">{x.g ? SEGMENT_NAME[x.g] : "Segment not set"}</h2>
+          {x.rs.map((r) => (
         <div key={r.id} className={`card day-flock${r.flagged && !r.reviewed ? " day-flagged" : ""}`}>
           <div className="day-flock-head">
             <div>
@@ -90,6 +114,8 @@ export default async function DayPage({ searchParams }: { searchParams: Promise<
           </div>
           {r.hdWritten != null && <div className="muted an-tiny">Supervisor wrote {r.hdWritten}%</div>}
           {r.flagged && !r.reviewed && r.flagReason && <div className="flag-banner">{r.flagReason}</div>}
+        </div>
+          ))}
         </div>
       ))}
 

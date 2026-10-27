@@ -20,12 +20,17 @@ import {
   diffDays,
   eggStockDays,
   feedDaysLeft,
+  ledgerSegment,
   moultOn,
+  rampingUp,
+  RAMP_DAYS,
   RULES,
+  segmentOn,
   stdFor,
   type AlertKind,
   type CardStatus,
   type Ctx,
+  type SegFilter,
 } from "./engine";
 import { BAG_KG, dayEconomics, type CostInput } from "../costs/engine";
 
@@ -96,7 +101,7 @@ export interface PeriodSale {
 export interface PeriodExtras {
   sales: PeriodSale[];
   /** Eggs taken out of stock that were not sold: positive numbers. category: breakage | labour_take | gift | other */
-  deductions: { date: string; category: string; eggs: number }[];
+  deductions: { date: string; category: string; eggs: number; section?: string }[];
   /** Bird sales (movement_type 'sale'). birds is positive. */
   birdSales: { date: string; birds: number; amount: number | null; buyer: string | null }[];
 }
@@ -131,6 +136,7 @@ export interface FlockPeriod {
 }
 
 export interface PeriodSummary {
+  segment: SegFilter; // which group these numbers are for; "all" = the whole farm (sum of the segments)
   range: PeriodRange;
   firstDate: string | null;
   lastDate: string | null;
@@ -165,6 +171,7 @@ export interface PeriodSummary {
   feed: {
     bags: number;
     kg: number;
+    recorded: boolean; // false when no row of this group records feed (left-page flocks)
     gPerBirdDay: number | null;
     kgPer100Eggs: number | null;
     daysLeftAtEnd: number | null;
@@ -183,6 +190,7 @@ export interface PeriodSummary {
     birdSaleRevenue: number;
     cost: { feed: number; electricity: number; labour: number; packing: number; diesel: number; medicine: number; other: number; total: number };
     chickPurchases: number;
+    costSplit: boolean; // false for one segment: shared costs are not split between segments, so cost and profit are shown for the whole farm only
     missing: string[]; // inputs not entered; the cost total is "so far", not complete
     costComplete: boolean;
     profit: number | null; // an ESTIMATE; null when no priced sales
@@ -198,18 +206,21 @@ const sum = (xs: number[]) => xs.reduce((s, x) => s + x, 0);
 const meanOf = (xs: number[]) => (xs.length ? sum(xs) / xs.length : null);
 const pct = (a: number, b: number) => (b > 0 ? (a / b) * 100 : null);
 
-export function summarizePeriod(ctx: Ctx, cost: CostInput, extras: PeriodExtras, range: PeriodRange): PeriodSummary {
+export function summarizePeriod(ctx: Ctx, cost: CostInput, extras: PeriodExtras, range: PeriodRange, seg: SegFilter = "all"): PeriodSummary {
   const { from, to } = range;
-  const dates = ctx.dates.filter((d) => d >= from && d <= to);
+  const dates = ctx.dates.filter((d) => d >= from && d <= to && dayTotals(ctx, d, seg) != null);
   const series: DayPoint[] = dates.map((d) => {
-    const t = dayTotals(ctx, d)!;
+    const t = dayTotals(ctx, d, seg)!;
     return { date: d, eggs: t.eggs, hd: t.hd, deaths: t.mort, feedBags: t.feed, birds: t.birds };
   });
-  const rows = ctx.input.prod.filter((r) => r.date >= from && r.date <= to);
+  const inScope = (r: { flockId: string; date: string }) => seg === "all" || segmentOn(ctx, r.flockId, r.date) === seg;
+  const rows = ctx.input.prod.filter((r) => r.date >= from && r.date <= to && inScope(r));
+  const feedRows = rows.filter((r) => r.feed != null);
   const eggsTotal = sum(rows.map((r) => r.eggs ?? 0));
   const birdDays = sum(rows.map((r) => r.pop ?? 0));
   const deaths = sum(rows.map((r) => r.mort ?? 0));
-  const bags = sum(rows.map((r) => r.feed ?? 0));
+  const bags = sum(feedRows.map((r) => r.feed ?? 0));
+  const feedBirdDays = sum(feedRows.map((r) => r.pop ?? 0));
   const kg = bags * BAG_KG;
   const firstDate = dates[0] ?? null;
   const lastDate = dates[dates.length - 1] ?? null;
@@ -223,28 +234,29 @@ export function summarizePeriod(ctx: Ctx, cost: CostInput, extras: PeriodExtras,
   const worst = withHd.length ? withHd.reduce((a, b) => (b.hd < a.hd ? b : a)) : null;
 
   // deductions
-  const ded = extras.deductions.filter((d) => d.date >= from && d.date <= to);
+  const ded = extras.deductions.filter((d) => d.date >= from && d.date <= to && (seg === "all" || ledgerSegment(ctx, d.section ?? "big", d.date) === seg));
   const breakage = sum(ded.filter((d) => d.category === "breakage").map((d) => d.eggs));
   const otherOut = sum(ded.filter((d) => d.category !== "breakage").map((d) => d.eggs));
 
   // birds: opening = day-before closing when known, else first day's end count rebuilt
-  const popOn = (d: string) => sum(ctx.input.prod.filter((r) => r.date === d).map((r) => r.pop ?? 0));
-  const prevDate = [...ctx.dates].reverse().find((d) => d < from) ?? null;
-  const mv = ctx.input.movements.filter((m) => m.date >= from && m.date <= to);
+  const popOn = (d: string) => sum(ctx.input.prod.filter((r) => r.date === d && inScope(r)).map((r) => r.pop ?? 0));
+  const prevDate = [...ctx.dates].reverse().find((d) => d < from && dayTotals(ctx, d, seg) != null) ?? null;
+  const mv = ctx.input.movements.filter((m) => m.date >= from && m.date <= to && inScope(m));
   const isAnil = (m: { type: string }) => m.type === "transfer_in" || m.type === "transfer_out";
   let opening: number | null = null;
   if (firstDate) {
     if (prevDate && diffDays(firstDate, prevDate) <= 3) opening = popOn(prevDate);
     else {
       const firstMort = sum(series[0] ? [series[0].deaths] : [0]);
-      const firstMoves = sum(ctx.input.movements.filter((m) => m.date === firstDate).map((m) => m.change));
+      const firstMoves = sum(ctx.input.movements.filter((m) => m.date === firstDate && inScope(m)).map((m) => m.change));
       opening = popOn(firstDate) + firstMort - firstMoves;
     }
   }
   const closing = lastDate ? popOn(lastDate) : null;
 
   // money
-  const econ = dates.map((d) => dayEconomics(cost, d));
+  const split = seg === "all";
+  const econ = split ? dates.map((d) => dayEconomics(cost, d)) : [];
   const cs = (f: (e: (typeof econ)[number]) => number) => sum(econ.map(f));
   const costObj = {
     feed: cs((e) => e.cost.feed),
@@ -256,7 +268,8 @@ export function summarizePeriod(ctx: Ctx, cost: CostInput, extras: PeriodExtras,
     other: cs((e) => e.cost.other),
     total: cs((e) => e.cost.total),
   };
-  const sales = extras.sales.filter((s) => s.date >= from && s.date <= to);
+  const saleSeg = (x: PeriodSale) => ledgerSegment(ctx, x.grade === "small" ? "small" : "big", x.date);
+  const sales = extras.sales.filter((s) => s.date >= from && s.date <= to && (seg === "all" || saleSeg(s) === seg));
   const eggsSold = sum(sales.map((s) => s.eggs));
   const priced = sales.filter((s) => s.amount != null);
   const unpricedEggs = sum(sales.filter((s) => s.amount == null).map((s) => s.eggs));
@@ -286,21 +299,22 @@ export function summarizePeriod(ctx: Ctx, cost: CostInput, extras: PeriodExtras,
       }, {})
     ).sort((a, b) => b.revenue - a.revenue),
     avgPricePerEgg: pricedEggs > 0 ? revenue / pricedEggs : null,
-    birdSaleRevenue: sum(extras.birdSales.filter((b) => b.date >= from && b.date <= to).map((b) => b.amount ?? 0)),
+    birdSaleRevenue: split ? sum(extras.birdSales.filter((b) => b.date >= from && b.date <= to).map((b) => b.amount ?? 0)) : 0,
+    costSplit: split,
     cost: costObj,
     chickPurchases: cs((e) => e.chickPurchases),
     missing,
     costComplete: missing.length === 0,
-    profit: revenue > 0 ? revenue - costObj.total : null,
+    profit: split && revenue > 0 ? revenue - costObj.total : null,
     revenuePerEgg: eggsSold > 0 && revenue > 0 && unpricedEggs === 0 ? revenue / eggsSold : null,
-    costPerEgg: eggsTotal > 0 ? costObj.total / eggsTotal : null,
-    profitPerTray: revenue > 0 && eggsSold > 0 ? (revenue - costObj.total) / (eggsSold / 30) : null,
+    costPerEgg: split && eggsTotal > 0 ? costObj.total / eggsTotal : null,
+    profitPerTray: split && revenue > 0 && eggsSold > 0 ? (revenue - costObj.total) / (eggsSold / 30) : null,
   };
 
   // per flock
   const flocks: FlockPeriod[] = [];
   for (const [flockId, all] of ctx.byFlock) {
-    const rs = all.filter((r) => r.date >= from && r.date <= to);
+    const rs = all.filter((r) => r.date >= from && r.date <= to && inScope(r));
     if (rs.length === 0) continue;
     const flock = ctx.flockById.get(flockId);
     const last = rs[rs.length - 1];
@@ -312,7 +326,11 @@ export function summarizePeriod(ctx: Ctx, cost: CostInput, extras: PeriodExtras,
     const gap = std != null && hd != null ? std - hd : null;
     let status: CardStatus;
     let note: string;
-    if (moultDays * 2 > rs.length) {
+    const ramp = rampingUp(ctx, flockId, last.date);
+    if (ramp && moultDays === 0) {
+      status = "ramping";
+      note = `Ramping up: day ${ramp.day} of lay; no standard check until day ${RAMP_DAYS + 1}.`;
+    } else if (moultDays * 2 > rs.length) {
       status = "moult";
       note = `Moulting on ${moultDays} of ${rs.length} days; not judged against the standard.`;
     } else if (std == null || hd == null) {
@@ -323,7 +341,9 @@ export function summarizePeriod(ctx: Ctx, cost: CostInput, extras: PeriodExtras,
       status = ratio >= RULES.greenMinRatio ? "green" : ratio >= RULES.amberMinRatio ? "amber" : "red";
       note = `HD ${hd.toFixed(1)}% vs ${breedName(flock?.breed)} standard ${std.toFixed(1)}% (${Math.round(ratio * 100)}% of standard).`;
     }
-    const fd = sum(rs.map((r) => r.feed ?? 0));
+    const fRows = rs.filter((r) => r.feed != null);
+    const fd = sum(fRows.map((r) => r.feed ?? 0));
+    const fbd = sum(fRows.map((r) => r.pop ?? 0));
     const d = sum(rs.map((r) => r.mort ?? 0));
     const first = rs[0];
     flocks.push({
@@ -341,24 +361,25 @@ export function summarizePeriod(ctx: Ctx, cost: CostInput, extras: PeriodExtras,
       statusNote: note,
       deaths: d,
       deathsPct: first.pop != null ? pct(d, first.pop + (first.mort ?? 0)) : null,
-      feedGPerBird: bd > 0 ? (fd * BAG_KG * 1000) / bd : null,
+      feedGPerBird: fbd > 0 ? (fd * BAG_KG * 1000) / fbd : null,
       birdsAtEnd: last.pop,
     });
   }
-  const order: Record<CardStatus, number> = { red: 0, amber: 1, moult: 2, green: 3, no_reference: 4, left: 5 };
+  const order: Record<CardStatus, number> = { red: 0, amber: 1, moult: 2, ramping: 3, green: 4, no_reference: 5, left: 6 };
   flocks.sort((a, b) => order[a.status] - order[b.status] || a.label.localeCompare(b.label, undefined, { numeric: true }));
 
   // alerts raised in the period (alertsFor already drops August, reviewed rows and the never-flag list)
   const byKind: Partial<Record<AlertKind, number>> = {};
   let total = 0;
   for (const d of dates) {
-    for (const a of alertsFor(ctx, d)) {
+    for (const a of alertsFor(ctx, d, { segment: seg })) {
       byKind[a.kind] = (byKind[a.kind] ?? 0) + 1;
       total++;
     }
   }
 
   return {
+    segment: seg,
     range,
     firstDate,
     lastDate,
@@ -393,10 +414,11 @@ export function summarizePeriod(ctx: Ctx, cost: CostInput, extras: PeriodExtras,
     feed: {
       bags,
       kg,
-      gPerBirdDay: birdDays > 0 ? (kg * 1000) / birdDays : null,
-      kgPer100Eggs: eggsTotal > 0 ? (kg / eggsTotal) * 100 : null,
-      daysLeftAtEnd: lastDate ? (feedDaysLeft(ctx, lastDate)?.days ?? null) : null,
-      eggStockDaysAtEnd: lastDate ? (eggStockDays(ctx, lastDate)?.days ?? null) : null,
+      recorded: feedRows.length > 0,
+      gPerBirdDay: feedBirdDays > 0 ? (kg * 1000) / feedBirdDays : null,
+      kgPer100Eggs: feedRows.length > 0 && eggsTotal > 0 ? (kg / sum(feedRows.map((r) => r.eggs ?? 0))) * 100 : null,
+      daysLeftAtEnd: lastDate && seg !== "young" ? (feedDaysLeft(ctx, lastDate)?.days ?? null) : null,
+      eggStockDaysAtEnd: lastDate ? (eggStockDays(ctx, lastDate, seg)?.days ?? null) : null,
     },
     money,
     flocks,
@@ -423,7 +445,7 @@ const METRICS: { key: string; label: string; unit: string; higherIsBetter: boole
   { key: "deathsPct", label: "Deaths % of opening birds", unit: " pts", higherIsBetter: false, get: (s) => s.birds.deathsPct },
   { key: "feedG", label: "Feed g / bird / day", unit: " g", higherIsBetter: false, get: (s) => s.feed.gPerBirdDay },
   { key: "revenueDay", label: "Revenue per day", unit: "", higherIsBetter: true, get: (s) => (s.daysWithData ? s.money.revenue / s.daysWithData : null) },
-  { key: "costDay", label: "Cost per day (so far)", unit: "", higherIsBetter: false, get: (s) => (s.daysWithData ? s.money.cost.total / s.daysWithData : null) },
+  { key: "costDay", label: "Cost per day (so far)", unit: "", higherIsBetter: false, get: (s) => (s.money.costSplit && s.daysWithData ? s.money.cost.total / s.daysWithData : null) },
   { key: "profitDay", label: "Profit per day (estimate)", unit: "", higherIsBetter: true, get: (s) => (s.money.profit != null && s.daysWithData ? s.money.profit / s.daysWithData : null) },
 ];
 

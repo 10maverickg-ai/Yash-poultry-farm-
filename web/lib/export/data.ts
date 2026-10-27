@@ -18,7 +18,7 @@ export const validMonth = (m: string) => /^\d{4}-(0[1-9]|1[0-2])$/.test(m);
 export async function productionDataset(month: string): Promise<Dataset> {
   const { from, to } = bounds(month);
   const { rows } = await pool.query(
-    `SELECT dp.date, f.display_label AS flock, dp.display_label_as_written AS reg, dp.bird_population AS birds,
+    `SELECT dp.date, f.display_label AS flock, f.segment, dp.display_label_as_written AS reg, dp.bird_population AS birds,
             dp.mortality, dp.feed_bags, dp.eggs_total
        FROM daily_production dp JOIN flocks f USING (flock_internal_id)
       WHERE dp.farm_code = $1 AND dp.deleted_at IS NULL AND dp.date BETWEEN $2 AND $3
@@ -32,6 +32,7 @@ export async function productionDataset(month: string): Promise<Dataset> {
     columns: [
       { key: "date", header: "Date", type: "date", width: 12 },
       { key: "flock", header: "Flock", type: "text", width: 10 },
+      { key: "segment", header: "Group", type: "text", width: 10 },
       { key: "reg", header: "Register label", type: "text", width: 14 },
       { key: "birds", header: "Birds (end of day)", type: "int", width: 16 },
       { key: "mortality", header: "Deaths", type: "int", width: 9, total: true },
@@ -40,11 +41,11 @@ export async function productionDataset(month: string): Promise<Dataset> {
       { key: "hd", header: "HD % (eggs ÷ birds)", type: "pct", width: 18 },
     ],
     rows: rows.map((r) => ({
-      date: String(r.date).slice(0, 10), flock: r.flock, reg: r.reg, birds: r.birds, mortality: r.mortality, feed: r.feed_bags, eggs: r.eggs_total,
+      date: String(r.date).slice(0, 10), flock: r.flock, segment: r.segment === "main" ? "Main" : r.segment === "young" ? "Young" : "not set", reg: r.reg, birds: r.birds, mortality: r.mortality, feed: r.feed_bags, eggs: r.eggs_total,
       hd: r.birds ? Math.round(((r.eggs_total ?? 0) / r.birds) * 10000) / 100 : null,
     })),
-    notes: ["HD % is calculated as eggs ÷ birds × 100 (not the supervisor's written %).", "Birds are the end-of-day count from the register."],
-    formulas: { hd: (row) => `IF(D${row}>0,ROUND(G${row}/D${row}*100,2),"")` },
+    notes: ["HD % is calculated as eggs ÷ birds × 100 (not the supervisor's written %).", "Group = Main (big eggs, right page) or Young (small eggs, left page). The totals row adds every flock; filter the Group column for per-group numbers.", "Birds are the end-of-day count from the register."],
+    formulas: { hd: (row) => `IF(E${row}>0,ROUND(H${row}/E${row}*100,2),"")` },
   };
 }
 
@@ -54,7 +55,8 @@ export async function ledgerDataset(month: string): Promise<Dataset> {
     `SELECT s.date, s.section, s.opening_balance_eggs AS opening, s.total_eggs_produced AS produced, s.closing_balance_eggs AS closing,
             coalesce(sum(-e.amount_eggs) FILTER (WHERE e.category IN ('sale','local_sale')), 0)::int AS sales,
             coalesce(sum(-e.amount_eggs) FILTER (WHERE e.category = 'breakage'), 0)::int AS breakage,
-            coalesce(sum(-e.amount_eggs) FILTER (WHERE e.category NOT IN ('sale','local_sale','breakage') OR e.category IS NULL), 0)::int AS other
+            coalesce(sum(e.amount_eggs) FILTER (WHERE e.category = 'production_addition'), 0)::int AS additions,
+            coalesce(sum(-e.amount_eggs) FILTER (WHERE e.category NOT IN ('sale','local_sale','breakage','production_addition') OR e.category IS NULL), 0)::int AS other
        FROM daily_egg_stock_summary s LEFT JOIN daily_egg_stock_entries e ON e.egg_stock_summary_id = s.id
       WHERE s.farm_code = $1 AND s.deleted_at IS NULL AND s.date BETWEEN $2 AND $3
       GROUP BY s.id ORDER BY s.date, s.section`,
@@ -68,13 +70,19 @@ export async function ledgerDataset(month: string): Promise<Dataset> {
       { key: "section", header: "Ledger", type: "text", width: 8 },
       { key: "opening", header: "Opening", type: "int", width: 11 },
       { key: "produced", header: "Produced", type: "int", width: 11, total: true },
+      { key: "additions", header: "Late additions", type: "int", width: 12, total: true },
       { key: "sales", header: "Sales", type: "int", width: 11, total: true },
       { key: "breakage", header: "Breakage", type: "int", width: 11, total: true },
       { key: "other", header: "Other (net)", type: "int", width: 11, total: true },
       { key: "closing", header: "Closing", type: "int", width: 11 },
+      { key: "check", header: "Closing check (0 = ties)", type: "int", width: 14 },
     ],
-    rows: rows.map((r) => ({ date: String(r.date).slice(0, 10), section: r.section, opening: r.opening, produced: r.produced, sales: r.sales, breakage: r.breakage, other: r.other, closing: r.closing })),
-    notes: ["All figures are eggs. Sales = Farmfresh + local sale lines; Other = labour take, gifts, cross-farm and unlabelled lines (net, deductions positive).", "Closing is the figure written in the register; it can differ from opening + produced − deductions where the register had a correction."],
+    rows: rows.map((r) => ({ date: String(r.date).slice(0, 10), section: r.section, opening: r.opening, produced: r.produced, additions: r.additions, sales: r.sales, breakage: r.breakage, other: r.other, closing: r.closing })),
+    formulas: { check: (row) => `IF(OR(C${row}="",I${row}=""),"",I${row}-(C${row}+IF(AND(E${row}>0,E${row}=D${row}),0,D${row})+E${row}-F${row}-G${row}-H${row}))` },
+    notes: [
+      "All figures are eggs. Sales = Farmfresh + local sale lines; Late additions = eggs added to the ledger after the day's total (production_addition lines, e.g. 8 Oct big +60, 21 Oct small +600); Other = labour take, gifts, cross-farm and unlabelled lines (net, deductions positive).",
+      "From 5 to 30 Sep the small ledger wrote the day's production as addition lines, so Produced repeats Late additions; the check ignores Produced on those days. A non-zero check means the register's closing differs from the arithmetic (a correction or a mis-read) — it is shown, not hidden.",
+    ],
   };
 }
 

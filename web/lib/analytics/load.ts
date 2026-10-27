@@ -11,9 +11,9 @@ import { isNeverFlaggedProduction } from "@/lib/neverFlag";
 const num = (x: unknown): number | null => (x == null ? null : Number(x));
 
 export async function loadEngineInput(): Promise<EngineInput> {
-  const [flocks, prod, mov, egg, box, junction, chick, std, moult, ff, kstd] = await Promise.all([
+  const [flocks, prod, mov, egg, box, junction, chick, std, moult, ff, kstd, segHist] = await Promise.all([
     pool.query(
-      `SELECT flock_internal_id, display_label, breed, placement_date, placement_date_confirmed
+      `SELECT flock_internal_id, display_label, breed, placement_date, placement_date_confirmed, segment
          FROM flocks WHERE farm_code = $1`,
       [ACTIVE_FARM]
     ),
@@ -69,7 +69,7 @@ export async function loadEngineInput(): Promise<EngineInput> {
       [ACTIVE_FARM]
     ),
     pool.query(
-      `SELECT DISTINCT s.date FROM daily_egg_stock_entries e
+      `SELECT DISTINCT s.date, s.section FROM daily_egg_stock_entries e
          JOIN daily_egg_stock_summary s ON s.id = e.egg_stock_summary_id
         WHERE s.farm_code = $1 AND s.deleted_at IS NULL AND e.category = 'sale'`,
       [ACTIVE_FARM]
@@ -80,7 +80,10 @@ export async function loadEngineInput(): Promise<EngineInput> {
          FROM knowledge_standards s JOIN knowledge_entries e ON e.id = s.entry_id
         WHERE s.metric = 'hen_day_percent' AND e.breed IS NOT NULL`
     ),
+    pool.query(`SELECT h.flock_internal_id, h.segment, h.effective_from FROM flock_segment_history h JOIN flocks f USING (flock_internal_id) WHERE f.farm_code = $1`, [ACTIVE_FARM]),
   ]);
+  const histBy = new Map<string, { from: string; segment: "main" | "young" }[]>();
+  for (const h of segHist.rows) (histBy.get(h.flock_internal_id) ?? histBy.set(h.flock_internal_id, []).get(h.flock_internal_id)!).push({ from: String(h.effective_from).slice(0, 10), segment: h.segment });
   const stdByBreed: Record<string, { age: number; hdp: number }[]> = {};
   for (const r of kstd.rows) {
     const k = breedKey(r.breed);
@@ -101,6 +104,8 @@ export async function loadEngineInput(): Promise<EngineInput> {
       breed: f.breed,
       placementDate: f.placement_date ? String(f.placement_date).slice(0, 10) : null,
       placementConfirmed: f.placement_date_confirmed === true,
+      segment: f.segment === "main" || f.segment === "young" ? f.segment : null,
+      segmentHistory: histBy.get(f.flock_internal_id),
     })),
     prod: prod.rows.map((r) => ({
       id: Number(r.id),
@@ -145,7 +150,11 @@ export async function loadEngineInput(): Promise<EngineInput> {
       reviewed: b.reviewed_by_owner,
       flockIds: flockIdsByBox.get(Number(b.id)) ?? [],
     })),
-    farmfreshDates: ff.rows.map((r) => String(r.date).slice(0, 10)),
+    farmfreshDates: [...new Set(ff.rows.map((r) => String(r.date).slice(0, 10)))],
+    farmfreshBySection: {
+      big: ff.rows.filter((r) => r.section === "big").map((r) => String(r.date).slice(0, 10)),
+      small: ff.rows.filter((r) => r.section === "small").map((r) => String(r.date).slice(0, 10)),
+    },
     moulting: moult.rows.map((m) => ({
       flockId: m.flock_internal_id,
       start: String(m.start_date).slice(0, 10),

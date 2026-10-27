@@ -54,20 +54,34 @@ export default async function ExportPage({ searchParams }: { searchParams: Promi
           <label className="field"><span>Week (Monday to Sunday)</span>
             <select name="p" defaultValue={weeks[0]}>{weeks.map((w) => <option key={w} value={w}>{w}</option>)}</select>
           </label>
+          <label className="field"><span>Group</span>
+            <select name="segment" defaultValue="main">
+              <option value="main">Main flocks (big eggs)</option>
+              <option value="young">Young flocks (small eggs)</option>
+              <option value="all">Whole farm (sum of the groups)</option>
+            </select>
+          </label>
           <input type="hidden" name="kind" value="week" />
           <div className="actions-bar" style={{ marginBottom: 0 }}>
             <button type="submit" name="format" value="xlsx">Week — Excel</button>
             <button type="submit" name="format" value="csv" className="btn-secondary">CSV</button>
           </div>
         </form>
-        <div className="actions-bar" style={{ marginBottom: 0 }}>
-          <a className="btn" href={`/export/download?kind=month&p=${month}&format=xlsx`} download>Month {month} — Excel</a>
-          <a className="btn btn-secondary" href={`/export/download?kind=month&p=${month}&format=csv`} download>CSV</a>
-        </div>
-        <div className="actions-bar" style={{ marginBottom: 0 }}>
-          <a className="btn" href={`/export/download?kind=year&p=${month.slice(0, 4)}&format=xlsx`} download>Year {month.slice(0, 4)} — Excel</a>
-          <a className="btn btn-secondary" href={`/export/download?kind=year&p=${month.slice(0, 4)}&format=csv`} download>CSV</a>
-        </div>
+        {[["month", month], ["year", month.slice(0, 4)]].map(([k, p]) => (
+          <div key={k} className="stack">
+            <b>{k === "month" ? `Month ${p}` : `Year ${p}`}</b>
+            <div className="actions-bar" style={{ marginBottom: 0 }}>
+              {[["main", "Main"], ["young", "Young"], ["all", "Whole farm"]].map(([sg, label]) => (
+                <a key={sg} className={sg === "all" ? "btn btn-secondary" : "btn"} href={`/export/download?kind=${k}&p=${p}&segment=${sg}&format=xlsx`} download>{label} — Excel</a>
+              ))}
+            </div>
+            <div className="actions-bar" style={{ marginBottom: 0 }}>
+              {[["main", "Main"], ["young", "Young"], ["all", "Whole farm"]].map(([sg, label]) => (
+                <a key={sg} className="btn btn-secondary" href={`/export/download?kind=${k}&p=${p}&segment=${sg}&format=csv`} download>{label} — CSV</a>
+              ))}
+            </div>
+          </div>
+        ))}
       </section>
       <p className="card muted">
         Want everything, for safekeeping? <Link href="/export/backup">Download the full backup (one zip)</Link>.

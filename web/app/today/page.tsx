@@ -1,6 +1,9 @@
 import Link from "next/link";
 import { loadEngineInput } from "@/lib/analytics/load";
-import { addDays, alertsFor, buildCtx, eggStockDays, feedDaysLeft, flockCards, lastDayOfData, type CardStatus } from "@/lib/analytics/engine";
+import { addDays, buildCtx, flockCards, lastDayOfData, SEGMENTS, SEGMENT_NAME, type CardStatus } from "@/lib/analytics/engine";
+import { loadPeriodExtras } from "@/lib/analytics/periodLoad";
+import { allSegmentPanels, farmCheck } from "@/lib/analytics/segments";
+import { FarmLine, SegmentPanelView } from "@/components/SegmentPanels";
 import { loadCostInput } from "@/lib/costs/load";
 import { dayEconomics } from "@/lib/costs/engine";
 import { pool } from "@/lib/db";
@@ -14,10 +17,10 @@ const pretty = (d: string) =>
   new Date(d + "T00:00:00Z").toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
 
 const DOT: Record<CardStatus, string> = {
-  green: "var(--an-green)", amber: "var(--an-amber)", red: "var(--an-red)", moult: "var(--an-blue)", no_reference: "var(--muted)", left: "var(--muted)",
+  green: "var(--an-green)", amber: "var(--an-amber)", red: "var(--an-red)", moult: "var(--an-blue)", ramping: "var(--an-blue)", no_reference: "var(--muted)", left: "var(--muted)",
 };
 const WORD: Record<CardStatus, string> = {
-  green: "On standard", amber: "Below standard", red: "Well below", moult: "Moulting", no_reference: "No reference", left: "Left",
+  green: "On standard", amber: "Below standard", red: "Well below", moult: "Moulting", ramping: "Ramping up", no_reference: "No reference", left: "Left",
 };
 
 export default async function TodayPage() {
@@ -31,9 +34,8 @@ export default async function TodayPage() {
   const stale = Math.round((Date.parse(realYesterday) - Date.parse(latest)) / 86400000);
 
   const cards = flockCards(ctx, latest).filter((c) => c.status !== "left");
-  const alerts = alertsFor(ctx, latest);
-  const feed = feedDaysLeft(ctx, latest);
-  const stock = eggStockDays(ctx, latest);
+  const panels = allSegmentPanels(ctx, await loadPeriodExtras(), latest);
+  const chk = farmCheck(ctx, latest);
   const money = dayEconomics(costInput, latest);
 
   // What is missing: only facts that can be checked from the database.
@@ -63,46 +65,39 @@ export default async function TodayPage() {
         <Link href="/analytics?view=year" className="btn btn-secondary">This year</Link>
       </p>
 
+      {panels.map((p) => (
+        <SegmentPanelView key={p.segment} p={p} detailHref={`/analytics?date=${latest}#alerts`} />
+      ))}
+      <FarmLine panels={panels} eggs={chk.all?.eggs ?? 0} birds={chk.all?.birds ?? 0} hd={chk.all?.hd ?? null} unassigned={chk.unassigned} ok={chk.ok} />
+
       <section className="card" aria-labelledby="td-flocks">
         <h2 id="td-flocks" style={{ marginTop: 0 }}>Eggs and hen-day % by flock</h2>
-        {cards.map((c) => {
-          const row = (ctx.byFlock.get(c.flockId) ?? []).find((r) => r.date === latest);
+        {[...SEGMENTS, null].map((g) => {
+          const list = cards.filter((c) => c.segment === g);
+          if (list.length === 0) return null;
           return (
-            <div key={c.flockId} className="td-flock">
-              <span className="td-dot" style={{ background: DOT[c.status] }} aria-hidden="true" />
-              <div>
-                <b>{c.label}</b>{" "}
-                <span className="muted">
-                  {row ? `${n0(row.eggs ?? 0)} eggs · ${row.hd != null ? n1(row.hd) + "%" : "HD –"}` : "no row that day"}
-                  {c.stdHd != null ? ` · standard ${n1(c.stdHd)}%` : ""}
-                </span>
-                <div className="muted an-tiny"><b>{WORD[c.status]}.</b> {c.statusNote}</div>
-              </div>
+            <div key={g ?? "none"}>
+              <h3 className="an-daystamp">{g ? SEGMENT_NAME[g] : "Segment not set"}</h3>
+              {list.map((c) => {
+                const row = (ctx.byFlock.get(c.flockId) ?? []).find((r) => r.date === latest);
+                return (
+                  <div key={c.flockId} className="td-flock">
+                    <span className="td-dot" style={{ background: DOT[c.status] }} aria-hidden="true" />
+                    <div>
+                      <b>{c.label}</b>{" "}
+                      <span className="muted">
+                        {row ? `${n0(row.eggs ?? 0)} eggs · ${row.hd != null ? n1(row.hd) + "%" : "HD –"}` : "no row that day"}
+                        {c.stdHd != null ? ` · standard ${n1(c.stdHd)}%` : ""}
+                      </span>
+                      <div className="muted an-tiny"><b>{WORD[c.status]}.</b> {c.statusNote}</div>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           );
         })}
         <p className="muted an-foot"><Link href="/analytics">Full board →</Link></p>
-      </section>
-
-      <section aria-labelledby="td-alerts">
-        <h2 id="td-alerts">Open alerts <span className="badge badge-flagged">{alerts.length}</span></h2>
-        {alerts.length === 0 && <p className="card muted">Nothing to alert on.</p>}
-        {alerts.slice(0, 5).map((a) => (
-          <details key={a.key} className="card td-alert">
-            <summary><b>{a.flockLabel ?? "Farm"}</b> — {a.reason.length > 90 ? a.reason.slice(0, 87).trimEnd() + "…" : a.reason}</summary>
-            <p style={{ margin: "0.4rem 0" }}>{a.reason}</p>
-            <Link href={`/analytics?date=${a.date}`}>Open on the board →</Link>
-          </details>
-        ))}
-        {alerts.length > 5 && <p className="muted"><Link href={`/analytics?date=${latest}`}>{alerts.length - 5} more on the board →</Link></p>}
-      </section>
-
-      <section className="card" aria-labelledby="td-stock">
-        <h2 id="td-stock" style={{ marginTop: 0 }}>Stock</h2>
-        <div className="an-grid">
-          <div className="an-metric"><div className="an-metric-title">Feed left</div><div className="an-metric-value">{feed ? `${n1(feed.days)} days` : "–"}</div><div className="an-metric-cmp">{feed ? `${n0(feed.closing)} bags` : "no feed box row"}</div></div>
-          <div className="an-metric"><div className="an-metric-title">Egg stock</div><div className="an-metric-value">{stock ? `${n1(stock.days)} days` : "–"}</div><div className="an-metric-cmp">{stock ? `${n0(stock.closing)} eggs` : "no ledger row"}</div></div>
-        </div>
       </section>
 
       <section className="card" aria-labelledby="td-cash">

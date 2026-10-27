@@ -24,6 +24,7 @@ export interface Flock {
   placement_is_chick_date: boolean | null;
   placement_date_confirmed: boolean | null;
   chick_batch_id: number | null;
+  segment: "main" | "young" | null;
   created_at: Date;
   updated_at: Date;
 }

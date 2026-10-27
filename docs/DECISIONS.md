@@ -2544,3 +2544,13 @@ change is NOT reflected here.
   months and is labelled arithmetic, not a forecast.
 - The view is kept in the URL (`/analytics?view=week|month|year&p=…`), not in
   browser storage.
+
+## V8 — analytics per segment (owner decisions, 27 Oct 2026)
+- **Analytics are per segment; the farm total is the sum of the segments.** MAIN = BAB-1 to BAB-8 (right page, big eggs, mature) and the two departed flocks in history. YOUNG = BAB-9, BAB-10, BAB-11 (left page, small eggs, started laying 4 Oct). A segment's numerator is only its own flocks' eggs and its denominator only its own birds. The whole farm is shown last, never averaged from percentages, with a note that it mixes mature and young birds. A flock with no segment set shows "segment not set" and is only in the whole-farm total (nothing is guessed).
+- **Where it is stored:** `flocks.segment` (`main` | `young`, NULL = not set) and `flock_segment_history`. Moving a flock keeps its past in the old segment and counts it in the new one from the move date.
+- **Ledgers:** big ledger = MAIN, small ledger = YOUNG from the first day a young flock reports (4 Oct). Before that the small ledger held graded small eggs of the main flocks, so it belongs to MAIN. Egg-stock days, build-up alerts and "days since a Farmfresh sale" are computed per segment on its own ledger.
+- **Ramping up:** a young flock is "ramping up" for its first 60 days of lay (first day with eggs in the data). While ramping it is not compared with the standard and raises no low-HD alert; its card shows the last 7 days against its own previous 7 days. Mortality alerts still apply.
+- **Feed:** recorded for MAIN (the one feed box covers the 8 right-page flocks). Feed per bird uses only rows that record feed and those rows' birds. The "0 feed with live birds" rule never fires on a missing (null) feed figure. Young flocks show "feed not recorded" (or "recorded on N of 7 days" when some days exist).
+- **Money:** revenue is split by size (big = main, small = young). Shared costs (electricity, labour, packing, diesel, medicines) are NOT split between segments, so cost and profit are shown for the whole farm only.
+- **Prices:** the owner's handwritten list is his NET selling price (BAFTA − subsidy − 0.03), stored as `bafta_rate = list + 0.03`. Farmfresh sale = `big_rate`; local sale = `bafta_rate + 0.01` (transaction type `other`, buyer "Local"). `big_rate` is generated and never inserted.
+- **Names:** `flocks.display_label` is the register name since 27 Oct (BAB-1..8 right page, BAB-9..11 left page; departed: "Old BAB-1 (sold Sep)", "Old BAB-2 (to Anil farm)"). `flock_label_history` was brought in line (migration 0038) so the reader matches a photo's "BAB-3" to the right flock.
