@@ -357,7 +357,7 @@ function YearView({ ctx, s, months, input, yearsLabel }: { ctx: Ctx; s: PeriodSu
   const monthsOf = (flockId: string) => withData.filter((m) => m.flocks.some((f) => f.flockId === flockId)).length;
   return (
     <>
-      <p className="card muted">Data since {pretty(ctx.dates[0])} {ctx.dates[0].slice(0, 4)}. {yearsLabel}</p>
+      <p className="card muted">Data starts {pretty(ctx.dates[0])} {ctx.dates[0].slice(0, 4)}; nothing earlier was entered. {yearsLabel}{withData.some((m) => m.partial) ? ` Partial months — ${withData.filter((m) => m.partial).map((m) => `${m.range.label} (${m.daysWithData} of ${m.range.days} days)`).join(", ")}: their totals cover only the days with data, so compare months by the per-day columns (eggs/day, HD %, g/bird), not by totals.` : ""}</p>
       <section className="card an-scroll" aria-label="Month by month">
         <h2 style={{ marginTop: 0 }}>Month by month</h2>
         <table className="an-table">

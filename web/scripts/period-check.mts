@@ -47,7 +47,7 @@ ok("weeks inside September are clipped to the month", weeksWithin(rangeOf("month
 const sep = S(rangeOf("month", "2026-09-01"));
 ok("September has data on all 30 days", sep.daysWithData === 30 && !sep.partial, sep.dataNote);
 ok("eggs sold in September = 13,46,850", sep.money.eggsSold === 1346850, String(sep.money.eggsSold));
-near("September sales = ₹71,84,492.40", sep.money.revenue, 7184492.4, 0.05);
+near("September sales = ₹72,24,898 (Farmfresh 7,223,930 + local 968, after the list-price re-pricing)", sep.money.revenue, 7224897.9, 0.05);
 const dp: any[] = j("dp").filter((r: any) => r.date.startsWith("2026-09"));
 const eggsDp = dp.reduce((s, r) => s + (r.eggs_total ?? 0), 0);
 ok("eggs total = sum of the daily rows", sep.eggs.total === eggsDp, `${sep.eggs.total}`);
@@ -68,7 +68,7 @@ ok("bird chain: opening − deaths + movements = closing", (() => {
 ok("Anil transfers are not counted as deaths", sep.birds.anilOut > 0 || sep.birds.anilIn >= 0);
 ok("feed kg = bags × 45", sep.feed.kg === sep.feed.bags * 45);
 ok("every flock status is set", sep.flocks.length >= 8 && sep.flocks.every((f) => !!f.status));
-ok("flocks use real names (BAB-n)", sep.flocks.every((f) => /^BAB-\d+$/.test(f.label)), sep.flocks.map((f) => f.label).join(","));
+ok("flocks use real names (BAB-n, or Old BAB-n for the departed)", sep.flocks.every((f) => /^(Old )?BAB-\d+/.test(f.label)), sep.flocks.map((f) => f.label).join(","));
 ok("shares of farm eggs add to 100", Math.abs(sep.flocks.reduce((s, f) => s + (f.shareOfEggs ?? 0), 0) - 100) < 1e-6);
 ok("Bovans White has no reference, not another breed's", sep.flocks.filter((f) => f.breed === "Bovans White").every((f) => f.stdHd == null && f.status === "no_reference"));
 
@@ -84,9 +84,9 @@ const first7 = S({ kind: "week", from: "2026-09-01", to: "2026-09-07", days: 7, 
 ok("1–7 Sep: 7 of 7 days", first7.daysWithData === 7);
 ok("1–7 Sep eggs = sum of those daily rows", first7.eggs.total === dp.filter((r) => r.date <= "2026-09-07").reduce((s, r) => s + (r.eggs_total ?? 0), 0));
 // partial week: Mon 28 Sep – Sun 4 Oct has only 3 days
-const part = S(rangeOf("week", "2026-09-30"));
-ok("partial week says 3 of 7 days have data", part.daysWithData === 3 && part.partial && part.dataNote === "3 of 7 days have data", part.dataNote);
-near("partial-week average uses only days with data", part.eggs.perDay, part.eggs.total / 3, 1e-9);
+const part = S(rangeOf("week", "2026-10-26"));
+ok("partial week (Mon 26 Oct – Sun 1 Nov) says 1 of 7 days have data", part.daysWithData === 1 && part.partial && part.dataNote === "1 of 7 days have data", part.dataNote);
+near("partial-week average uses only days with data", part.eggs.perDay, part.eggs.total / 1, 1e-9);
 const empty = S(rangeOf("week", "2026-11-10"));
 ok("a week with no data says so and has no invented numbers", empty.daysWithData === 0 && empty.eggs.perDay == null && empty.eggs.hdPooled == null && empty.money.profit == null, empty.dataNote);
 
@@ -101,7 +101,13 @@ ok("no earlier data -> no comparison (same week last year)", compare(wk, S(lastY
 
 // ---- year and run rate
 const yr = S(rangeOf("year", "2026-06-01"));
-ok("year 2026 has 61 days of data (Aug + Sep)", yr.daysWithData === 61 && yr.partial, yr.dataNote);
+ok("year 2026 has 117 days of data (Jul 30 + Aug 31 + Sep 30 + Oct 26) and is partial", yr.daysWithData === 117 && yr.partial, yr.dataNote);
+// direct SQL sums on the live database (27 Oct), per month and group
+for (const [m, seg, days, eggs, bd, deaths, feed] of [["2026-07", "main", 30, 2135100, 2777658, 1618, 6203], ["2026-08", "main", 31, 1924920, 2757898, 1486, 5551], ["2026-09", "main", 30, 1442700, 2101456, 944, 4715], ["2026-10", "main", 26, 1426830, 1740898, 601, 3629], ["2026-10", "young", 23, 223800, 639023, 173, 127]] as const) {
+  const r = summarizePeriod(ctx, cost, extras, rangeOf("month", `${m}-01`), seg);
+  const birddays = ctx.input.prod.filter((x) => x.date.startsWith(m) && ctx.flockById.get(x.flockId)?.segment === seg).reduce((t, x) => t + (x.pop ?? 0), 0);
+  ok(`SQL ${m} ${seg}: ${days} days, ${eggs} eggs, ${bd} bird-days, ${deaths} deaths, ${feed} bags`, r.daysWithData === days && r.eggs.total === eggs && birddays === bd && r.birds.deaths === deaths && r.feed.bags === feed, `${r.daysWithData}/${r.eggs.total}/${birddays}/${r.birds.deaths}/${r.feed.bags}`);
+}
 const months = monthsWithin(rangeOf("year", "2026-01-01")).map(S);
 ok("year months add up", months.reduce((s, m) => s + m.eggs.total, 0) === yr.eggs.total);
 const rr = runRate(months.filter((m) => m.daysWithData > 0));
@@ -110,7 +116,10 @@ ok("no run rate with only one full month", runRate(months.filter((m) => m.range.
 
 // ---- alerts grouped
 const sepAlerts = sep.alerts;
-ok("September alerts are grouped by rule and add up", Object.values(sepAlerts.byKind).reduce((s, x) => s + (x ?? 0), 0) === sepAlerts.total && sepAlerts.total === 21, `total ${sepAlerts.total}`);
+ok("September alerts are grouped by rule and add up", Object.values(sepAlerts.byKind).reduce((s, x) => s + (x ?? 0), 0) === sepAlerts.total, `total ${sepAlerts.total}`);
+const sepMain = summarizePeriod(ctx, cost, extras, rangeOf("month", "2026-09-01"), "main").alerts.total;
+const sepYoung = summarizePeriod(ctx, cost, extras, rangeOf("month", "2026-09-01"), "young").alerts.total;
+ok("September: main + young alerts do not exceed the whole farm", sepMain + sepYoung <= sepAlerts.total, `main ${sepMain} young ${sepYoung} farm ${sepAlerts.total}`);
 const aug = S(rangeOf("month", "2026-08-01"));
 ok("August has no alerts (cleared)", aug.alerts.total === 0);
 
