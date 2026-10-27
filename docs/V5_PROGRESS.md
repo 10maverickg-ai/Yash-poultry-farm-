@@ -139,3 +139,40 @@ Nothing new. Existing list unchanged (Bovans White guide, BAB-8/9/10 placement d
 - Period views were browser-tested against the local copy of the data, not the live database (live read queries are the same SQL as the existing Sales/Costs pages plus a ledger-deductions query that was run directly on live).
 - Excel formulas were checked by reading them back with exceljs, not by opening Excel/Numbers on a phone.
 - Same-month-last-year comparison is untested with real data (none exists before Aug 2026); only the empty case ('no earlier data') and the shifting arithmetic are tested.
+
+
+---
+# V8 — analytics per segment, checks against July–October data (branch claude/v8, from main after PR #18)
+
+| Item | What | Status | Notes |
+|---|---|---|---|
+| S0.1 | `flocks.segment` + history + control on Flocks screen | built | Migrations 0036, 0037 (live + local). Backfilled: BAB-1..8 and the two departed flocks main; BAB-9, 10, 11 young. |
+| S0.2 | Engine: every aggregate takes a segment | built | `dayTotals`, `farmToday`, `eggStockDays`, `monthView`, `alertsFor`, `watchList`, `summarizePeriod`, exports. Whole farm = sum. |
+| S0.3 | One panel per segment on Analytics and Today | built | `components/SegmentPanels.tsx`, `lib/analytics/segments.ts`; week/month/year views are split per segment with the whole farm last. |
+| S0.4 | Ramping up (young, first 60 days of lay) | built | Status "Ramping up", no standard check, no low-HD alert, own-7-day trend. |
+| S0.5 | Alert rules get a segment; moves re-evaluate from the move date | built | `alertKey` for young farm-wide alerts ends `farm-young`. |
+| S0.6 | Sales and Egg Stock pages by group | built | Sales month table: main/young/whole farm + local; Egg Stock: group table with a check line. |
+| S0.7 | Read-only per-segment check vs SQL | done | `docs/SEGMENTS_CHECK.md`, `scripts/segment-check.mts`. |
+| S0.8 | DECISIONS.md | done | |
+| I1 | Check the app against July–October data | in progress | |
+| I2 | Departed flocks and unknown ages | in progress | |
+| I3 | Feed logic | in progress | |
+| I4 | Ledger arithmetic | todo | |
+| I5 | Daily upload flow from 27 Oct | blocked | needs the Anthropic key (no credit) |
+| I6 | Final checks | todo | |
+
+## V8 Known bugs
+- (filled in as found)
+
+## V8 Needs owner
+1. Confirm the MAIN / YOUNG split (BAB-1..8 / BAB-9..11).
+2. Real placement dates for BAB-6, 7, 8 (placeholder 2026-01-01) and BAB-9, 10, 11 (none).
+3. BAB-4 (placed 9 Aug 2024, week 115): was it moulted, and when did its second cycle start? (The BV300 table stops at week 100, so it has no standard check until this is known.)
+4. Cost inputs: Sep and Oct electricity, diesel, medicines, chick costs.
+5. Open ledger questions listed in `claude/status-2026-10-27.md` (not in this repo; please paste them).
+6. Vercel access approval (so I can read preview build and runtime logs).
+7. Anthropic credits (I5 and the reader benchmark).
+8. RLS decision.
+
+## V8 Could not test
+- (filled in at I6)
