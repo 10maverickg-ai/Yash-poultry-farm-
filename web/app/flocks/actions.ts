@@ -13,7 +13,7 @@ import {
   optStr,
 } from "@/lib/forms";
 
-const STAGE_ORDER = ["chick", "grower", "layer"] as const;
+const STAGE_ORDER = ["chick", "grower", "pre_lay", "layer"] as const;
 
 function done(path: string): never {
   revalidatePath("/flocks");
@@ -106,7 +106,9 @@ export async function updateFlock(
             SET display_label = $2, breed = $3, placement_date = $4,
                 source_hatchery = $5, hatchery_bill_photo_url = $6,
                 initial_chick_count = $7, current_bird_count = $8,
-                current_shed = $9, notes = $10
+                current_shed = $9, notes = $10,
+                placement_is_chick_date = $11,
+                placement_date_confirmed = CASE WHEN $12 THEN true ELSE placement_date_confirmed END
           WHERE flock_internal_id = $1`,
         [
           flockId,
@@ -119,6 +121,8 @@ export async function updateFlock(
           optInt(formData, "current_bird_count"),
           optStr(formData, "current_shed"),
           optStr(formData, "notes"),
+          formData.get("placement_is_chick_date") === "on",
+          formData.get("placement_date_confirmed") === "on",
         ]
       );
 

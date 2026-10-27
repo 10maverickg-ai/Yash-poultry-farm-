@@ -76,7 +76,7 @@ export interface ChecksumFinding {
 // rounds or carries a stray +/-1 into — owner-verified, 2026-09-28: the
 // Aug 3 right-section bal birds sum to 71208 against a written 71207, a
 // real, harmless one-off. Never worth a flag on its own.
-const BAL_BIRD_TOLERANCE = 2;
+export const BAL_BIRD_TOLERANCE = 2;
 
 /**
  * Row-signature test (owner report, 2026-09-29 — this exact confusion

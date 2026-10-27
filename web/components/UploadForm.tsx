@@ -84,7 +84,7 @@ export function UploadForm() {
         )}
         <label className="field">
           <span>
-            Date on the page <span className="hint">(used if the photo&apos;s date isn&apos;t legible)</span>
+            Date on the page <span className="hint">(if the page says a different date I will stop and ask before saving)</span>
           </span>
           <input type="date" name="date" defaultValue={todayISO()} required />
         </label>
@@ -104,6 +104,21 @@ export function UploadForm() {
             onChange={handleFileChange}
           />
         </label>
+        {result?.dateMismatch && (
+          <div className="flag-banner stack">
+            <div>
+              The page says <b>{result.dateMismatch.page}</b>; you entered <b>{result.dateMismatch.entered}</b>. Which is right?
+            </div>
+            <div className="actions-bar" style={{ marginBottom: 0 }}>
+              <button type="submit" name="force_date" value={result.dateMismatch.page} disabled={isBusy}>
+                Use the page date {result.dateMismatch.page}
+              </button>
+              <button type="submit" name="force_date" value={result.dateMismatch.entered} className="btn-secondary" disabled={isBusy}>
+                Use my date {result.dateMismatch.entered}
+              </button>
+            </div>
+          </div>
+        )}
         <button type="submit" disabled={isBusy}>
           {compressing ? "Preparing photo…" : pending ? "Reading register…" : "Upload & extract"}
         </button>

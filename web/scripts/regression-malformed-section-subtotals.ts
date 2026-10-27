@@ -91,7 +91,7 @@ function doesNotThrow(name: string, fn: () => void) {
 // produces — see regression-bab6-mortality-chain.ts for the full 7-flock
 // version; one flock is enough to exercise the crash site).
 const rawFlocks: RawFlockInput[] = [
-  { displayLabelAsWritten: "BAB-6", section: "main", mortality: 3, feedBags: 18, eggsTotal: 7020, eggsIi: 7020, birdPopulation: 9680, birdPopulationReadings: [9680, 9680], hdPercentWritten: 72.6, confidence: {} },
+  { displayLabelAsWritten: "BAB-6", section: "main", mortality: 3, feedBags: 18, eggsTotal: 7020, eggsIi: 7020, birdPopulation: 9680, birdPopulationReadings: [9680, 9680], hdPercentWritten: 72.6, confidence: {}, marginNote: null },
 ];
 const locals: LocallyResolvedFlock[] = rawFlocks.map(resolveFieldsLocally);
 const chainInputByLabel = new Map<string, MortalityChecksumInput>([
@@ -119,6 +119,8 @@ const resolvedForPageChecksum: ResolvedFlock[] = locals.map((l) => ({
   extraFlagReasons: l.extraFlagReasons,
   suppressBirdPopulationIncreaseFlag: false,
   transferCandidateDelta: null,
+  marginNote: l.marginNote,
+  movementCandidate: null,
 }));
 
 // Model response shapes that a malformed/partial tool-call JSON response

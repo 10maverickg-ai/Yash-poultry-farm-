@@ -5,6 +5,18 @@ export default function Home() {
     <>
       <h1>Registers</h1>
       <div className="home-menu">
+        <Link href="/today" className="card">
+          <h3>Today</h3>
+          <p className="muted">Eggs, alerts, stock, cash and what is still missing</p>
+        </Link>
+        <Link href="/analytics?view=week" className="card">
+          <h3>This week</h3>
+          <p className="muted">Week summary, compared with the week before</p>
+        </Link>
+        <Link href="/analytics?view=month" className="card">
+          <h3>This month</h3>
+          <p className="muted">Month summary, week by week, sales and costs</p>
+        </Link>
         <Link href="/upload" className="card">
           <h3>Upload Photo</h3>
           <p className="muted">
@@ -62,6 +74,12 @@ export default function Home() {
         <Link href="/records" className="card">
           <h3>Records</h3>
           <p className="muted">Read-only view of everything entered</p>
+        </Link>
+        <Link href="/analytics" className="card">
+          <h3>Analytics</h3>
+          <p className="muted">
+            Farm today, flocks vs BV300 standard, alerts, month totals
+          </p>
         </Link>
         <Link href="/flagged" className="card">
           <h3>Flagged records</h3>

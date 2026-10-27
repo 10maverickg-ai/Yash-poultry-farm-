@@ -8,7 +8,10 @@ import {
   extractDailyProductionSafely,
   ExtractionRejected,
   type ExtractedFlockRow,
+  type ExtractionResult,
 } from "@/lib/extraction/dailyProduction";
+import { extractDailyProductionV2Safely } from "@/lib/extraction/readerV2";
+import { SharpUnavailableError } from "@/lib/extraction/readerV2/sharpLoader";
 import { getReferenceExamples } from "@/lib/extraction/references";
 import { reextractFlaggedFlocks, impliedFields, type FlockRecheckRequest } from "@/lib/extraction/reextract";
 import type { RecheckableField } from "@/lib/extraction/dailyProduction";
@@ -89,12 +92,16 @@ export interface UploadOutcome {
   // recorded to ledger_extraction_issues, so the owner sees it here too,
   // without it being treated as this upload's own `error`.
   ledgerFeedIssue: string | null;
+  // V5 8.3 date rule: set when the date read off the page differs from the
+  // date the owner entered. NOTHING has been saved in that case — the owner
+  // is asked which date is right (resubmit with force_date).
+  dateMismatch: { page: string; entered: string } | null;
 }
 
 const EMPTY: UploadOutcome = {
   error: null, technicalDetail: null, photoUrl: null, date: null,
   pageNotes: null, pageIssue: null, written: [], unresolved: [], autoCorrections: [],
-  ledgerFeed: null, ledgerFeedIssue: null,
+  ledgerFeed: null, ledgerFeedIssue: null, dateMismatch: null,
 };
 
 // Every error shown to the end user must be plain, non-technical text —
@@ -152,9 +159,19 @@ export async function uploadAndExtractDailyProduction(
     return { ...EMPTY, error: "Pick the date shown on the register page" };
   }
 
+  // V5 8.1: the upload queue stores the photo first and passes its URL here,
+  // so the original is not stored twice. Without it (the single-photo form)
+  // the photo is stored here, exactly as before.
+  const existingPhotoUrl = formData.get("existing_photo_url");
+  // V5 8.3: a date the owner has explicitly chosen after a mismatch question.
+  const forceDateRaw = formData.get("force_date");
+  const forceDate = typeof forceDateRaw === "string" && /^\d{4}-\d{2}-\d{2}$/.test(forceDateRaw) ? forceDateRaw : null;
+
   let photoUrl: string;
   try {
-    photoUrl = await uploadRegisterPhoto(file, "production", dateHint);
+    photoUrl = typeof existingPhotoUrl === "string" && existingPhotoUrl.startsWith("https://")
+      ? existingPhotoUrl
+      : await uploadRegisterPhoto(file, "production", dateHint);
   } catch (err) {
     const { friendly } = logAndFriendly(
       "storage upload failed",
@@ -176,17 +193,55 @@ export async function uploadAndExtractDailyProduction(
 
   const photoMediaType = file.type || "image/jpeg";
   let photoBase64: string;
-  let extraction;
+  let extraction: ExtractionResult;
   let flocks: ExtractedFlockRow[];
   try {
-    photoBase64 = Buffer.from(await file.arrayBuffer()).toString("base64");
-    const safe = await extractDailyProductionSafely(
-      photoBase64,
-      photoMediaType,
-      precheckLabels.length
-    );
-    extraction = safe.extraction;
-    flocks = safe.flocks;
+    const photoBuffer = Buffer.from(await file.arrayBuffer());
+    photoBase64 = photoBuffer.toString("base64");
+    // Reader rebuild (owner's "V4 build prompt", Phase 1): the new
+    // region-cropped reader stays OFF by default — it only runs when this
+    // env var is explicitly set, so it can be exercised on a Vercel
+    // preview (the benchmark page) without ever becoming what a real
+    // upload saves until the owner has approved its accuracy. Both paths
+    // throw the SAME ExtractionRejected for a runaway-count failure and
+    // land on the SAME { extraction, flocks } shape below, so nothing
+    // past this point needs to know which reader ran.
+    const readerResult = await (async (): Promise<{ extraction: ExtractionResult; flocks: ExtractedFlockRow[] }> => {
+      if (process.env.READER_V2_ENABLED === "true") {
+        try {
+          const safe = await extractDailyProductionV2Safely(
+            photoBuffer,
+            photoMediaType,
+            precheckLabels.length
+          );
+          console.log(
+            `[upload] readerV2: ${safe.retryRoundsRun} checksum retry round(s); retried flock(s): ${safe.retriedLabels.join(", ") || "none"}`
+          );
+          return { extraction: safe.extraction, flocks: safe.flocks };
+        } catch (err) {
+          // Owner report, 2026-10-19: sharp (readerV2's own image rotation
+          // and page-splitting) failed to load on a Vercel preview with a
+          // native dlopen error —
+          // a real upload must NEVER 500 just because the reader switch is
+          // on and this one dependency couldn't load in this deployment.
+          // Fall back to the proven old reader instead; this is the only
+          // error extractDailyProductionV2Safely can throw that's safe to
+          // silently retry with a different reader — anything else (a real
+          // extraction failure) should surface normally, not be masked by a
+          // second, different attempt.
+          if (!(err instanceof SharpUnavailableError)) throw err;
+          console.error(`[upload] readerV2 unavailable (${err.message}) — falling back to the old reader`);
+        }
+      }
+      const safe = await extractDailyProductionSafely(
+        photoBase64,
+        photoMediaType,
+        precheckLabels.length
+      );
+      return { extraction: safe.extraction, flocks: safe.flocks };
+    })();
+    extraction = readerResult.extraction;
+    flocks = readerResult.flocks;
   } catch (err) {
     // Photo is already stored even though extraction failed — matches the
     // spec's rule 1 (store the photo regardless of downstream outcome).
@@ -219,9 +274,22 @@ export async function uploadAndExtractDailyProduction(
     return { ...EMPTY, photoUrl, error: friendly, technicalDetail: detail };
   }
 
-  // The date on the page is authoritative if legible; the date the
-  // supervisor picked at upload time is the fallback.
-  const date = extraction.date && extraction.date_confidence > 0.5 ? extraction.date : dateHint;
+  // V5 8.3 — the date rule: read the date from the page and compare it with
+  // the date the owner entered. If they differ, STOP and ask; never save
+  // under a misread (or a mistyped) date. The owner's explicit answer comes
+  // back as force_date. If the page date is not legible the entered date is
+  // used, and says so in the notes.
+  const pageDate = extraction.date && extraction.date_confidence > 0.5 ? extraction.date : null;
+  if (!forceDate && pageDate && pageDate !== dateHint) {
+    return {
+      ...EMPTY,
+      photoUrl,
+      date: dateHint,
+      dateMismatch: { page: pageDate, entered: dateHint },
+      error: `The page says ${pageDate} but you entered ${dateHint}. Nothing has been saved — tell me which date is right.`,
+    };
+  }
+  const date = forceDate ?? dateHint;
 
   // Diagnostic only — sections_found doesn't gate anything, but is worth
   // having in the logs while we build confidence in the multi-section fix.
@@ -285,6 +353,24 @@ export async function uploadAndExtractDailyProduction(
         [ACTIVE_FARM, date]
       );
 
+      // Same reasoning as the page-issues cleanup above, for flock_movements
+      // rows this reader generates from margin notes: a re-upload of this
+      // date must not leave a STALE, still-unresolved candidate sitting
+      // alongside a fresh one. flock_movements has no deleted_at column
+      // (unlike page issues), so this is a hard delete — but only ever of
+      // rows this exact mechanism wrote AND the owner hasn't touched yet
+      // (reviewed_by_owner = false). A movement the owner has already
+      // resolved for this date (e.g. confirmed "shifted to Anil farm") is
+      // real, owner-confirmed history and must survive a re-upload
+      // untouched — never deleted or regenerated from here.
+      await client.query(
+        `DELETE FROM flock_movements
+          WHERE farm_code = $1 AND date = $2
+            AND source = 'register margin note + bird-count chain'
+            AND reviewed_by_owner = false`,
+        [ACTIVE_FARM, date]
+      );
+
       // ===== Stage 2, per flock (pipeline.ts) — needs only this flock's
       // own raw reading, so it runs for every flock the model found —
       // matched or not, same as the page checksums below: the page's own
@@ -313,6 +399,7 @@ export async function uploadAndExtractDailyProduction(
           birdPopulationReadings: flock.bird_population_readings,
           hdPercentWritten: flock.hd_percent,
           confidence: flock.confidence,
+          marginNote: flock.margin_note,
         };
         const local = resolveFieldsLocally(rawInput);
 
@@ -510,6 +597,43 @@ export async function uploadAndExtractDailyProduction(
           );
           unresolved.push(flock.displayLabelAsWritten);
           continue;
+        }
+
+        // Owner request, 2026-10-15: stage 5 (applyBirdTransferDetection)
+        // decided this flock's unexplained bird-count change deserves a
+        // flock_movements row, not just the flag message already in
+        // extraFlagReasons — write it now, inside this same transaction, so
+        // it can never exist without the daily_production row it's about
+        // also existing (and vice versa). counterpartLabel (if any) is
+        // resolved through chainByLabel — built from THIS SAME upload's own
+        // flock resolution, never a fresh query — since the counterpart is
+        // necessarily a flock this same upload already processed (margin
+        // notes only ever pair flocks on the same page).
+        if (flock.movementCandidate) {
+          const mc = flock.movementCandidate;
+          const counterpartFlockId = mc.counterpartLabel
+            ? chainByLabel.get(mc.counterpartLabel)?.flockInternalId ?? null
+            : null;
+          const movementType =
+            mc.unexplainedDelta < 0
+              ? counterpartFlockId
+                ? "transfer_out"
+                : "unexplained_out"
+              : counterpartFlockId
+                ? "transfer_in"
+                : "unexplained_in";
+          const registerNote = mc.marginNote
+            ? `Margin note ${mc.marginNote}`
+            : mc.counterpartLabel
+              ? `Paired with ${mc.counterpartLabel}'s own margin note`
+              : "No margin note; source not known";
+          await client.query(
+            `INSERT INTO flock_movements
+                 (farm_code, date, flock_internal_id, birds_change, movement_type,
+                  counterpart_flock_id, register_note, source, needs_review, reviewed_by_owner)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,'register margin note + bird-count chain', true, false)`,
+            [ACTIVE_FARM, date, flockInternalId, mc.unexplainedDelta, movementType, counterpartFlockId, registerNote]
+          );
         }
 
         // Owner report, 2026-10-03, production: BAB-2, 2026-08-05 —
@@ -790,5 +914,6 @@ export async function uploadAndExtractDailyProduction(
     autoCorrections,
     ledgerFeed: ledgerFeedResult,
     ledgerFeedIssue,
+    dateMismatch: null,
   };
 }

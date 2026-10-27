@@ -48,3 +48,25 @@ export async function uploadRegisterPhoto(
   const { data } = getClient().storage.from(BUCKET).getPublicUrl(path);
   return data.publicUrl;
 }
+
+/**
+ * Uploads a photo for the reader-rebuild benchmark page ONLY (owner
+ * request, 2026-10-19) — same bucket as a real register photo, but under
+ * its own "benchmark/" prefix so it's never confusable with one. Its URL
+ * is stored in reader_benchmark_photos, never in daily_production or any
+ * other production table, and nothing in the upload flow ever reads this
+ * prefix.
+ */
+export async function uploadBenchmarkPhoto(file: File, date: string): Promise<string> {
+  const ext = file.name.split(".").pop()?.toLowerCase() || "jpg";
+  const path = `benchmark/${date}/${Date.now()}-${crypto.randomUUID().slice(0, 8)}.${ext}`;
+
+  const { error } = await getClient().storage.from(BUCKET).upload(path, file, {
+    contentType: file.type || "image/jpeg",
+    upsert: false,
+  });
+  if (error) throw new Error(`Benchmark photo upload failed: ${error.message}`);
+
+  const { data } = getClient().storage.from(BUCKET).getPublicUrl(path);
+  return data.publicUrl;
+}

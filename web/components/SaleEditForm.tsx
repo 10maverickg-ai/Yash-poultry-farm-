@@ -7,6 +7,7 @@ import type { SaleRow } from "@/lib/eggstock-types";
 const TRANSACTION_TYPES = [
   "sale_farmfresh",
   "sale_wholesaler",
+  "local",
   "gift",
   "staff_allocation",
   "other",
