@@ -25,7 +25,7 @@ ok("young feed: not recorded; main feed recorded", !young.feedRecorded && main.f
 ok("main feed per bird uses only the rows that record feed", main.feedBirds <= main.birds && main.feedBirds > 0);
 
 // October to date
-let oct = { all: 0, main: 0, young: 0, birdsAll: 0, birdsMain: 0, birdsYoung: 0, mAll: 0, mMain: 0, mYoung: 0 };
+const oct = { all: 0, main: 0, young: 0, birdsAll: 0, birdsMain: 0, birdsYoung: 0, mAll: 0, mMain: 0, mYoung: 0 };
 for (let d = "2026-10-01"; d <= D; d = addDays(d, 1)) {
   const a = dayTotals(ctx, d), m = dayTotals(ctx, d, "main"), y = dayTotals(ctx, d, "young");
   if (a) { oct.all += a.eggs; oct.birdsAll += a.birds; oct.mAll += a.mort; }
