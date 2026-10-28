@@ -2,6 +2,7 @@ import Link from "next/link";
 import { pool } from "@/lib/db";
 import { ACTIVE_FARM } from "@/lib/farm";
 import { loadCostInput } from "@/lib/costs/load";
+import { dmy } from "@/lib/format";
 import { monthEconomics } from "@/lib/costs/engine";
 import { ExportLinks } from "@/components/ExportLinks";
 import { addCostSetting, addPurchase, addDiesel, completeMonthInput } from "./actions";
@@ -171,7 +172,7 @@ export default async function PurchasesPage({ searchParams }: { searchParams: Pr
           <thead><tr><th>Date</th><th>Category</th><th>What</th><th>Qty</th><th>₹</th></tr></thead>
           <tbody>
             {purchases.rows.length === 0 ? (<tr><td colSpan={5} className="muted">No purchases entered yet.</td></tr>) : purchases.rows.map((p, i) => (
-              <tr key={i}><td>{p.date}</td><td>{p.category.replace("_", " ")}</td><td>{p.item}{p.supplier ? <span className="muted"> · {p.supplier}</span> : null}</td><td>{p.quantity ?? ""} {p.unit ?? ""}</td><td>{inr(Number(p.amount_inr))}</td></tr>
+              <tr key={i}><td>{dmy(p.date)}</td><td>{p.category.replace("_", " ")}</td><td>{p.item}{p.supplier ? <span className="muted"> · {p.supplier}</span> : null}</td><td>{p.quantity ?? ""} {p.unit ?? ""}</td><td>{inr(Number(p.amount_inr))}</td></tr>
             ))}
           </tbody>
         </table>
@@ -189,7 +190,7 @@ export default async function PurchasesPage({ searchParams }: { searchParams: Pr
       {diesel.rows.length > 0 && (
         <div className="table-wrap"><table>
           <thead><tr><th>Date</th><th>Litres</th><th>₹</th></tr></thead>
-          <tbody>{diesel.rows.map((d, i) => (<tr key={i}><td>{d.date}</td><td>{Number(d.litres)}</td><td>{inr(Number(d.amount_inr))}</td></tr>))}</tbody>
+          <tbody>{diesel.rows.map((d, i) => (<tr key={i}><td>{dmy(d.date)}</td><td>{Number(d.litres)}</td><td>{inr(Number(d.amount_inr))}</td></tr>))}</tbody>
         </table></div>
       )}
     </>

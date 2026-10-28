@@ -1,14 +1,14 @@
 import Link from "next/link";
 import { listProductionDates, loadDay, hdOf } from "@/lib/day/load";
 import { ExportLinks } from "@/components/ExportLinks";
+import { dmy } from "@/lib/format";
 import { SEGMENT_NAME } from "@/lib/analytics/engine";
 
 export const dynamic = "force-dynamic";
 
 const iso = /^\d{4}-\d{2}-\d{2}$/;
 const n0 = (x: number | null | undefined) => (x == null ? "–" : x.toLocaleString("en-IN"));
-const pretty = (d: string) =>
-  new Date(d + "T00:00:00Z").toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
+const pretty = (d: string) => dmy(d);
 const TYPE: Record<string, string> = {
   transfer_out: "moved out",
   transfer_in: "moved in",
@@ -96,9 +96,9 @@ export default async function DayPage({ searchParams }: { searchParams: Promise<
         <div key={r.id} className={`card day-flock${r.flagged && !r.reviewed ? " day-flagged" : ""}`}>
           <div className="day-flock-head">
             <div>
-              <strong className="an-flock-name">{r.flockName}</strong>
+              <strong className="an-flock-name"><Link href={`/flocks/${r.flockId}`} className="plain-link">{r.flockName}</Link></strong>
               <div className="muted an-tiny">
-                {r.registerLabel && r.registerLabel !== r.flockName ? `register label ${r.registerLabel}` : r.registerLabel ? "register label same" : ""}
+                {r.registerLabel && r.registerLabel !== r.flockName ? `written in the register as ${r.registerLabel}` : ""}
               </div>
             </div>
             <div className="day-hd">

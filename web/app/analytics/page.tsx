@@ -417,7 +417,7 @@ function FlockCardView({ c }: { c: FlockCard }) {
           <strong className="an-flock-name">{c.label}</strong>
           <div className="muted an-tiny">
             {[
-              c.registerLabel !== c.label && c.registerLabel ? `register label ${c.registerLabel}` : "",
+              c.registerLabel !== c.label && c.registerLabel ? `written in the register as ${c.registerLabel}` : "",
               c.placementDate ? (c.tag ?? "") : "placement date not set",
               c.ageWeeks != null ? `week ${c.ageWeeks}` : "",
               c.breed ? breedName(c.breed) : "",
