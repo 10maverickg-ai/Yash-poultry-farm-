@@ -12,9 +12,14 @@ export function RatesForm() {
   return (
     <div className="stack">
       <form action={readAction} className="card stack">
+        <fieldset className="field rate-source">
+          <legend><b>What are the numbers you are pasting?</b> <span className="hint">(choose one — it changes how they are saved)</span></legend>
+          <label className="check-line"><input type="radio" name="source" value="sms" required /> <span><b>A BAFTA message</b> — the raw rate, e.g. “RS.560/-” (before the subsidy and before my price cut)</span></label>
+          <label className="check-line"><input type="radio" name="source" value="list" required /> <span><b>My own price list</b> — my net selling price per egg for each day, e.g. “19 Oct 2026 5.22” (BAFTA − subsidy − 0.03)</span></label>
+        </fieldset>
         <label className="field">
-          <span>Paste the rate message(s) — one or many days at once</span>
-          <textarea name="text" rows={6} placeholder="OCTOBER 19, 2026 BFTA EGG RATE RS.560/- Subsidy for 0 Paise" />
+          <span>Paste the numbers — one or many days at once (one line per day for a price list)</span>
+          <textarea name="text" rows={6} placeholder={"BAFTA message: OCTOBER 19, 2026 BFTA EGG RATE RS.560/- Subsidy for 0 Paise\nMy price list: 19 Oct 2026  5.22"} />
         </label>
         <label className="field">
           <span>
@@ -44,6 +49,7 @@ export function RatesForm() {
                 <input type="hidden" name={`per100_${r.key}`} value={r.per100} />
                 <input type="hidden" name={`subsidy_${r.key}`} value={r.subsidyPaise} />
                 <input type="hidden" name={`orig_${r.key}`} value={r.original} />
+                <input type="hidden" name={`src_${r.key}`} value={r.source} />
                 <input type="hidden" name={`msgdate_${r.key}`} value={r.messageDate ?? ""} />
                 <input type="hidden" name={`entered_${r.key}`} value={r.enteredDate ?? ""} />
                 <label className="rate-use">
@@ -54,8 +60,14 @@ export function RatesForm() {
                   <input type="date" name={`date_${r.key}`} defaultValue={r.messageDate ?? r.enteredDate ?? ""} required />
                 </label>
                 <div className="rate-nums">
-                  <span><b>₹{(r.per100 / 100).toFixed(2)}</b> per egg ({r.per100} per 100)</span>
-                  <span>subsidy {r.subsidyPaise} paise → <b>₹{r.effective.toFixed(2)}</b></span>
+                  {r.source === "list" ? (
+                    <span>Your net price <b>₹{(r.effective - 0.03).toFixed(2)}</b> per egg → BAFTA rate saved <b>₹{r.effective.toFixed(2)}</b></span>
+                  ) : (
+                    <>
+                      <span><b>₹{(r.per100 / 100).toFixed(2)}</b> per egg ({r.per100} per 100)</span>
+                      <span>subsidy {r.subsidyPaise} paise → <b>₹{r.effective.toFixed(2)}</b></span>
+                    </>
+                  )}
                   <span>Farmfresh ₹{r.farmfresh.toFixed(2)} (big or small) · local ₹{r.local.toFixed(2)}</span>
                 </div>
                 {r.existing != null && <div className="flag-banner">Replaces the rate already saved for this date (₹{r.existing.toFixed(2)}).</div>}

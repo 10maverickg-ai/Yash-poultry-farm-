@@ -763,3 +763,5 @@ input[type="file"] { min-height: 44px; padding: 0.55rem 0.4rem; }
 .fr-quick { gap: 0.4rem; }
 .fr-quick form { flex: 1 1 9rem; }
 .fr-quick button { width: 100%; }
+.rate-source { border: 1px solid var(--line); border-radius: 10px; padding: 0.6rem 0.8rem; margin: 0; }
+.rate-source legend { padding: 0 0.3rem; }
