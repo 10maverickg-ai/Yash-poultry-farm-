@@ -69,6 +69,7 @@ export default async function PurchasesPage({ searchParams }: { searchParams: Pr
       {sp.saved && <div className="saved-banner">{sp.saved}</div>}
       {sp.error && <div className="error-banner">{sp.error}</div>}
 
+      {months.length === 0 && <p className="card muted">No days have been entered yet, so there are no monthly costs to show. <Link href="/upload">Upload the first register photo</Link>.</p>}
       {months.length > 0 && (
         <div className="card">
           <ExportLinks kind="costs" month={months[0]} label="Costs and profit" />
