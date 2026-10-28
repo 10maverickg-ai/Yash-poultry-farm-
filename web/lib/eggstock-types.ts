@@ -15,8 +15,8 @@ export const ENTRY_CATEGORIES = [
 export type EntryCategory = (typeof ENTRY_CATEGORIES)[number];
 
 // The farm runs TWO parallel ledgers on the same page (owner-confirmed,
-// 2026-10-19): "big" under the BAB-1..7 table, "small" under the BAB-8..10
-// table — see migration 0020.
+// 2026-10-19): "big" under the BAB-1..8 table (right page), "small" under the BAB-9..11
+// table (left page; since 27 Oct 2026, was BAB-1..7 / BAB-8..10) — see migration 0020.
 export const EGG_STOCK_SECTIONS = ["small", "big"] as const;
 export type EggStockSection = (typeof EGG_STOCK_SECTIONS)[number];
 

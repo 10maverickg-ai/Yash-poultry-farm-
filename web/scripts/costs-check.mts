@@ -33,4 +33,27 @@ console.log("Sep missing:", sep.missing, "electricity counted as", Math.round(se
 check("Sep electricity is 0 (not entered), never guessed", sep.cost.electricity, 0);
 const d = dayEconomics(input, "2026-08-10");
 console.log("Aug 10:", { sold: d.eggsSold, revenue: Math.round(d.revenue), cost: Math.round(d.cost.total), perEgg: d.revenuePerEgg?.toFixed(2) });
+// V9: chick purchase cost, not-entered inputs, to-date months
+{
+  const v9: CostInput = {
+    ...input,
+    settings: [...input.settings.filter((x) => x.type !== "feed_per_kg"), { type: "chick_cost_per_chick", value: 52, effectiveFrom: "2026-05-01", month: null }, { type: "electricity_month", value: 99080, effectiveFrom: "2026-09-01", month: "2026-09" }, { type: "electricity_month", value: 58180, effectiveFrom: "2026-10-01", month: "2026-10" }, { type: "feed_per_kg", value: 33.33, effectiveFrom: "2026-08-01", month: null }],
+    chickBatches: [{ arrival: "2026-09-18", count: 16000 }, { arrival: "2026-06-06", count: 737 }],
+    statuses: [{ month: "2026-09", key: "diesel", status: "none" }],
+  };
+  const sepc = monthEconomics(v9, "2026-09");
+  check("V9: Sep chick purchase = 16,000 x INR 52 = 8,32,000 (month of arrival)", sepc.cost.chicks, 832000);
+  const augc = monthEconomics(v9, "2026-08");
+  check("V9: Aug has no chick purchase (the 6 Jun batch is in June)", augc.cost.chicks, 0);
+  check("V9: total includes the chick cost", sepc.cost.total - sepc.cost.chicks, sepc.cost.feed + sepc.cost.electricity + sepc.cost.labour + sepc.cost.packing + sepc.cost.diesel + sepc.cost.medicine + sepc.cost.other);
+  const miss = (m: string[], k: string) => m.some((x) => x.startsWith(k));
+  console.log(`${!miss(sepc.missing, "diesel") && miss(sepc.missing, "medicines") && miss(sepc.missing, "other costs") ? "PASS" : "FAIL"}  Sep: diesel said 'none' so not missing; medicines and other costs NOT ENTERED (missing, not zero)`);
+  if (miss(sepc.missing, "diesel") || !miss(sepc.missing, "medicines") || !miss(sepc.missing, "other costs")) bad++;
+  const feedAug = v9.prod.filter((p) => p.date.startsWith("2026-08")).reduce((t, p) => t + p.feedBags, 0) * 45 * 33.33;
+  check("V9: Aug feed = bags x 45 kg x INR 33.33", monthEconomics(v9, "2026-08").cost.feed, feedAug);
+  check("V9: Sep electricity is the INR 99,080 bill", sepc.cost.electricity, 99080);
+  const octc = monthEconomics(v9, "2026-10");
+  check("V9: October is TO DATE (26 of 31 days): the INR 58,180 bill is counted for 26 days", octc.cost.electricity, (58180 / 31) * octc.days, 1);
+  check("V9: October has 26 days with data", octc.days, 26);
+}
 process.exit(bad ? 1 : 0);

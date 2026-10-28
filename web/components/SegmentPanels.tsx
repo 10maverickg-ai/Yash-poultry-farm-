@@ -24,7 +24,7 @@ function Cell({ title, value, sub }: { title: string; value: string; sub?: strin
 function trend(now: number | null, prev: number | null): string | undefined {
   if (now == null || prev == null) return undefined;
   const d = now - prev;
-  return `${d >= 0 ? "▲" : "▼"} ${n1(Math.abs(d))} pts vs the 7 days before`;
+  return `${d >= 0 ? "▲ up" : "▼ down"} ${n1(Math.abs(d))} from the 7 days before`;
 }
 
 export function SegmentPanelView({ p, detailHref }: { p: SegmentPanel; detailHref?: string }) {
@@ -32,16 +32,16 @@ export function SegmentPanelView({ p, detailHref }: { p: SegmentPanel; detailHre
   return (
     <section className={`card seg-panel seg-${p.segment}`} aria-label={SEGMENT_NAME[p.segment]}>
       <h2 style={{ marginTop: 0 }}>
-        {SEGMENT_NAME[p.segment]}
-        {p.ramping > 0 && <span className="an-pill an-pill-ramping" style={{ marginLeft: "0.5rem" }}>{p.ramping} ramping up</span>}
+        {detailHref ? <Link href={detailHref.split("#")[0]} className="plain-link">{SEGMENT_NAME[p.segment]} ›</Link> : SEGMENT_NAME[p.segment]}
+        {p.ramping > 0 && <span className="an-pill an-pill-ramping" style={{ marginLeft: "0.5rem" }}>↗ {p.ramping} ramping up</span>}
       </h2>
       <p className="muted an-sub" style={{ marginTop: 0 }}>{WHAT[p.segment]}</p>
       {!t ? (
         <p className="muted">No rows for this group on this day.</p>
       ) : (
-        <div className="an-grid">
-          <Cell title="HD % (7-day)" value={p.hd7 != null ? `${n1(p.hd7)}%` : "–"} sub={trend(p.hd7, p.hdPrev7) ?? (t.hd != null ? `today ${n1(t.hd)}%` : undefined)} />
-          <Cell title="Eggs today" value={n0(t.eggs)} sub={p.eggsAvg7 != null ? `7-day average ${n0(p.eggsAvg7)}` : undefined} />
+        <div className="an-grid seg-grid">
+          <Cell title="Eggs per 100 birds (HD %), last 7 days" value={p.hd7 != null ? n1(p.hd7) : "–"} sub={trend(p.hd7, p.hdPrev7) ?? (t.hd != null ? `today ${n1(t.hd)}` : undefined)} />
+          <Cell title="Eggs laid today" value={n0(t.eggs)} sub={p.eggsAvg7 != null ? `usual: ${n0(p.eggsAvg7)} a day` : undefined} />
           <Cell title="Birds" value={n0(t.birds)} sub={`${t.flocks} flock${t.flocks === 1 ? "" : "s"}`} />
           <Cell title="Deaths" value={n0(t.mort)} sub={p.deathsPerDay7 != null ? `${n1(p.deathsPerDay7)}/day · ${p.mortPct7 != null ? p.mortPct7.toFixed(2) : "–"}% in 7 days` : undefined} />
           {p.feed.recorded ? (
@@ -53,11 +53,11 @@ export function SegmentPanelView({ p, detailHref }: { p: SegmentPanel; detailHre
           ) : (
             <Cell title="Feed" value="not recorded" sub="feed is not recorded for this group" />
           )}
-          <Cell title={p.segment === "main" ? "Egg stock (big ledger)" : "Egg stock (small ledger)"} value={p.stock ? `${n1(p.stock.days)} days` : "–"} sub={p.stock ? `${n0(p.stock.closing)} eggs` : "no ledger row"} />
+          <Cell title={p.segment === "main" ? "Big eggs in stock" : "Small eggs in stock"} value={p.stock ? `${n1(p.stock.days)} days` : "–"} sub={p.stock ? `${n0(p.stock.closing)} eggs` : "no ledger row"} />
         </div>
       )}
       <p className="an-foot" style={{ marginBottom: 0 }}>
-        <b>Revenue by size:</b> big {inr(p.revenue.weekBig)} · small {inr(p.revenue.weekSmall)} in the last 7 days{p.revenue.day ? ` (${inr(p.revenue.day)} on the day)` : ""}.
+        <b>Eggs sold, last 7 days:</b> big eggs {inr(p.revenue.weekBig)} · small eggs {inr(p.revenue.weekSmall)}{p.revenue.day ? ` (${inr(p.revenue.day)} today)` : ""}.
         {p.revenue.unpricedEggsWeek > 0 ? ` ${n0(p.revenue.unpricedEggsWeek)} eggs unpriced.` : ""}
       </p>
       <div style={{ marginTop: "0.5rem" }}>

@@ -1,7 +1,8 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { parseRateMessages, rateNumbers } from "@/lib/rates/parse";
+import { parseRateMessages, parseNetPriceList, rateNumbers } from "@/lib/rates/parse";
+import { friendlyReaderError } from "@/lib/reader/friendlyError";
 import { existingRateDates, saveRates, type RateToSave } from "@/lib/rates/store";
 import { getAnthropicClient, EXTRACTION_MODEL } from "@/lib/extraction/anthropicClient";
 
@@ -17,6 +18,7 @@ export interface PreviewRow {
   effective: number;
   farmfresh: number;
   local: number;
+  source: "sms" | "list"; // a pasted BAFTA message (raw rate) or the owner's own net price list
 }
 export interface PreviewState {
   rows: PreviewRow[];
@@ -58,9 +60,16 @@ export async function previewRates(_prev: PreviewState | null, formData: FormDat
     if (shot instanceof File && shot.size > 0) text += "\n" + (await textFromScreenshot(shot));
     const entered = String(formData.get("enteredDate") ?? "");
     const enteredDate = iso.test(entered) ? entered : null;
-    const parsed = parseRateMessages(text);
+    const source: "list" | "sms" | null = formData.get("source") === "list" ? "list" : formData.get("source") === "sms" ? "sms" : null;
+    if (!source) return { rows: [], error: "First say what these numbers are: a BAFTA message (the raw rate) or your own price list (your net selling price)." };
+    const parsed = source === "list" ? parseNetPriceList(text) : parseRateMessages(text);
     if (parsed.length === 0) {
-      return { rows: [], error: "I could not find a rate in that text. It should look like: OCTOBER 19, 2026 BFTA EGG RATE RS.560/- Subsidy for 0 Paise" };
+      return {
+        rows: [],
+        error: source === "list"
+          ? "I could not find a price in that text. Write one line per day, for example: 19 Oct 2026  5.22"
+          : "I could not find a rate in that text. It should look like: OCTOBER 19, 2026 BFTA EGG RATE RS.560/- Subsidy for 0 Paise",
+      };
     }
     const dates = [...new Set(parsed.flatMap((p) => [p.date, enteredDate]).filter((d): d is string => !!d))];
     const existing = await existingRateDates(dates);
@@ -79,11 +88,13 @@ export async function previewRates(_prev: PreviewState | null, formData: FormDat
         effective: n.effective,
         farmfresh: n.farmfresh,
         local: n.local,
+        source,
       };
     });
     return { rows };
   } catch (e) {
-    return { rows: [], error: e instanceof Error ? e.message : "Could not read the message." };
+    const paused = friendlyReaderError(e);
+    return { rows: [], error: paused ? paused.friendly : e instanceof Error ? e.message : "Could not read the message." };
   }
 }
 
@@ -107,7 +118,8 @@ export async function confirmRates(_prev: PreviewState | null, formData: FormDat
       if (msgDate && entered && msgDate !== entered && formData.get(`confirmdate_${key}`) !== "on") {
         return { rows: [], error: `Row ${Number(key) + 1}: the message says ${msgDate} but you are entering ${entered}. Tick "the message date is right" or fix the date.` };
       }
-      toSave.push({ date, per100, subsidyPaise: Math.round(subsidy), original: String(formData.get(`orig_${key}`) ?? ""), dateInMessage: iso.test(msgDate) ? msgDate : null });
+      const src = formData.get(`src_${key}`) === "list" ? "list" : "sms";
+      toSave.push({ date, per100, subsidyPaise: Math.round(subsidy), original: String(formData.get(`orig_${key}`) ?? ""), dateInMessage: iso.test(msgDate) ? msgDate : null, source: src === "list" ? "owner price list (net selling price, stored +0.03)" : "pasted rate message" });
     }
     if (toSave.length === 0) return { rows: [], error: "Nothing selected to save." };
     const { saved, salesCreated } = await saveRates(toSave);

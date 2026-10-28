@@ -13,7 +13,7 @@ export function loadInput(dir: string): EngineInput {
       label: f.display_label,
       breed: f.breed,
       placementDate: f.placement_date,
-      placementConfirmed: false,
+      placementConfirmed: f.placement_date_confirmed === true,
       segment: f.segment ?? null,
     })),
     prod: j("dp").map((r: any) => ({

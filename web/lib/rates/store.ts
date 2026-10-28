@@ -45,6 +45,7 @@ export interface RateToSave {
   subsidyPaise: number;
   original: string;
   dateInMessage: string | null;
+  source?: string; // where the numbers came from (pasted BAFTA message, or the owner's own net price list)
 }
 
 /**
@@ -60,12 +61,12 @@ export async function saveRates(entries: RateToSave[]): Promise<{ saved: number;
       await client.query(
         `INSERT INTO daily_egg_rates
            (date, bafta_rate, source, rate_per_100, subsidy_paise, original_text, date_in_message, carried_forward)
-         VALUES ($1,$2,'pasted rate message',$3,$4,$5,$6,false)
+         VALUES ($1,$2,$7,$3,$4,$5,$6,false)
          ON CONFLICT (date) DO UPDATE SET
            bafta_rate = EXCLUDED.bafta_rate,
            source = EXCLUDED.source, rate_per_100 = EXCLUDED.rate_per_100, subsidy_paise = EXCLUDED.subsidy_paise,
            original_text = EXCLUDED.original_text, date_in_message = EXCLUDED.date_in_message, carried_forward = false`,
-        [e.date, n.effective, e.per100, e.subsidyPaise, e.original, e.dateInMessage]
+        [e.date, n.effective, e.per100, e.subsidyPaise, e.original, e.dateInMessage, e.source ?? "pasted rate message"]
       );
     }
     for (const e of entries) salesCreated += await createMissingSalesForDate(client, e.date);

@@ -5,7 +5,7 @@ import { ACTIVE_FARM } from "@/lib/farm";
 // a real figure exists for that month, or the owner has said "none this month"
 // (diesel, medicines) / "this figure is right" (labour, packing). Nothing is ever
 // filled in on the owner's behalf.
-export type InputKey = "electricity" | "diesel" | "medicines" | "labour" | "packing";
+export type InputKey = "electricity" | "diesel" | "medicines" | "labour" | "packing" | "other";
 
 export interface ChecklistItem {
   key: InputKey;
@@ -32,11 +32,13 @@ export async function monthChecklist(month: string): Promise<ChecklistItem[]> {
   const dsl = diesel.rows[0].n + pn(["diesel"]);
   const med = pn(["medicine", "vaccine"]);
   const labourExact = has("labour_month");
+  const oth = pn(["feed_ingredient", "packing", "electricity", "labour", "other"]);
   return [
     { key: "electricity", label: "Electricity bill", done: elec, how: elec ? "entered" : "not entered — counted as 0 until you enter it" },
     { key: "diesel", label: "Diesel", done: dsl > 0 || st.get("diesel") === "none", how: dsl > 0 ? `${dsl} purchase(s) entered` : st.get("diesel") === "none" ? "none bought this month" : "nothing entered" },
     { key: "medicines", label: "Medicines and vaccines", done: med > 0 || st.get("medicines") === "none", how: med > 0 ? `${med} purchase(s) entered` : st.get("medicines") === "none" ? "none bought this month" : "nothing entered" },
     { key: "labour", label: "Labour (monthly total)", done: labourExact || st.get("labour") === "confirmed", how: labourExact ? "entered for this month" : st.get("labour") === "confirmed" ? "standing figure confirmed" : "using the standing estimate — not confirmed", standing: labour.rows[0] ? Number(labour.rows[0].value) : undefined },
+    { key: "other", label: "Other costs (repairs, transport, vet visits…)", done: oth > 0 || st.get("other") === "none", how: oth > 0 ? `${oth} purchase(s) entered` : st.get("other") === "none" ? "none this month" : "nothing entered" },
     { key: "packing", label: "Packing (₹ per tray sold)", done: st.get("packing") === "confirmed", how: st.get("packing") === "confirmed" ? "standing figure confirmed" : "using the standing estimate — not confirmed", standing: packing.rows[0] ? Number(packing.rows[0].value) : undefined },
   ];
 }

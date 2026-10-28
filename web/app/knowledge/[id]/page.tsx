@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { pool } from "@/lib/db";
 import { ACTIVE_FARM } from "@/lib/farm";
 import { breedKey } from "@/lib/analytics/engine";
+import { isPlaceholderDate } from "@/lib/ageWeeks";
 
 export const dynamic = "force-dynamic";
 
@@ -69,7 +70,7 @@ export default async function KnowledgeEntryPage({ params }: { params: Promise<{
           <div className="card">
             <ul className="an-list">
               {flocks.rows.map((f) => {
-                if (!f.placement_date || (!f.placement_date_confirmed && String(f.placement_date).slice(0, 10) === "2026-01-01")) {
+                if (!f.placement_date || isPlaceholderDate(f.placement_date, f.placement_date_confirmed)) {
                   return <li key={f.display_label}><b>{f.display_label}</b>: age unknown, no standard check (set the real placement date on the Flocks screen).</li>;
                 }
                 const age = Math.floor((Date.parse(today) - Date.parse(String(f.placement_date).slice(0, 10))) / 86400000 / 7);

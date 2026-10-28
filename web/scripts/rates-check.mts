@@ -1,6 +1,6 @@
 // Tests the BAFTA rate message parser on the sample SMS and layout variants.
 //   node scripts/rates-check.mts
-import { parseRateMessages, rateNumbers, findDate, classifySale, salePrice } from "../lib/rates/parse.ts";
+import { parseRateMessages, parseNetPriceList, rateNumbers, findDate, classifySale, salePrice } from "../lib/rates/parse.ts";
 
 let failed = 0;
 const eq = (name: string, got: unknown, want: unknown) => {
@@ -34,4 +34,15 @@ eq("classify: 'sale' with a big lot -> farmfresh (big or small grade does not ma
 eq("classify: label says local -> local", classifySale({ category: "sale", label: "Local sale", eggs: 900 }), "local");
 eq("classify: a small lot of 120 eggs is never Farmfresh", classifySale({ category: "sale", label: "Sale", eggs: 120 }), "local");
 eq("classify: 150 eggs is still a small lot; 180 is not", [classifySale({ category: "sale", label: "Sale", eggs: 150 }), classifySale({ category: "sale", label: "Sale", eggs: 180 })], ["local", "farmfresh"]);
+// V9 J9: the owner's own price list is his NET selling price; stored BAFTA rate = list + 0.03
+{
+  const list = parseNetPriceList("19 Oct 2026  5.22\n20-10-2026 5.30\n2026-10-21: ₹5.41");
+  eq("price list: three lines, three dates", list.map((r) => r.date), ["2026-10-19", "2026-10-20", "2026-10-21"]);
+  eq("price list: 5.22 net is stored as BAFTA 5.25 (per100 525, no subsidy)", [list[0].per100, list[0].subsidyPaise], [525, 0]);
+  const n = rateNumbers(list[0].per100, list[0].subsidyPaise);
+  eq("price list: Farmfresh gets exactly the owner's 5.22 back, local 5.26", [n.effective, n.farmfresh, n.local], [5.25, 5.22, 5.26]);
+  eq("price list: a line with no price is skipped", parseNetPriceList("19 Oct 2026").length, 0);
+  eq("price list: day number is not mistaken for the price", parseNetPriceList("5 Oct 2026 5.1").map((r) => r.per100), [513]);
+  eq("a BAFTA message is still read as the raw rate (RS.560 -> 5.60 less nothing)", one("OCTOBER 19, 2026 BFTA EGG RATE RS.560/- Subsidy for 0 Paise"), [["2026-10-19", 560, 0]]);
+}
 process.exit(failed ? 1 : 0);

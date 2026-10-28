@@ -30,6 +30,7 @@ import {
   type AlertKind,
   type CardStatus,
   type Ctx,
+  type RefReason,
   type SegFilter,
 } from "./engine";
 import { BAG_KG, dayEconomics, type CostInput } from "../costs/engine";
@@ -128,6 +129,7 @@ export interface FlockPeriod {
   stdHd: number | null; // standard for the flock's age/breed at the end of its period
   gap: number | null; // std - hd (points; positive = below)
   status: CardStatus;
+  refReason: RefReason;
   statusNote: string;
   deaths: number;
   deathsPct: number | null; // of the flock's first-day bird count
@@ -188,8 +190,10 @@ export interface PeriodSummary {
     byBuyer: { buyer: string; eggs: number; revenue: number }[]; // largest first; "(not recorded)" when blank
     avgPricePerEgg: number | null; // revenue / priced eggs
     birdSaleRevenue: number;
-    cost: { feed: number; electricity: number; labour: number; packing: number; diesel: number; medicine: number; other: number; total: number };
+    cost: { feed: number; electricity: number; labour: number; packing: number; diesel: number; medicine: number; other: number; chicks: number; total: number };
     chickPurchases: number;
+    chickPrice: number | null; // average price per chick in force (settings), for the label
+    feedPerKg: number | null; // feed price per kg in force at the end of the period
     costSplit: boolean; // false for one segment: shared costs are not split between segments, so cost and profit are shown for the whole farm only
     missing: string[]; // inputs not entered; the cost total is "so far", not complete
     costComplete: boolean;
@@ -256,6 +260,11 @@ export function summarizePeriod(ctx: Ctx, cost: CostInput, extras: PeriodExtras,
 
   // money
   const split = seg === "all";
+  const priceOn = (type: string): number | null => {
+    let best: { v: number; from: string } | null = null;
+    for (const x of cost.settings) if (x.type === type && !x.month && x.effectiveFrom <= to && (!best || x.effectiveFrom > best.from)) best = { v: x.value, from: x.effectiveFrom };
+    return best ? best.v : null;
+  };
   const econ = split ? dates.map((d) => dayEconomics(cost, d)) : [];
   const cs = (f: (e: (typeof econ)[number]) => number) => sum(econ.map(f));
   const costObj = {
@@ -266,6 +275,7 @@ export function summarizePeriod(ctx: Ctx, cost: CostInput, extras: PeriodExtras,
     diesel: cs((e) => e.cost.diesel),
     medicine: cs((e) => e.cost.medicine),
     other: cs((e) => e.cost.other),
+    chicks: cs((e) => e.cost.chicks),
     total: cs((e) => e.cost.total),
   };
   const saleSeg = (x: PeriodSale) => ledgerSegment(ctx, x.grade === "small" ? "small" : "big", x.date);
@@ -301,6 +311,8 @@ export function summarizePeriod(ctx: Ctx, cost: CostInput, extras: PeriodExtras,
     avgPricePerEgg: pricedEggs > 0 ? revenue / pricedEggs : null,
     birdSaleRevenue: split ? sum(extras.birdSales.filter((b) => b.date >= from && b.date <= to).map((b) => b.amount ?? 0)) : 0,
     costSplit: split,
+    chickPrice: priceOn("chick_cost_per_chick"),
+    feedPerKg: priceOn("feed_per_kg"),
     cost: costObj,
     chickPurchases: cs((e) => e.chickPurchases),
     missing,
@@ -321,7 +333,7 @@ export function summarizePeriod(ctx: Ctx, cost: CostInput, extras: PeriodExtras,
     const eggs = sum(rs.map((r) => r.eggs ?? 0));
     const bd = sum(rs.map((r) => r.pop ?? 0));
     const hd = bd > 0 ? (eggs / bd) * 100 : null;
-    const { std, why } = stdFor(ctx, flock, last.date);
+    const { std, why, reason } = stdFor(ctx, flock, last.date);
     const moultDays = rs.filter((r) => moultOn(ctx, flockId, r.date)).length;
     const gap = std != null && hd != null ? std - hd : null;
     let status: CardStatus;
@@ -332,7 +344,8 @@ export function summarizePeriod(ctx: Ctx, cost: CostInput, extras: PeriodExtras,
       note = `Ramping up: day ${ramp.day} of lay; no standard check until day ${RAMP_DAYS + 1}.`;
     } else if (moultDays * 2 > rs.length) {
       status = "moult";
-      note = `Moulting on ${moultDays} of ${rs.length} days; not judged against the standard.`;
+      const mo = moultOn(ctx, flockId, last.date) ?? [...rs].reverse().map((r) => moultOn(ctx, flockId, r.date)).find(Boolean);
+      note = `Moulting on ${moultDays} of ${rs.length} days${mo && !mo.confirmed ? "; moult dates not confirmed" : ""}; not judged against the breeder's target.`;
     } else if (std == null || hd == null) {
       status = "no_reference";
       note = why || "No HD% in this period.";
@@ -358,6 +371,7 @@ export function summarizePeriod(ctx: Ctx, cost: CostInput, extras: PeriodExtras,
       stdHd: std,
       gap,
       status,
+      refReason: reason,
       statusNote: note,
       deaths: d,
       deathsPct: first.pop != null ? pct(d, first.pop + (first.mort ?? 0)) : null,

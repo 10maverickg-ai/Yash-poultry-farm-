@@ -84,6 +84,32 @@ export function parseRateMessages(text: string): ParsedRate[] {
   return res;
 }
 
+/**
+ * The owner's own handwritten monthly list is his NET selling price per egg (BAFTA − subsidy − 0.03), one line per
+ * day, e.g. "19 Oct 2026  5.22". The stored BAFTA rate is that price + 0.03 (so Farmfresh = rate − 0.03 gives his
+ * price back). One line = one day; the price is the only decimal number left once the date is removed.
+ */
+export function parseNetPriceList(text: string): ParsedRate[] {
+  const res: ParsedRate[] = [];
+  for (const raw of text.replace(/\r/g, "\n").split("\n")) {
+    const line = raw.replace(/[ \t]+/g, " ").trim();
+    if (!line) continue;
+    const date = findDate(line);
+    const rest = line
+      .replace(/\b\d{4}-\d{1,2}-\d{1,2}\b/g, " ")
+      .replace(/\b\d{1,2}[/.-]\d{1,2}[/.-]\d{2,4}\b/g, " ")
+      .replace(/\b[A-Za-z]{3,9}\.?\s+\d{1,2}(?:st|nd|rd|th)?,?\s+\d{4}\b/g, " ")
+      .replace(/\b\d{1,2}(?:st|nd|rd|th)?[\s-]+[A-Za-z]{3,9}\.?,?[\s-]+\d{2,4}\b/g, " ");
+    const m = rest.match(/(?:RS\.?|₹)?\s*(\d{1,2}\.\d{1,3})\b/i);
+    if (!m) continue;
+    const price = Number(m[1]);
+    const notes: string[] = [`Your own price list: ₹${price.toFixed(2)} is your net selling price per egg. The BAFTA rate saved is ₹${(price + FARMFRESH_DISCOUNT).toFixed(2)} (your price + 0.03), so a Farmfresh sale gets exactly ₹${price.toFixed(2)}.`];
+    if (!(price >= 3 && price <= 12)) notes.push(`₹${price} per egg looks wrong (expected roughly ₹4–8).`);
+    res.push({ date, per100: Math.round((price + FARMFRESH_DISCOUNT) * 100), subsidyPaise: 0, original: line, notes });
+  }
+  return res;
+}
+
 export interface RateNumbers {
   perEgg: number; // as messaged (per100 / 100)
   effective: number; // after subsidy: "the rate"

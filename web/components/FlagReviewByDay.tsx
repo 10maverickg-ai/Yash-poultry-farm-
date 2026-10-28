@@ -1,11 +1,11 @@
 import Link from "next/link";
 import type { ReviewDay, ReviewItem } from "@/lib/flagReview";
-import { markReviewed, markPageIssueReviewed, markEggEntryReviewed } from "@/app/flagged/actions";
+import { markReviewed, markPageIssueReviewed, markEggEntryReviewed, answerEggEntry } from "@/app/flagged/actions";
+import { dmy } from "@/lib/format";
 import { MovementAnswers } from "@/components/MovementAnswers";
 
 const n = (x: number | null | undefined) => (x == null ? "–" : x.toLocaleString("en-IN"));
-const pretty = (d: string) =>
-  new Date(d + "T00:00:00Z").toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
+const pretty = (d: string) => dmy(d);
 
 function Read({ value, check, extra }: { value: React.ReactNode; check: React.ReactNode; extra?: React.ReactNode }) {
   return (
@@ -42,7 +42,7 @@ function Item({ item }: { item: ReviewItem }) {
                 {c.hd ? ` · HD ${c.hd}%` : ""}
               </dd>
             }
-            check={item.reason}
+            check={<>{item.reason}{item.rawReason !== item.reason && <details><summary className="muted an-tiny">Technical detail</summary><span className="an-tiny">{item.rawReason}</span></details>}</>}
           />
           <div className="fr-answers">
             <form action={markReviewed.bind(null, "production", item.id)}>
@@ -83,7 +83,18 @@ function Item({ item }: { item: ReviewItem }) {
           <h3 style={{ margin: 0 }}>
             Egg ledger line <span className="muted">· {item.category.replace(/_/g, " ")}</span>
           </h3>
-          <Read value={`“${item.label}” ${item.amount != null ? `${n(item.amount)} eggs` : ""}`} check={item.reason} />
+          <Read value={`“${item.label}” ${item.amount != null ? `${n(Math.abs(item.amount))} eggs ${item.amount < 0 ? "taken out" : "added"} (${item.section} ledger)` : ""}`} check={item.reason} />
+          <p className="muted" style={{ margin: 0 }}>What is it? Tap one — it fixes the ledger line{item.amount != null && item.amount < 0 ? " and, for a sale, creates the sale at that day's rate (Farmfresh = rate − ₹0.03, local = rate + ₹0.01)" : ""}.</p>
+          <div className="fr-answers fr-quick">
+            {(item.amount != null && item.amount > 0
+              ? ([["addition", "Late eggs of our own flocks"], ["anil", "Eggs from Anil farm"], ["other", "Something else"]] as const)
+              : ([["sale", "Farmfresh sale"], ["local_sale", "Local sale"], ["breakage", "Breakage"], ["labour_take", "Labour took them"], ["anil", "Given to Anil farm"], ["other", "Something else"]] as const)
+            ).map(([k, label]) => (
+              <form key={k} action={answerEggEntry.bind(null, item.id, k)}>
+                <button type="submit" className="btn-secondary">{label}</button>
+              </form>
+            ))}
+          </div>
           <div className="fr-answers">
             <form action={markEggEntryReviewed.bind(null, item.id)}>
               <button type="submit">Right as read</button>

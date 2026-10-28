@@ -88,6 +88,10 @@ export function UploadForm() {
           </span>
           <input type="date" name="date" defaultValue={todayISO()} required />
         </label>
+        <label className="check-line">
+          <input type="checkbox" name="replace_ok" value="1" />
+          <span>Replace the day that is already saved (only tick this if the saved day is wrong)</span>
+        </label>
         <label className="field">
           <span>Photo</span>
           {/* No `capture` attribute — that forces the camera only. Plain

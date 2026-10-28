@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { pool, withTransaction } from "@/lib/db";
 import { ACTIVE_FARM } from "@/lib/farm";
 import type { FlaggedSource } from "@/lib/records";
+import { createSaleForEntryAs } from "@/lib/salesSync";
 import { insertDailyProductionRow } from "@/lib/extraction/writeDailyProduction";
 import {
   resolveFlockMovementAsTransfer,
@@ -239,5 +240,47 @@ export async function resolveMovementAsCull(id: number) {
 export async function resolveMovementAsCountAdjustment(id: number) {
   await resolveFlockMovementAsCountAdjustment(id);
   revalidatePath("/flagged");
+  redirect("/flagged");
+}
+
+// One-tap answers for a ledger line the reader could not classify (the way the 15 and 24 Sep lines were fixed by
+// hand). Writes the category, marks the line reviewed, and for a sale (re)creates the sales row at the right price:
+// Farmfresh = that day's rate − 0.03, local = rate + 0.01. Moving a line away from "sale" removes its sales row.
+const EGG_ANSWERS = {
+  sale: { category: "sale", kind: "farmfresh" as const },
+  local_sale: { category: "local_sale", kind: "local" as const },
+  breakage: { category: "breakage", kind: null },
+  labour_take: { category: "labour_take", kind: null },
+  anil: { category: "cross_farm_adjustment", kind: null },
+  addition: { category: "production_addition", kind: null },
+  other: { category: "other", kind: null },
+} as const;
+export type EggAnswer = keyof typeof EGG_ANSWERS;
+
+export async function answerEggEntry(id: number, answer: string) {
+  const a = EGG_ANSWERS[answer as EggAnswer];
+  if (!a) throw new Error("Unknown answer");
+  await withTransaction(async (client) => {
+    const { rows } = await client.query(
+      `SELECT e.id, e.label_as_written, e.amount_eggs, e.linked_sale_id, s.date, s.section
+         FROM daily_egg_stock_entries e JOIN daily_egg_stock_summary s ON s.id = e.egg_stock_summary_id
+        WHERE e.id = $1 AND s.farm_code = $2 FOR UPDATE OF e`,
+      [id, ACTIVE_FARM]
+    );
+    const e = rows[0];
+    if (!e) throw new Error("That ledger line was not found");
+    await client.query(`UPDATE daily_egg_stock_entries SET category = $2::egg_stock_entry_category, reviewed_by_owner = true WHERE id = $1`, [id, a.category]);
+    const entry = { id, labelAsWritten: e.label_as_written ?? "", amountEggsSigned: e.amount_eggs, linkedSaleId: e.linked_sale_id ? Number(e.linked_sale_id) : null };
+    if (a.kind) {
+      await createSaleForEntryAs(client, entry, e.date, e.section, a.kind);
+    } else if (entry.linkedSaleId) {
+      await client.query(`UPDATE daily_egg_stock_entries SET linked_sale_id = NULL WHERE id = $1`, [id]);
+      await client.query(`DELETE FROM sales WHERE id = $1`, [entry.linkedSaleId]);
+    }
+  });
+  revalidatePath("/flagged");
+  revalidatePath("/sales");
+  revalidatePath("/egg-stock");
+  revalidatePath("/analytics");
   redirect("/flagged");
 }

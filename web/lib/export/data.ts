@@ -89,7 +89,7 @@ export async function ledgerDataset(month: string): Promise<Dataset> {
 export async function salesDataset(month: string): Promise<Dataset> {
   const { from, to } = bounds(month);
   const { rows } = await pool.query(
-    `SELECT date, buyer_or_recipient AS buyer, grade, transaction_type::text AS type, eggs_quantity AS eggs, price_per_unit AS price, amount
+    `SELECT date, buyer_or_recipient AS buyer, grade, CASE transaction_type::text WHEN 'sale_farmfresh' THEN 'Farmfresh' WHEN 'other' THEN 'Local' WHEN 'local' THEN 'Local' ELSE transaction_type::text END AS type, eggs_quantity AS eggs, price_per_unit AS price, amount
        FROM sales WHERE farm_code = $1 AND date BETWEEN $2 AND $3 ORDER BY date, id`,
     [ACTIVE_FARM, from, to]
   );
@@ -115,19 +115,21 @@ export async function costsDataset(month: string): Promise<Dataset> {
   const input = await loadCostInput();
   const dates = [...new Set(input.prod.filter((p) => p.date.startsWith(month)).map((p) => p.date))].sort();
   const m = monthEconomics(input, month);
+  const miss = (what: string) => m.missing.some((x) => x.startsWith(what));
   const rows = dates.map((d) => {
     const e = dayEconomics(input, d);
     const r = (x: number) => Math.round(x * 100) / 100;
     return {
       date: d, produced: e.eggsProduced, sold: e.eggsSold, revenue: r(e.revenue), feed: r(e.cost.feed), electricity: r(e.cost.electricity), labour: r(e.cost.labour),
-      packing: r(e.cost.packing), diesel: r(e.cost.diesel), medicine: r(e.cost.medicine), other: r(e.cost.other), total: r(e.cost.total), profit: r(e.profit),
+      packing: r(e.cost.packing), diesel: miss("diesel") ? null : r(e.cost.diesel), medicine: miss("medicines") ? null : r(e.cost.medicine), other: miss("other costs") ? null : r(e.cost.other), chicks: r(e.cost.chicks), total: r(e.cost.total), profit: r(e.profit),
     };
   });
   const notes = [
     "ALL COST AND PROFIT FIGURES ARE ESTIMATES. Feed is exact (bags × 45 kg × price per kg). Electricity and labour are the month's amount spread evenly over its days; packing is per tray sold; diesel and medicines count on the day bought.",
-    "Revenue is eggs SOLD that day at the saved sale prices, not eggs laid. Bird sales and chick purchases are not included.",
+    "Revenue is eggs SOLD that day at the saved sale prices, not eggs laid. Bird sales are not included. Chick purchase = chicks that arrived × the average price per chick (a setting, about ₹52), counted on the arrival day, i.e. in the month of arrival — it is NOT spread over the laying months.",
   ];
-  if (m.missing.length) notes.push(`MISSING INPUTS (counted as 0, not guessed): ${m.missing.join(", ")}.`);
+  if (m.missing.length) notes.push(`NOT ENTERED (blank above where it is a whole column; the cost total is 'so far', understated, and the profit overstated): ${m.missing.join(", ")}.`);
+  if (m.days < new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0)).getUTCDate()) notes.push(`TO DATE, not the full month: ${m.days} days have data; monthly bills (electricity, labour) are counted for those days only.`);
   if (m.unpricedEggsSold > 0) notes.push(`${m.unpricedEggsSold} eggs were sold without a BAFTA rate, so revenue is incomplete.`);
   return {
     name: "Costs and profit",
@@ -144,12 +146,13 @@ export async function costsDataset(month: string): Promise<Dataset> {
       { key: "diesel", header: "Diesel ₹", type: "num", width: 11, total: true },
       { key: "medicine", header: "Medicines ₹", type: "num", width: 12, total: true },
       { key: "other", header: "Other ₹", type: "num", width: 11, total: true },
+      { key: "chicks", header: "Chick purchase ₹ (avg 52)", type: "num", width: 16, total: true },
       { key: "total", header: "Total cost ₹", type: "num", width: 13, total: true },
       { key: "profit", header: "Estimated profit ₹", type: "num", width: 16, total: true },
     ],
     rows,
     notes,
-    formulas: { total: (row) => `SUM(E${row}:K${row})`, profit: (row) => `D${row}-L${row}` },
+    formulas: { total: (row) => `SUM(E${row}:L${row})`, profit: (row) => `D${row}-M${row}` },
   };
 }
 

@@ -5,6 +5,7 @@ import type { SaleRow } from "@/lib/eggstock-types";
 import { listUnpricedLedgerSales, listBirdSales, listAnilMovements, youngStartDate } from "@/lib/salesExtra";
 import { setBirdSaleBuyer } from "./actions";
 import { ExportLinks } from "@/components/ExportLinks";
+import { dmy } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
@@ -178,10 +179,10 @@ export default async function SalesPage({
                     <Fragment key={s.id}>
                       <tr>
                         <td>
-                          <Link href={`/sales/${s.id}`}>{s.date}</Link>
+                          <Link href={`/sales/${s.id}`}>{dmy(s.date)}</Link>
                         </td>
                         <td>{s.buyer_or_recipient ?? "—"}</td>
-                        <td>{s.transaction_type?.replaceAll("_", " ") ?? "—"}</td>
+                        <td>{s.transaction_type === "sale_farmfresh" ? "Farmfresh" : s.transaction_type === "other" || s.transaction_type === "local" ? "Local" : (s.transaction_type?.replaceAll("_", " ") ?? "—")}</td>
                         <td>{s.grade ?? "—"}</td>
                         <td>{s.eggs_quantity?.toLocaleString("en-IN") ?? "—"}</td>
                         <td>{s.trays_quantity ?? "—"}</td>
@@ -229,7 +230,7 @@ export default async function SalesPage({
               <tbody>
                 {unpriced.map((u) => (
                   <tr key={u.entryId}>
-                    <td>{u.date}</td>
+                    <td>{dmy(u.date)}</td>
                     <td>{u.label}</td>
                     <td>{u.category === "local_sale" ? "local" : "Farmfresh / wholesaler"}</td>
                     <td>{u.section}</td>
@@ -262,7 +263,7 @@ export default async function SalesPage({
             <tbody>
               {birdSales.map((b) => (
                 <tr key={b.id}>
-                  <td>{b.date}</td>
+                  <td>{dmy(b.date)}</td>
                   <td>{b.flockName}</td>
                   <td>{b.birds.toLocaleString("en-IN")}</td>
                   <td>{b.pricePerBird ?? "—"}</td>
@@ -303,7 +304,7 @@ export default async function SalesPage({
             <tbody>
               {anil.map((m) => (
                 <tr key={m.id}>
-                  <td>{m.date}</td>
+                  <td>{dmy(m.date)}</td>
                   <td>{m.flockName}</td>
                   <td>{Math.abs(m.birds).toLocaleString("en-IN")}</td>
                   <td>{m.birds < 0 ? "to Anil farm" : "from Anil farm"}</td>

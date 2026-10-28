@@ -1,6 +1,7 @@
 // Segment engine on the exported live rows (V8 S0): tsx scripts/segment-check.mts <fixture-dir>
 import { loadInput } from "./fixtureInput.mts";
-import { buildCtx, dayTotals, alertsFor, flockCards, eggStockDays, feedDaysLeft, rampingUp, segmentOn, ledgerSegment, firstYoungDate, SEGMENTS, addDays, type Segment } from "../lib/analytics/engine";
+import { isPlaceholderDate, moultOn } from "../lib/analytics/engine";
+import { buildCtx, dayTotals, alertsFor, flockCards, eggStockDays, feedDaysLeft, rampingUp, segmentOn, ledgerSegment, firstYoungDate, SEGMENTS, EGG_LIMITS, addDays, type Segment } from "../lib/analytics/engine";
 
 const dir = process.argv[2];
 const input = loadInput(dir);
@@ -50,14 +51,27 @@ ok("small ledger is main before 4 Oct and young from 4 Oct", ledgerSegment(ctx, 
 // ramping + cards
 const cards = flockCards(ctx, D);
 const young3 = cards.filter((c) => c.segment === "young");
-ok("BAB-9, 10, 11 are ramping up (day 23 of lay on 26 Oct) with no standard check", young3.length === 3 && young3.every((c) => c.status === "ramping" && c.rampDay === 23 && c.stdHd == null), young3.map((c) => `${c.label}:${c.status}:${c.rampDay}`).join(" "));
-ok("ramping note shows the trend against its own previous 7 days", young3.every((c) => /vs [\d.]+% the 7 days before/.test(c.statusNote)), young3[0]?.statusNote);
+ok("BAB-9, 10, 11 are ramping up (day 23 of lay on 26 Oct); age known from the chick arrival date, the target is shown for information only", young3.length === 3 && young3.every((c) => c.status === "ramping" && c.rampDay === 23 && c.stdHd != null && c.ageWeeks != null && c.ageWeeks >= 20 && c.ageWeeks <= 26), young3.map((c) => `${c.label}:${c.status}:${c.rampDay}:wk${c.ageWeeks}:${c.stdHd}`).join(" "));
+ok("ramping note shows the trend against its own previous 7 days", young3.every((c) => /against [\d.]+ the 7 days before/.test(c.statusNote)), young3[0]?.statusNote);
 ok("ramping ends after 60 days (day 61 = 3 Dec)", rampingUp(ctx, young3[0].flockId, "2026-12-02") != null && rampingUp(ctx, young3[0].flockId, "2026-12-03") == null);
 const departed = cards.filter((c) => /^Old BAB/.test(c.label));
 ok("departed flocks are 'left', not active cards", departed.length === 2 && departed.every((c) => c.status === "left"));
-const unknownAge = cards.filter((c) => ["BAB-6", "BAB-7", "BAB-8"].includes(c.label));
-ok("placeholder-age flocks: no standard check, no green/amber/red", unknownAge.length === 3 && unknownAge.every((c) => c.status === "no_reference" && /age unknown, no standard check/.test(c.statusNote)));
-
+const known = cards.filter((c) => ["BAB-6", "BAB-7", "BAB-8"].includes(c.label));
+ok("J5: BAB-6 (confirmed 2026-01-01), BAB-7 and BAB-8 are NOT placeholders: they show an age and a standard comparison", known.length === 3 && known.every((c) => c.ageWeeks != null && c.stdHd != null && ["green", "amber", "red"].includes(c.status)), known.map((c) => `${c.label}:wk${c.ageWeeks}:${c.status}`).join(" "));
+ok("J5: the literal date 2026-01-01 is only a placeholder while unconfirmed", isPlaceholderDate("2026-01-01", null) && isPlaceholderDate("2026-01-01", false) && !isPlaceholderDate("2026-01-01", true) && !isPlaceholderDate("2026-01-25", null));
+const b4 = cards.find((c) => c.label === "BAB-4")!;
+ok("J4: BAB-4 (week 115) says it is past the end of the target table, no blank standard compared", b4.refReason === "beyond_table" && b4.stdHd == null && /past the end of the breeder's target table \(week 115/.test(b4.statusNote), b4.statusNote);
+ok("J4: BAB-4 still gets its own 7-day-trend alerts (production_drop uses its own average, not the table)", (() => { const i = structuredClone(input); const r = i.prod.find((x) => x.flockId === b4.flockId && x.date === "2026-10-20")!; r.hd = r.hd! - 12; const hits = alertsFor(buildCtx(i), "2026-10-20").filter((a) => a.kind === "production_drop" && a.flockId === b4.flockId); return hits.length === 1; })());
+// J6: only BAB-3 moulted; start unconfirmed; nobody else is ever inferred to be moulting
+{
+  const b3 = cards.find((c) => c.label === "BAB-3")!;
+  const movers = new Set<string>();
+  for (const d of ctx.dates) for (const r of ctx.byDate.get(d) ?? []) if (moultOn(ctx, r.flockId, d)) movers.add(input.flocks.find((f) => f.id === r.flockId)!.label);
+  ok("J6: only BAB-3 is ever treated as moulting", [...movers].join(",") === "BAB-3", [...movers].join(","));
+  const aug20 = flockCards(ctx, "2026-08-20").find((c) => c.label === "BAB-3")!;
+  ok("J6: during the moult the card says 'moult dates not confirmed' and does not compare with the target", aug20.status === "moult" && /moult dates not confirmed/.test(aug20.statusNote) && /Not compared with the breeder's target/.test(aug20.statusNote), aug20.statusNote);
+  ok("J6: BAB-3 by 26 Oct is " + b3.status, true);
+}
 // departed flocks: no alert, card or standard comparison after their last day (I2)
 {
   const gone = input.flocks.filter((f) => /^Old BAB/.test(f.label));
@@ -79,6 +93,16 @@ console.log("\nOctober alerts by segment:", JSON.stringify(counts));
 ok("no production-drop alerts for young flocks while ramping", youngDrop === 0);
 ok("no feed alerts for young flocks (feed not recorded)", nullFeedAlerts === 0);
 ok("every alert carries a segment or is a flock with no segment", alertsFor(ctx, D).every((a) => a.segment === null || SEGMENTS.includes(a.segment as Segment)));
+
+// J1: young small-egg limit is 6 days without a sale (main stays 4); October build-up alerts 7 -> 5
+{
+  const oct = (seg: "main" | "young") => { const out: string[] = []; for (let d = "2026-10-01"; d <= D; d = addDays(d, 1)) for (const a of alertsFor(ctx, d, { segment: seg })) if (a.kind === "egg_buildup") out.push(d); return out; };
+  const y = oct("young");
+  ok("young: 4 days without a sale (7 and 20 Oct) no longer alerts", !y.includes("2026-10-07") && !y.includes("2026-10-20"), y.join(","));
+  ok("young: 6 days without a sale (9 Oct) alerts with 'limit 6 days'", alertsFor(ctx, "2026-10-09", { segment: "young" }).some((a) => a.kind === "egg_buildup" && /limit 6 days/.test(a.reason)));
+  ok("young October egg build-up alerts: 5 (was 7 with the 4-day limit)", y.length === 5, String(y.length));
+  ok("main keeps the 4-day limit", EGG_LIMITS.main.noSaleDays === 4 && EGG_LIMITS.young.noSaleDays === 6);
+}
 
 // stock
 const es = { main: eggStockDays(ctx, D, "main"), young: eggStockDays(ctx, D, "young"), all: eggStockDays(ctx, D) };

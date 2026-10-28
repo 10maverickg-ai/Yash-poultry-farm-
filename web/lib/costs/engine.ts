@@ -38,6 +38,10 @@ export interface BirdSaleRow {
   date: string;
   amount: number | null;
 }
+export interface ChickBatch {
+  arrival: string; // YYYY-MM-DD the chicks arrived
+  count: number; // chicks that stayed on THIS farm (starting count minus those that went to Anil farm)
+}
 export interface CostInput {
   settings: CostSetting[];
   purchases: Purchase[];
@@ -45,9 +49,14 @@ export interface CostInput {
   prod: DayProd[];
   sales: SaleRow[];
   birdSales: BirdSaleRow[];
+  chickBatches?: ChickBatch[];
+  /** monthly_input_status rows: the owner said "none this month" / "this figure is right" */
+  statuses?: { month: string; key: string; status: string }[];
 }
 
 export const BAG_KG = 45;
+/** The average price of a chick is a setting (cost_settings.chick_cost_per_chick), never a guess. */
+export const CHICK_COST_TYPE = "chick_cost_per_chick";
 
 const daysInMonth = (ym: string) => {
   const [y, m] = ym.split("-").map(Number);
@@ -85,9 +94,10 @@ export interface DayEconomics {
     diesel: number;
     medicine: number; // medicine + vaccine purchases
     other: number; // feed ingredients, packing/electricity/labour purchases, other (not chicks)
+    chicks: number; // chick purchase: batch count x the average price, on the day the chicks arrive (month of arrival)
     total: number;
   };
-  chickPurchases: number; // shown separately, not in cost.total
+  chickPurchases: number; // chick purchases entered by hand (already counted in cost.chicks)
   profit: number; // revenue - cost.total (egg sales only; bird sales shown separately)
   revenuePerEgg: number | null; // revenue / eggs sold
   costPerEgg: number | null; // cost.total / eggs produced
@@ -113,6 +123,14 @@ export function dayEconomics(input: CostInput, date: string): DayEconomics {
   const labMonth = monthlyOn(input, "labour_month", date);
   if (labMonth == null) missing.push("labour");
   const packPer = settingOn(input, "packing_per_tray", date);
+  if (packPer == null && eggsSold > 0) missing.push("packing price per tray");
+  // monthly inputs that were never entered are MISSING (not zero) unless the owner said "none this month"
+  const ym = date.slice(0, 7);
+  const said = (key: string) => (input.statuses ?? []).some((x) => x.month === ym && x.key === key && x.status === "none");
+  const inMonth = (d: string) => d.startsWith(ym);
+  if (!input.diesel.some((d) => inMonth(d.date)) && !input.purchases.some((p) => inMonth(p.date) && p.category === "diesel") && !said("diesel")) missing.push(`diesel for ${ym}`);
+  if (!input.purchases.some((p) => inMonth(p.date) && (p.category === "medicine" || p.category === "vaccine")) && !said("medicines")) missing.push(`medicines for ${ym}`);
+  if (!input.purchases.some((p) => inMonth(p.date) && ["feed_ingredient", "packing", "electricity", "labour", "other"].includes(p.category)) && !said("other")) missing.push(`other costs for ${ym}`);
 
   const sumP = (cats: string[]) => input.purchases.filter((p) => p.date === date && cats.includes(p.category)).reduce((s, p) => s + p.amount, 0);
   const feed = bags * BAG_KG * (kg ?? 0);
@@ -122,7 +140,13 @@ export function dayEconomics(input: CostInput, date: string): DayEconomics {
   const diesel = input.diesel.filter((d) => d.date === date).reduce((s, d) => s + d.amount, 0) + sumP(["diesel"]);
   const medicine = sumP(["medicine", "vaccine"]);
   const other = sumP(["feed_ingredient", "packing", "electricity", "labour", "other"]);
-  const total = feed + electricity + labour + packing + diesel + medicine + other;
+  // chick purchase: batch count x the average price, counted on the arrival day (so it lands in the month of arrival).
+  // A batch is skipped when a chick purchase was entered by hand within a week of arrival (never counted twice).
+  const chickPrice = settingOn(input, CHICK_COST_TYPE, date);
+  const chicks = (input.chickBatches ?? [])
+    .filter((b) => b.arrival === date && chickPrice != null && !input.purchases.some((p) => p.category === "chicks" && Math.abs(Date.parse(p.date) - Date.parse(b.arrival)) <= 7 * 86400000))
+    .reduce((t, b) => t + b.count * (chickPrice ?? 0), 0) + sumP(["chicks"]);
+  const total = feed + electricity + labour + packing + diesel + medicine + other + chicks;
   return {
     date,
     eggsProduced,
@@ -130,7 +154,7 @@ export function dayEconomics(input: CostInput, date: string): DayEconomics {
     unpricedEggsSold,
     revenue,
     birdSaleRevenue: input.birdSales.filter((b) => b.date === date).reduce((s, b) => s + (b.amount ?? 0), 0),
-    cost: { feed, electricity, labour, packing, diesel, medicine, other, total },
+    cost: { feed, electricity, labour, packing, diesel, medicine, other, chicks, total },
     chickPurchases: sumP(["chicks"]),
     profit: revenue - total,
     revenuePerEgg: eggsSold > 0 && revenue > 0 && unpricedEggsSold === 0 ? revenue / eggsSold : null,
@@ -167,6 +191,7 @@ export function monthEconomics(input: CostInput, month: string): MonthEconomics 
     diesel: sum((d) => d.cost.diesel),
     medicine: sum((d) => d.cost.medicine),
     other: sum((d) => d.cost.other),
+    chicks: sum((d) => d.cost.chicks),
     total: sum((d) => d.cost.total),
   };
   const eggsProduced = sum((d) => d.eggsProduced);
@@ -197,7 +222,7 @@ export function flockEconomics(input: CostInput, date: string) {
   const birds = rows.reduce((s, p) => s + p.birds, 0);
   const eggs = rows.reduce((s, p) => s + p.eggs, 0);
   const kg = settingOn(input, "feed_per_kg", date) ?? 0;
-  const shared = day.cost.total - day.cost.feed;
+  const shared = day.cost.total - day.cost.feed - day.cost.chicks; // a new batch of chicks is not a cost of today's laying flocks
   return rows.map((p) => {
     const feed = p.feedBags * BAG_KG * kg;
     const share = birds > 0 ? p.birds / birds : 0;

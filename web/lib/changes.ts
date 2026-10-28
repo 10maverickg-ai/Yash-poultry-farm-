@@ -1,0 +1,57 @@
+// "What changed": the latest changes to the app, in plain words, newest first. Add a new entry at the top whenever
+// the app changes in a way the owner will notice.
+export interface Change {
+  date: string; // YYYY-MM-DD
+  title: string;
+  points: string[];
+}
+
+export const CHANGES: Change[] = [
+  {
+    date: "2026-10-28",
+    title: "Today now tells you what is right, what is wrong and what may go wrong",
+    points: [
+      "The Today screen has three parts: ✔ what is right, ✖ what is wrong now (with what to do) and ⚠ what may go wrong soon. Tap any line for the details.",
+      "A line at the top says “Data up to <date>” and warns you when the newest day entered is more than a day old.",
+      "“HD %” is now explained as eggs per 100 birds, and “standard” as the breeder's target for the flock's age. A flock that has no target says why in one line (placement date missing, past the end of the table…).",
+      "Bigger buttons and clearer numbers: Indian digit grouping everywhere (1,23,456) and dates like 26 Oct 2026.",
+    ],
+  },
+  {
+    date: "2026-10-28",
+    title: "Costs: chicks, feed price and what is not entered",
+    points: [
+      "Chick purchase is now part of the cost, at the average of ₹52 per chick, counted in the month the chicks arrived (not spread over later months). September carries the 16,000 chicks that arrived on 18 Sep.",
+      "Feed uses ₹33.33 per kg (₹1,500 per 45 kg bag). Electricity for Aug, Sep and Oct is included (the bill covers the whole farm including the feed mills).",
+      "Diesel, medicines and other costs that have not been entered show “not entered” instead of ₹0, and the profit says it is incomplete. A part-month (October to 26 Oct) says it is “to date”.",
+    ],
+  },
+  {
+    date: "2026-10-28",
+    title: "Review screen: one-tap answers for ledger lines",
+    points: [
+      "A ledger line the reader could not classify now has buttons: Farmfresh sale, Local sale, Breakage, Labour took them, Given to Anil farm, Something else. A sale is created at that day's rate (Farmfresh = rate − ₹0.03, local = rate + ₹0.01).",
+      "Reasons are written in plain words; the reader's original text is under “Technical detail”.",
+      "July is no longer treated as cleared, so the July questions (29 and 30 Jul +300 small eggs, the 30 Jul ledger gap) show up for you to answer.",
+    ],
+  },
+  {
+    date: "2026-10-28",
+    title: "Rates, uploads and small fixes",
+    points: [
+      "When you enter rates the screen now asks: is this a BAFTA message (the raw rate) or your own price list (your net selling price)? Your list is saved as your price + 0.03 so Farmfresh gets exactly your price.",
+      "Uploading one photo for a day that is already saved now asks before replacing it. If photo reading is paused (for example the reading service needs topping up) you get a plain message and can enter the day by hand.",
+      "A flock's group (main / young) can now be cleared back to “not set” on the Flocks screen.",
+      "BAB-4 (week 115) now says it is past the end of the breeder's table. BAB-6 to BAB-11 use their confirmed placement dates. Only BAB-3 is treated as moulting, and its start date is marked “not confirmed”.",
+      "Young flocks' small eggs now raise a build-up alert only after 6 days without a sale (was 4).",
+    ],
+  },
+  {
+    date: "2026-10-27",
+    title: "Every board is split into the main and the young flocks",
+    points: [
+      "Main flocks (BAB-1 to BAB-8, big eggs) and young flocks (BAB-9 to BAB-11, small eggs) are shown separately; the whole farm is shown last because it mixes mature and young birds.",
+      "Young flocks are “ramping up” for their first 60 days of laying and are not alerted for low production in that time.",
+    ],
+  },
+];
