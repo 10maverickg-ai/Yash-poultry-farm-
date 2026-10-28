@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { pool, withTransaction } from "@/lib/db";
 import { ACTIVE_FARM } from "@/lib/farm";
+import { isPlaceholderDate } from "@/lib/ageWeeks";
 
 const iso = /^\d{4}-\d{2}-\d{2}$/;
 function back(msg: string, ok = false): never {
@@ -73,7 +74,7 @@ export async function fillScheduleFromLibrary(formData: FormData) {
     const r = rows[0];
     if (!r?.placement_date) return null;
     const d = String(r.placement_date).slice(0, 10);
-    return d === "2026-01-01" && r.placement_date_confirmed !== true ? null : d;
+    return isPlaceholderDate(d, r.placement_date_confirmed) ? null : d;
   })();
   if (!start) back("That flock has no real placement date yet, so due dates cannot be worked out.");
   let added = 0;

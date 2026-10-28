@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { isPlaceholderDate } from "@/lib/ageWeeks";
 import { getFlock, getLabelHistory, listSheds } from "@/lib/flocks";
 import { FlockEditForm } from "@/components/FlockEditForm";
 import { StageTransitionForm } from "@/components/StageTransitionForm";
@@ -23,7 +24,7 @@ export default async function FlockDetailPage({
   const flock = await getFlock(id);
   if (!flock) notFound();
   const [history, sheds, stageEvents, movements, sameLabel] = await Promise.all([getLabelHistory(id), listSheds(), getStageHistory(id), getFlockMovements(id), sameLabelFlocks(id, flock.display_label)]);
-  const placeholder = flock.placement_date?.toString().slice(0, 10) === "2026-01-01" && flock.placement_date_confirmed !== true;
+  const placeholder = isPlaceholderDate(flock.placement_date, flock.placement_date_confirmed);
   const ageWeeks = flock.placement_date && !placeholder ? weeksSince(flock.placement_date) : null;
   const TYPE: Record<string, string> = { transfer_out: "moved out", transfer_in: "moved in", sale: "sold", cull: "culled", unexplained_out: "left (destination not known)", unexplained_in: "arrived (source not known)", count_adjustment: "count adjusted" };
 

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { listFlocks } from "@/lib/flocks";
-import { weeksSince } from "@/lib/ageWeeks";
+import { weeksSince, isPlaceholderDate } from "@/lib/ageWeeks";
+
 import { setFlockSegment } from "./segment-actions";
 
 export const dynamic = "force-dynamic";
@@ -68,7 +69,7 @@ export default async function FlocksPage() {
                   <td>{f.current_bird_count?.toLocaleString("en-IN") ?? "—"}</td>
                   <td>{f.placement_date ?? "—"}</td>
                   <td>
-                    {!f.placement_date || (String(f.placement_date).slice(0, 10) === "2026-01-01" && f.placement_date_confirmed !== true)
+                    {!f.placement_date || isPlaceholderDate(f.placement_date, f.placement_date_confirmed)
                       ? <span className="badge badge-flagged">age unknown</span>
                       : `${weeksSince(f.placement_date)} wk`}
                   </td>

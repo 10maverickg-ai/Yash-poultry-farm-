@@ -332,7 +332,8 @@ export function summarizePeriod(ctx: Ctx, cost: CostInput, extras: PeriodExtras,
       note = `Ramping up: day ${ramp.day} of lay; no standard check until day ${RAMP_DAYS + 1}.`;
     } else if (moultDays * 2 > rs.length) {
       status = "moult";
-      note = `Moulting on ${moultDays} of ${rs.length} days; not judged against the standard.`;
+      const mo = moultOn(ctx, flockId, last.date) ?? [...rs].reverse().map((r) => moultOn(ctx, flockId, r.date)).find(Boolean);
+      note = `Moulting on ${moultDays} of ${rs.length} days${mo && !mo.confirmed ? "; moult dates not confirmed" : ""}; not judged against the breeder's target.`;
     } else if (std == null || hd == null) {
       status = "no_reference";
       note = why || "No HD% in this period.";

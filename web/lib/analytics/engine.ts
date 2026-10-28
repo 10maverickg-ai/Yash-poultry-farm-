@@ -308,8 +308,18 @@ function labelOn(ctx: Ctx, flockId: string, date: string): string {
 export function flockName(ctx: Ctx, flockId: string, fallback = "flock"): string {
   return ctx.flockById.get(flockId)?.label ?? fallback;
 }
+/**
+ * 2026-01-01 was typed in as a stand-in for flocks whose real placement date was unknown. A date is a
+ * placeholder ONLY while the owner has not confirmed it (placement_date_confirmed). Once confirmed, even
+ * the literal 2026-01-01 (BAB-6) is a real date. Every screen and the analytics engine use this one rule.
+ */
+export const PLACEHOLDER_DATE = "2026-01-01";
+export function isPlaceholderDate(date: string | Date | null | undefined, confirmed: boolean | null | undefined): boolean {
+  return date != null && String(date).slice(0, 10) === PLACEHOLDER_DATE && confirmed !== true;
+}
+
 export function isPlaceholderAge(f: FlockRef | undefined): boolean {
-  return !!f && !f.placementConfirmed && f.placementDate === "2026-01-01";
+  return !!f && isPlaceholderDate(f.placementDate, f.placementConfirmed);
 }
 export function flockTag(ctx: Ctx, flockId: string): string | null {
   const p = ctx.flockById.get(flockId)?.placementDate;
@@ -336,13 +346,16 @@ export interface Moult {
   startedOn: string;
   baselineHd: number;
   recorded: boolean;
+  confirmed: boolean; // the owner has confirmed the start date
 }
 export function moultOn(ctx: Ctx, flockId: string, date: string): Moult | null {
   const rs = ctx.byFlock.get(flockId) ?? [];
   const today = rs.find((r) => r.date === date);
   if (!today) return null;
   const periods = ctx.input.moulting.filter((m) => m.flockId === flockId);
-  if (periods.length > 0) {
+  // Once any moult is recorded, ONLY recorded moults count: the owner has said which flocks moulted (28 Oct 2026: only
+  // BAB-3), so no other flock is ever inferred to be moulting from a feed dip.
+  if (ctx.input.moulting.length > 0) {
     for (const m of periods) {
       if (date < m.start || (m.end && date > m.end)) continue;
       const prior = priorRowsBefore(ctx, flockId, m.start, 7);
@@ -351,7 +364,7 @@ export function moultOn(ctx: Ctx, flockId: string, date: string): Moult | null {
         const recovered = today.hd != null && baseline > 0 && today.hd >= RULES.moultRecoveredFraction * baseline && diffDays(date, m.start) >= 14;
         if (recovered) continue;
       }
-      return { startedOn: m.start, baselineHd: baseline, recorded: true };
+      return { startedOn: m.start, baselineHd: baseline, recorded: true, confirmed: m.confirmed };
     }
     return null;
   }
@@ -367,7 +380,7 @@ export function moultOn(ctx: Ctx, flockId: string, date: string): Moult | null {
     const baseline = mean(prior.map((p) => p.hd).filter((x): x is number => x != null));
     if (baseline == null) continue;
     if (today.hd < RULES.moultRecoveredFraction * baseline) {
-      return { startedOn: r.date, baselineHd: baseline, recorded: false };
+      return { startedOn: r.date, baselineHd: baseline, recorded: false, confirmed: false };
     }
     return null; // withdrawal happened but production never collapsed / has recovered
   }
@@ -458,6 +471,7 @@ export function farmToday(ctx: Ctx, asOf: string, seg: SegFilter = "all"): FarmT
 export type CardStatus = "green" | "amber" | "red" | "moult" | "ramping" | "no_reference" | "left";
 
 export interface FlockCard {
+  refReason: RefReason; // why there is (not) an age-based target
   segment: Segment | null;
   rampDay: number | null; // day of lay (1-60) while a young flock is ramping up
   flockId: string;
@@ -513,22 +527,29 @@ export function breedName(breed: string | null | undefined): string {
   return (breed ?? "").trim() || "unknown breed";
 }
 
-export function stdFor(ctx: Ctx, flock: FlockRef | undefined, asOf: string): { std: number | null; age: number | null; why: string } {
-  if (!flock?.placementDate) return { std: null, age: null, why: "age unknown, no standard check (no placement date)" };
+/** Why a flock has (or has no) age-based target: lets the screens say one clear thing instead of a generic chip. */
+export type RefReason = "ok" | "no_date" | "placeholder_date" | "beyond_table" | "before_table" | "no_breed_ref" | "no_age_row";
+
+export function stdFor(ctx: Ctx, flock: FlockRef | undefined, asOf: string): { std: number | null; age: number | null; why: string; reason: RefReason } {
+  if (!flock?.placementDate) return { std: null, age: null, why: "no age-based target yet: placement date missing", reason: "no_date" };
   if (isPlaceholderAge(flock))
-    return { std: null, age: null, why: `age unknown, no standard check — the placement date ${flock.placementDate} is a placeholder; set the real date on the Flocks screen` };
+    return { std: null, age: null, why: `no age-based target yet: the placement date ${flock.placementDate} is a placeholder — set the real date on the Flocks screen`, reason: "placeholder_date" };
   const age = Math.floor(diffDays(asOf, flock.placementDate) / 7);
   const key = breedKey(flock.breed);
   const name = breedName(flock.breed);
   const table = key === "BV300" ? ctx.stdByAge : key ? ctx.stdByBreed.get(key) : undefined;
   if (!table || table.size === 0)
-    return { std: null, age, why: `no reference loaded for ${name}; this flock is not compared with another breed's standard (its own 7-day-average alerts still apply)` };
+    return { std: null, age, why: `no target table loaded for ${name}; this flock is not compared with another breed's table (its own 7-day-average alerts still apply)`, reason: "no_breed_ref" };
   const s = table.get(age);
   if (s == null) {
     const ages = [...table.keys()];
-    return { std: null, age, why: `no reference loaded (age ${age} wks; the ${name} table covers weeks ${Math.min(...ages)}–${Math.max(...ages)})` };
+    const lo = Math.min(...ages);
+    const hi = Math.max(...ages);
+    if (age > hi) return { std: null, age, why: `past the end of the breeder's target table (week ${age}; the table stops at week ${hi}), so there is no target to compare with — its own 7-day trend is still watched`, reason: "beyond_table" };
+    if (age < lo) return { std: null, age, why: `before the start of the breeder's target table (week ${age}; the table starts at week ${lo})`, reason: "before_table" };
+    return { std: null, age, why: `no target for week ${age} in the ${name} table`, reason: "no_age_row" };
   }
-  return { std: s, age, why: "" };
+  return { std: s, age, why: "", reason: "ok" };
 }
 
 export function flockCards(ctx: Ctx, asOf: string): FlockCard[] {
@@ -543,7 +564,7 @@ export function flockCards(ctx: Ctx, asOf: string): FlockCard[] {
     const win = lastRows(ctx, flockId, asOf, 7);
     const hds = win.map((r) => r.hd).filter((x): x is number => x != null);
     const hd7 = mean(hds);
-    const { std, age, why } = stdFor(ctx, flock, asOf);
+    const { std, age, why, reason } = stdFor(ctx, flock, asOf);
     const gap = std != null && hd7 != null ? std - hd7 : null;
     const left = last.date < asOf;
     let status: CardStatus;
@@ -557,13 +578,13 @@ export function flockCards(ctx: Ctx, asOf: string): FlockCard[] {
       status = "ramping";
       const prev7 = rowsBefore(ctx, flockId, win.length ? win[0].date : asOf, 7);
       const hdPrev = mean(prev7.map((r) => r.hd).filter((x): x is number => x != null));
-      note = `Ramping up: day ${ramp.day} of lay (first eggs ${ramp.since}); not compared with the standard until day ${RAMP_DAYS + 1}. ` +
+      note = `Ramping up: day ${ramp.day} of lay (first eggs ${ramp.since}); judged against the breeder's target only from day ${RAMP_DAYS + 1}${std != null ? ` (for information, the target at week ${age} is ${round(std)}%)` : ""}. ` +
         (hd7 != null ? `Last 7 days HD ${round(hd7)}%` : "No HD% in the last 7 days") +
         (hd7 != null && hdPrev != null ? ` vs ${round(hdPrev)}% the 7 days before (${hd7 - hdPrev >= 0 ? "+" : "−"}${round(Math.abs(hd7 - hdPrev))} points).` : ".");
     } else if (moult) {
       status = "moult";
       const day = diffDays(asOf, moult.startedOn) + 1;
-      note = `Moulting, day ${day} (since ${moult.startedOn}${moult.recorded ? "" : ", inferred"}); HD ${hd7 != null ? round(hd7) : "–"}% vs ${round(moult.baselineHd)}% before.`;
+      note = `Moulting, day ${day} (since ${moult.startedOn}${moult.recorded ? "" : ", inferred"}${moult.confirmed ? "" : "; moult dates not confirmed"}); HD ${hd7 != null ? round(hd7) : "–"}% vs ${round(moult.baselineHd)}% before. Not compared with the breeder's target while moulting.`;
     } else if (std == null) {
       status = "no_reference";
       note = why;
@@ -578,6 +599,7 @@ export function flockCards(ctx: Ctx, asOf: string): FlockCard[] {
       if (w) note += ` Feed was withdrawn ${w}, so this flock is recovering from a moult; the standard assumes none.`;
     }
     cards.push({
+      refReason: reason,
       segment: segmentOn(ctx, flockId, asOf),
       rampDay: ramp ? ramp.day : null,
       flockId,
