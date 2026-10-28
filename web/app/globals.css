@@ -783,3 +783,4 @@ input[type="file"] { min-height: 44px; padding: 0.55rem 0.4rem; }
 .skip-link { position: absolute; left: -999px; top: 0; background: #fff; color: #000; padding: 0.6rem 1rem; z-index: 100; }
 .skip-link:focus { left: 0.5rem; top: 0.5rem; }
 main:focus { outline: none; }
+.skip-link { min-height: 44px; display: inline-flex; align-items: center; }

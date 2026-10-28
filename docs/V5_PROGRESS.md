@@ -202,7 +202,20 @@ Nothing new. Existing list unchanged (Bovans White guide, BAB-8/9/10 placement d
 | J7 | Sales for 15 and 24 Sep | done | Page totals = SQL: Sep Farmfresh 21 rows, 12,79,860 eggs, ₹68,75,181.60; local 7 rows, 74,490 eggs, ₹3,92,438.70; 103 sales rows. No page differed (the Type column showed "other"; it now says Local). |
 | J8 | UI pass | built | `docs/UI_AUDIT_V9.md`; Today in three plain parts. |
 | J9 | General fixes | built (see list) | Segment can be cleared; reader prompts updated; retry + friendly error/loading states; one-photo form asks before replacing; one-tap answers on the review screen; rate entry asks BAFTA message or own price list; "What changed" page. |
-| J10 | Final checks | see below | |
+| J10 | Final checks | done | tsc, eslint, `next build` clean; 13 regression scripts; analytics self-test 28; rates 26, costs 15, std-for 25, period 53, segment 46, friendly 6, plain 6 checks pass; 360/390/820 px audit of 13 screens and a 22-page sweep: no overflow, no errors, every control ≥ 44 px, no unlabelled fields. |
+
+## J9 — what was found and done
+| Check | Found | Done |
+|---|---|---|
+| Segment control cannot clear | true | "Not set" option; history row stores NULL (migration 0041). |
+| Reader prompts / feed-box labels describe 7 + 3 | true | Prompts now describe 8 right-page flocks with ONE feed box (group "ALL"), 3 left-page flocks with small eggs and no feed column, two chick rows; the feed-box pipeline treats "ALL" as the right-page table. NOT TESTED (no credit). `readerV2/corrections.ts` (reader V2, off) still splits 1–7 / 8–10. |
+| Slow or failed requests blank the page | true | Root loading screen, friendly error screen with "Try again", not-found screen; read-only queries retried twice; pool connection timeout 10 s. |
+| Performance < 3 s | met locally | Production build, local database: Today 0.09 s, Analytics 0.09 s (week/month/year 0.11–0.12 s), Day 0.02 s. Through a throttled "slow 4G" browser (1.6 Mbps, 150 ms): Today 1.2 s, Analytics 0.34 s, Month 0.39 s, Day 0.23 s. Pages are 9–40 KB. Indexes on the big tables already exist (checked; none added). Today and Analytics now read everything in ONE wave of parallel queries. **Not measured against Supabase over a phone connection** (no Vercel access). |
+| Upload for a day that already exists | queue: already asked; the one-photo form replaced silently | One-photo form now refuses until "Replace the day that is already saved" is ticked. |
+| Review screen quick answers | none | Buttons: Farmfresh sale / Local sale / Breakage / Labour took them / Given to Anil farm / Something else (for added eggs: late eggs of our own flocks / eggs from Anil farm / something else). Sales are created at rate − 0.03 or rate + 0.01; moving a line away from "sale" deletes its sale. Tested in the browser (Farmfresh 5.27 = big_rate on 11 Sep; local 5.31). |
+| Rate entry | one path | Must choose "BAFTA message (raw rate)" or "my own price list (net selling price, stored + 0.03)". |
+| What changed | none | `/changes` page, linked from Today and the home page. |
+| Accessibility / typos / layout | see `docs/UI_AUDIT_V9.md` | focus ring, skip link, 44 px controls, wrapped table labels, flock cards. Not fixed: dense Medicines / Egg-stock forms with developer field names. |
 
 ## J3 — cost and profit lines (local copy of the live data, 28 Oct)
 | Month | Feed | Labour | Electricity | Packing | Chick | Total cost so far | Egg revenue | Profit (estimate) | Basis |
