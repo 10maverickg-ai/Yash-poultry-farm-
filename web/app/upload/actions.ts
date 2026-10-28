@@ -1,5 +1,7 @@
 "use server";
 
+import { savedDaySummary } from "@/lib/uploadQueue/store";
+import { friendlyReaderError } from "@/lib/reader/friendlyError";
 import { revalidatePath } from "next/cache";
 import { pool, withTransaction } from "@/lib/db";
 import { ACTIVE_FARM } from "@/lib/farm";
@@ -167,6 +169,18 @@ export async function uploadAndExtractDailyProduction(
   const forceDateRaw = formData.get("force_date");
   const forceDate = typeof forceDateRaw === "string" && /^\d{4}-\d{2}-\d{2}$/.test(forceDateRaw) ? forceDateRaw : null;
 
+  // A date that already has a saved day is never overwritten silently (the queue asks; the one-photo form asks here).
+  const isQueued = typeof existingPhotoUrl === "string" && existingPhotoUrl.startsWith("https://");
+  if (!isQueued && formData.get("replace_ok") !== "1") {
+    const saved = await savedDaySummary(forceDate ?? dateHint);
+    if (saved) {
+      return {
+        ...EMPTY,
+        error: `${forceDate ?? dateHint} already has a saved day (${saved.rows} flocks, ${saved.eggs.toLocaleString("en-IN")} eggs). Nothing was changed. If this new photo is the right one, tick "Replace the day that is already saved" and send it again.`,
+      };
+    }
+  }
+
   let photoUrl: string;
   try {
     photoUrl = typeof existingPhotoUrl === "string" && existingPhotoUrl.startsWith("https://")
@@ -265,6 +279,11 @@ export async function uploadAndExtractDailyProduction(
     // or an unanticipated bug — never silently indistinguishable from a
     // normal OCR failure again: technicalDetail is now always included,
     // same as the "database write failed" branch below already does.
+    const paused = friendlyReaderError(err);
+    if (paused) {
+      console.error("[upload] reading service unavailable:", err);
+      return { ...EMPTY, photoUrl, error: paused.friendly };
+    }
     const { friendly, detail } = logAndFriendly(
       "extraction call failed",
       err,

@@ -759,3 +759,4 @@ input[type="file"] { min-height: 44px; padding: 0.55rem 0.4rem; }
 .td-more > summary { cursor: pointer; font-weight: 600; padding: 0.5rem 0; list-style: none; }
 .td-more > summary::before { content: "▸ "; }
 .td-more[open] > summary::before { content: "▾ "; }
+.check-line { display: flex; align-items: center; gap: 0.6rem; min-height: 44px; }

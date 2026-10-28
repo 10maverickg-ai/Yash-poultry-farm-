@@ -1,3 +1,4 @@
+import { friendlyReaderError } from "./friendlyError";
 import type { RegisterReader, ReaderRequest, ReaderResponse } from "./index";
 import { uploadAndExtractDailyProduction, type UploadOutcome } from "@/app/upload/actions";
 
@@ -52,9 +53,10 @@ export const oldReader: RegisterReader = {
       return toResponse(await uploadAndExtractDailyProduction(null, fd));
     } catch (err) {
       console.error("[reader:old] unexpected failure", err);
+      const paused = friendlyReaderError(err);
       return {
         status: "failed",
-        message: "Something went wrong reading this photo. You can retry it; the other photos are not affected.",
+        message: paused ? paused.friendly : "Something went wrong reading this photo. You can retry it; the other photos are not affected.",
         technical: err instanceof Error ? err.message : String(err),
         dateMismatch: null,
         summary: null,
