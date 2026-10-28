@@ -242,9 +242,13 @@ export function segmentOn(ctx: Ctx, flockId: string, date: string): Segment | nu
 }
 
 /** First day any young flock has a row; the small ledger belongs to YOUNG from then on. */
+const youngDateCache = new WeakMap<Ctx, string | null>();
 export function firstYoungDate(ctx: Ctx): string | null {
-  for (const d of ctx.dates) for (const r of ctx.byDate.get(d) ?? []) if (segmentOn(ctx, r.flockId, d) === "young") return d;
-  return null;
+  if (youngDateCache.has(ctx)) return youngDateCache.get(ctx)!;
+  let found: string | null = null;
+  outer: for (const d of ctx.dates) for (const r of ctx.byDate.get(d) ?? []) if (segmentOn(ctx, r.flockId, d) === "young") { found = d; break outer; }
+  youngDateCache.set(ctx, found);
+  return found;
 }
 
 /**

@@ -45,7 +45,17 @@ function Part({ tone, title, icon, intro, items, show }: { tone: "right" | "wron
 }
 
 export default async function TodayPage() {
-  const [input, costInput, extras] = await Promise.all([loadEngineInput(), loadCostInput(), loadPeriodExtras()]);
+  const realToday = new Date().toISOString().slice(0, 10);
+  const realYesterday = addDays(realToday, -1);
+  // one wave of parallel reads
+  const [input, costInput, extras, photoQ, queueQ, rateQ] = await Promise.all([
+    loadEngineInput(),
+    loadCostInput(),
+    loadPeriodExtras(),
+    pool.query(`SELECT count(*)::int AS n FROM daily_production WHERE farm_code = $1 AND date = $2 AND deleted_at IS NULL`, [ACTIVE_FARM, realYesterday]),
+    pool.query(`SELECT count(*)::int AS n FROM upload_queue WHERE farm_code = $1 AND entered_date = $2 AND status IN ('waiting','reading','saved','needs_review')`, [ACTIVE_FARM, realYesterday]),
+    pool.query(`SELECT count(*)::int AS n FROM daily_egg_rates WHERE date = $1`, [realYesterday]),
+  ]);
   const ctx = buildCtx(input);
   if (ctx.dates.length === 0)
     return (
@@ -56,19 +66,12 @@ export default async function TodayPage() {
     );
 
   const latest = lastDayOfData(ctx);
-  const realToday = new Date().toISOString().slice(0, 10);
-  const realYesterday = addDays(realToday, -1);
   const panels = allSegmentPanels(ctx, extras, latest);
   const chk = farmCheck(ctx, latest);
   const cards = flockCards(ctx, latest).filter((c) => c.status !== "left");
   const money = dayEconomics(costInput, latest);
 
   // what is missing: only facts that can be checked from the database
-  const [photoQ, queueQ, rateQ] = await Promise.all([
-    pool.query(`SELECT count(*)::int AS n FROM daily_production WHERE farm_code = $1 AND date = $2 AND deleted_at IS NULL`, [ACTIVE_FARM, realYesterday]),
-    pool.query(`SELECT count(*)::int AS n FROM upload_queue WHERE farm_code = $1 AND entered_date = $2 AND status IN ('waiting','reading','saved','needs_review')`, [ACTIVE_FARM, realYesterday]),
-    pool.query(`SELECT count(*)::int AS n FROM daily_egg_rates WHERE date = $1`, [realYesterday]),
-  ]);
   const missing: { text: string; href: string; cta: string }[] = [];
   if (photoQ.rows[0].n === 0 && queueQ.rows[0].n === 0) missing.push({ text: `No register photo has been uploaded for ${dmy(realYesterday)}.`, href: "/upload", cta: "Upload the photos" });
   else if (photoQ.rows[0].n === 0) missing.push({ text: `The photos for ${dmy(realYesterday)} are uploaded but not saved yet.`, href: "/upload", cta: "Open the upload queue" });

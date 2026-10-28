@@ -78,12 +78,17 @@ export default async function AnalyticsPage({
   searchParams: Promise<{ date?: string; month?: string; view?: string; p?: string }>;
 }) {
   const sp = await searchParams;
-  const [engineInput, costInput] = await Promise.all([loadEngineInput(), loadCostInput()]);
+  // one wave of parallel reads (every extra round trip to the database costs a second on a slow connection)
+  const [engineInput, costInput, extras, feedbackRows] = await Promise.all([
+    loadEngineInput(),
+    loadCostInput(),
+    loadPeriodExtras(),
+    pool.query(`SELECT alert_key, verdict FROM alert_feedback WHERE farm_code = $1`, [ACTIVE_FARM]),
+  ]);
   const ctx = buildCtx(engineInput);
   const view = sp.view === "week" || sp.view === "month" || sp.view === "year" ? sp.view : "day";
 
   if (view !== "day" && ctx.dates.length > 0) {
-    const extras = await loadPeriodExtras();
     return (
       <>
         <h1>Analytics</h1>
@@ -106,7 +111,6 @@ export default async function AnalyticsPage({
   const month = /^\d{4}-\d{2}$/.test(sp.month ?? "") ? sp.month! : asOf.slice(0, 7);
   const months = [...new Set(ctx.dates.map((d) => d.slice(0, 7)))];
 
-  const extras = await loadPeriodExtras();
   const panels = allSegmentPanels(ctx, extras, asOf);
   const chk = farmCheck(ctx, asOf);
   const alertsToday = alertsFor(ctx, asOf);
@@ -117,7 +121,7 @@ export default async function AnalyticsPage({
     if (a.length) earlier.push({ date: d, alerts: a });
   }
   const verdicts = new Map<string, string>(
-    (await pool.query(`SELECT alert_key, verdict FROM alert_feedback WHERE farm_code = $1`, [ACTIVE_FARM])).rows.map((r) => [r.alert_key, r.verdict])
+    feedbackRows.rows.map((r) => [r.alert_key, r.verdict])
   );
   const cards = flockCards(ctx, asOf);
   const live = cards.filter((c) => c.status !== "left");
