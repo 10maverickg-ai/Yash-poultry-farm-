@@ -84,7 +84,7 @@ const TOOL = {
 function promptFor(groupLabel: FeedBoxGroupLabel): string {
   const coverage =
     groupLabel === "ALL"
-      ? "This farm currently uses ONE feed box covering every flock."
+      ? "This farm currently uses ONE feed box (near the top of the right page). It covers the 8 right-page flocks BAB-1 through BAB-8; the 3 left-page flocks BAB-9, BAB-10, BAB-11 have no feed."
       : groupLabel === "BAB-1-7"
         ? "This box covers flocks BAB-1 through BAB-7."
         : "This box covers flocks BAB-8 through BAB-10.";

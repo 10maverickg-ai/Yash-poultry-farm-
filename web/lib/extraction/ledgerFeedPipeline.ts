@@ -88,7 +88,8 @@ export async function extractAndSaveLedgerFeed(
     }
 
     for (const box of extraction.feed_boxes) {
-      const totals = box.flock_group === "BAB-1-7" ? main : continuation;
+      // "ALL" (the one feed box of the current register) and "BAB-1-7" cover the main (right-page) table; only the old "BAB-8-10" box covers the continuation table
+      const totals = box.flock_group === "BAB-8-10" ? continuation : main;
       const { rows: prevRows } = await client.query(
         `SELECT closing_balance_bags FROM daily_feed_bag_stock
           WHERE farm_code = $1 AND flock_group = $2 AND date < $3

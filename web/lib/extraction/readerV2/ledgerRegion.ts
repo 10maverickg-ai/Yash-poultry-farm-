@@ -111,7 +111,7 @@ export async function extractEggLedgerRegion(
   opts: { confusionHint?: string } = {}
 ): Promise<ExtractedEggLedgerRegion> {
   const client = getAnthropicClient();
-  const sectionLabel = section === "big" ? "big (under the BAB-1..7 table)" : "small (under the BAB-8..10 table)";
+  const sectionLabel = section === "big" ? "big (under the BAB-1..8 table, right page)" : "small (under the BAB-9..11 table, left page)";
   const promptText = opts.confusionHint
     ? `${promptFor(sectionLabel)}\n\nRETRY NOTICE — this ledger's own arithmetic didn't check out after your first reading: ${opts.confusionHint} Look very carefully at those specific figures before answering again.`
     : promptFor(sectionLabel);
@@ -271,7 +271,7 @@ export async function extractEggLedgerByLines(
   opts: { confusionHint?: string } = {}
 ): Promise<ExtractedEggLedgerRegion> {
   const client = getAnthropicClient();
-  const sectionLabel = section === "big" ? "big ledger (under the BAB-1..7 table)" : "small ledger (under the BAB-8..10 table)";
+  const sectionLabel = section === "big" ? "big ledger (under the BAB-1..8 table, right page)" : "small ledger (under the BAB-9..11 table, left page)";
   const promptText = opts.confusionHint
     ? `${linesPrompt(sectionLabel)}\n\nRETRY NOTICE — the first transcription did not add up: ${opts.confusionHint} Look very carefully at those specific figures before answering again.`
     : linesPrompt(sectionLabel);
