@@ -89,7 +89,7 @@ export async function ledgerDataset(month: string): Promise<Dataset> {
 export async function salesDataset(month: string): Promise<Dataset> {
   const { from, to } = bounds(month);
   const { rows } = await pool.query(
-    `SELECT date, buyer_or_recipient AS buyer, grade, transaction_type::text AS type, eggs_quantity AS eggs, price_per_unit AS price, amount
+    `SELECT date, buyer_or_recipient AS buyer, grade, CASE transaction_type::text WHEN 'sale_farmfresh' THEN 'Farmfresh' WHEN 'other' THEN 'Local' WHEN 'local' THEN 'Local' ELSE transaction_type::text END AS type, eggs_quantity AS eggs, price_per_unit AS price, amount
        FROM sales WHERE farm_code = $1 AND date BETWEEN $2 AND $3 ORDER BY date, id`,
     [ACTIVE_FARM, from, to]
   );

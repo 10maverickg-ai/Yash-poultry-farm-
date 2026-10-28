@@ -181,7 +181,7 @@ export default async function SalesPage({
                           <Link href={`/sales/${s.id}`}>{s.date}</Link>
                         </td>
                         <td>{s.buyer_or_recipient ?? "—"}</td>
-                        <td>{s.transaction_type?.replaceAll("_", " ") ?? "—"}</td>
+                        <td>{s.transaction_type === "sale_farmfresh" ? "Farmfresh" : s.transaction_type === "other" || s.transaction_type === "local" ? "Local" : (s.transaction_type?.replaceAll("_", " ") ?? "—")}</td>
                         <td>{s.grade ?? "—"}</td>
                         <td>{s.eggs_quantity?.toLocaleString("en-IN") ?? "—"}</td>
                         <td>{s.trays_quantity ?? "—"}</td>
