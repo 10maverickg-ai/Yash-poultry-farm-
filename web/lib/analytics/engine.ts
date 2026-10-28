@@ -14,6 +14,8 @@
 //   - Nothing here invents a figure: where a reference or input is missing
 //     the result says so ("no reference loaded", null).
 
+import type { RealisticModel, RealisticOverride } from "./realisticTypes";
+
 // The two groups of the farm. MAIN = right page of the register (big eggs, mature flocks);
 // YOUNG = left page (small eggs, young flocks still climbing to peak). A flock whose segment
 // is not set belongs to neither: it shows up in the whole-farm total only, never guessed.
@@ -31,6 +33,7 @@ export interface FlockRef {
   placementDate: string | null;
   placementConfirmed: boolean; // false for the 2026-01-01 placeholders
   segment?: Segment | null;
+  placementIsChickDate?: boolean; // the placement date is the chick arrival date (age counts from day-old)
   // When a flock moved between segments: history keeps the old segment, the new one counts from `from`.
   segmentHistory?: { from: string; segment: Segment | null }[];
 }
@@ -94,6 +97,8 @@ export interface FeedBox {
 export interface StdRow {
   age: number;
   hdp: number;
+  feedG?: number | null; // book feed per bird per day (g), BV300 table
+  cumDepl?: number | null; // book cumulative depletion (%), BV300 table
 }
 
 export interface EngineInput {
@@ -109,6 +114,7 @@ export interface EngineInput {
   std: StdRow[]; // bv300_standard_laying (guide_version 2023)
   // hen-day standards for other breeds, from the knowledge library (breed key -> rows). Missing = "no reference loaded".
   stdByBreed?: Record<string, StdRow[]>;
+  realisticOverrides?: RealisticOverride[]; // owner-typed realistic levels (V10)
 }
 
 // ---- tunable rules (the owner's brief, plus the few choices it left open) --
@@ -191,6 +197,7 @@ export interface Ctx {
   boxByDate: Map<string, FeedBox[]>;
   stdByAge: Map<number, number>;
   stdByBreed: Map<string, Map<number, number>>;
+  realistic?: RealisticModel; // learned from the farm's own records; attached by buildFarmCtx (V10)
 }
 
 export function buildCtx(input: EngineInput): Ctx {
