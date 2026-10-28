@@ -777,3 +777,9 @@ input[type="file"] { min-height: 44px; padding: 0.55rem 0.4rem; }
 .flock-facts dt { font-size: 0.85rem; color: var(--muted); }
 .flock-facts dd { margin: 0; font-weight: 600; }
 .seg-form { align-items: flex-end; }
+
+/* keyboard / screen-reader users */
+:focus-visible { outline: 3px solid #1a5fb4; outline-offset: 2px; }
+.skip-link { position: absolute; left: -999px; top: 0; background: #fff; color: #000; padding: 0.6rem 1rem; z-index: 100; }
+.skip-link:focus { left: 0.5rem; top: 0.5rem; }
+main:focus { outline: none; }

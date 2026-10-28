@@ -16,6 +16,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body>
+        <a href="#main" className="skip-link">Skip to the page</a>
         <header className="site-header">
           <Link href="/" className="brand">
             {ACTIVE_FARM_NAME}
@@ -23,7 +24,7 @@ export default function RootLayout({
           <span className="farm-badge">{ACTIVE_FARM}</span>
           <Suspense fallback={null}><MainNav position="top" /></Suspense>
         </header>
-        <main>{children}</main>
+        <main id="main" tabIndex={-1}>{children}</main>
         <Suspense fallback={null}><MainNav position="bottom" /></Suspense>
       </body>
     </html>
