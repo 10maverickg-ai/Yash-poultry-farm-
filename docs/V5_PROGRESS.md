@@ -186,3 +186,52 @@ Nothing new. Existing list unchanged (Bovans White guide, BAB-8/9/10 placement d
 - Vercel preview build and runtime logs (connector not authorised for team yashfarm); everything was tested on a local copy of the live data (refreshed 27 Oct) with Playwright, not on iPhone Safari or Android Chrome.
 - Migrations 0036–0039 were applied to live through the Supabase connector and verified with SQL; the app code was not run against the live database.
 - Moving a flock between groups was tested on the local copy only (BAB-9 main and back), not on live.
+
+
+---
+# V9 — costs, targets, plain language (branch claude/v9, from main after PR #19)
+
+| Item | What | Status | Notes |
+|---|---|---|---|
+| J1 | Young small-egg limit 6 days | built | `EGG_LIMITS` constant. October egg build-up alerts (young) **7 → 5** (the 7 and 20 Oct "4 days without a sale" alerts are gone; the 5 left are stock above 5 days: 8, 9, 10, 11, 15 Oct). If the stock limit were also 6 days, 8 and 15 Oct would go too (→ 3) — owner to say. |
+| J2 | Chick cost in profit | built | Batch count × ₹52, in the month of arrival, own line "Chick purchase (average ₹52 per chick)"; Sep = 16,000 × 52 = ₹8,32,000. Diesel, medicines and other costs show "not entered". Migration 0040 allows "other" in the monthly checklist. |
+| J3 | Feed cost, electricity, monthly lines | built | See table below. `scripts/costs-report.mts` prints them. |
+| J4 | BAB-4 past the end of the table | built | "past the end of the breeder's target table (week 115; the table stops at week 100)"; own 7-day trend alerts still run. |
+| J5 | Placeholder rule | built | One rule (`isPlaceholderDate`) used everywhere: placeholder only if 2026-01-01 AND not confirmed. BAB-6 (confirmed) and BAB-7/8 show age and target. BAB-9/10/11 use the chick arrival date (the breeder table counts from day-old) and show the target for information while ramping up. |
+| J6 | Moult handling | built | Only recorded moults count (BAB-3). The card says "moult dates not confirmed" and is not compared with the target; no other flock is ever moulting. |
+| J7 | Sales for 15 and 24 Sep | done | Page totals = SQL: Sep Farmfresh 21 rows, 12,79,860 eggs, ₹68,75,181.60; local 7 rows, 74,490 eggs, ₹3,92,438.70; 103 sales rows. No page differed (the Type column showed "other"; it now says Local). |
+| J8 | UI pass | built | `docs/UI_AUDIT_V9.md`; Today in three plain parts. |
+| J9 | General fixes | built (see list) | Segment can be cleared; reader prompts updated; retry + friendly error/loading states; one-photo form asks before replacing; one-tap answers on the review screen; rate entry asks BAFTA message or own price list; "What changed" page. |
+| J10 | Final checks | see below | |
+
+## J3 — cost and profit lines (local copy of the live data, 28 Oct)
+| Month | Feed | Labour | Electricity | Packing | Chick | Total cost so far | Egg revenue | Profit (estimate) | Basis |
+|---|---|---|---|---|---|---|---|---|---|
+| Aug | ₹83,25,667 | ₹3,50,000 | ₹1,00,000 | ₹2,69,724 | ₹0 | ₹90,45,391 | ₹1,03,01,556 | ₹12,56,165 | full month; INCOMPLETE (diesel, medicines, other not entered) |
+| Sep | ₹70,71,793 | ₹3,50,000 | ₹99,080 | ₹1,80,580 | ₹8,32,000 | ₹85,33,453 | ₹72,67,620 | −₹12,65,832 | full month; INCOMPLETE (same) — the loss is mostly the 16,000 chicks counted in September |
+| Oct | ₹56,33,437 | ₹2,93,548 | ₹48,796 | ₹2,14,528 | ₹0 | ₹61,90,309 | ₹86,25,758 | ₹24,35,449 | **TO DATE: 26 of 31 days** (data ends 26 Oct; labour and electricity counted for 26 days); INCOMPLETE |
+| Jul | not entered (price starts 1 Aug) | not entered | not entered | not entered | – | – | ₹1,18,31,835 | – | 30 of 31 days; no cost inputs |
+Feed = bags × 45 kg × ₹33.33 (price row effective 1 Aug 2026). Electricity for Sep (₹99,080) and Oct (₹58,180) is picked up.
+
+## V9 Known bugs / findings
+- FOUND AND FIXED: Costs table pushed the amounts off the screen on a phone (long labels did not wrap).
+- FOUND AND FIXED: July's two open ledger questions were hidden because everything before 1 Sep counted as cleared (only August was).
+- FOUND AND FIXED: a flock-segment history row could not be "not set"; migration 0041.
+- OPEN: reader V2 (off) still splits feed boxes 1–7 / 8–10 in `readerV2/corrections.ts`; the old reader's feed-box pipeline now treats the box "ALL" as the right-page table. Not testable without credits.
+- OPEN: the "4 days without a sale" limit for the main group's big eggs is unchanged (4).
+- OPEN: the Egg stock entry and Medicines forms still use developer field names (see the UI audit).
+- Sept loss: the 16,000 chicks (₹8,32,000) land in September by design; the owner may prefer to spread them — not done without his say.
+
+## V9 Needs owner
+1. Exact start date of BAB-3's moult (September?); left "not confirmed".
+2. Diesel, medicines and other costs for Jul–Oct (or "none this month").
+3. Open ledger questions: 29/30 Jul +300 small eggs (now on the Review screen — answer with the buttons); 21 Jul feed box 173 vs 70; 19, 20, 21 Oct feed boxes; the 1 Jul page; chick rows 2 Oct and 20 Oct; the 27 and 28 Oct pages.
+4. Is the 6-day limit for small eggs also meant for the stock-days limit (now 5)?
+5. Should chick cost stay in the month of arrival (September) or be spread? (Currently: month of arrival.)
+6. Vercel access approval; Anthropic credits (blocks the daily photo upload and the reader); RLS decision; confirm the main/young split.
+
+## V9 Could not test
+- The daily photo upload and every reader prompt change (no Anthropic credit).
+- Vercel preview build/runtime logs (connector not authorised). Page timings were measured on a production build against the LOCAL database (see J9 below), not over a phone connection to Supabase.
+- Real iPhone Safari / Android Chrome (checked in Chromium at 360, 390 and 820 px).
+- Migrations 0040 and 0041 were applied to live through the connector; the app was not run against the live database.
