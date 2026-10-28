@@ -608,7 +608,7 @@ export function flockCards(ctx: Ctx, asOf: string): FlockCard[] {
       status = "ramping";
       const prev7 = rowsBefore(ctx, flockId, win.length ? win[0].date : asOf, 7);
       const hdPrev = mean(prev7.map((r) => r.hd).filter((x): x is number => x != null));
-      note = `Ramping up: day ${ramp.day} of lay (first eggs ${ramp.since}); judged against the breeder's target only from day ${RAMP_DAYS + 1}${std != null ? ` (for information, the target at week ${age} is ${round(std)} eggs per 100 birds)` : ""}. ` +
+      note = `Ramping up: day ${ramp.day} of lay (first eggs ${ramp.since}); judged against a target only from day ${RAMP_DAYS + 1}${std != null ? ` (for information, the breeder's book at week ${age} is ${round(std)} eggs per 100 birds)` : ""}. ` +
         (hd7 != null ? `Last 7 days: ${round(hd7)} eggs per 100 birds` : "No eggs-per-100-birds figure in the last 7 days") +
         (hd7 != null && hdPrev != null ? `, against ${round(hdPrev)} the 7 days before (${hd7 - hdPrev >= 0 ? "up" : "down"} ${round(Math.abs(hd7 - hdPrev))}).` : ".");
     } else if (moult) {

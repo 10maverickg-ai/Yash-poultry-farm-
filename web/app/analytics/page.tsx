@@ -245,7 +245,7 @@ export default async function AnalyticsPage({
                 </p>
               ))}
               {w.length === 0 ? (
-                <p className="muted" style={{ margin: 0 }}>{g === "young" ? "Nothing to watch: no mortality creep. Young flocks are not judged against the breeder&apos;s target while they ramp up." : "No flock is slipping below its target and no flock has rising deaths."}</p>
+                <p className="muted" style={{ margin: 0 }}>{g === "young" ? "Nothing to watch: no mortality creep. Young flocks are not judged against a target while they ramp up." : "No flock is slipping below its target and no flock has rising deaths."}</p>
               ) : (
                 <ul className="an-list">
                   {w.map((x, i) => (

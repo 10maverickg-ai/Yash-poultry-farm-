@@ -1,7 +1,7 @@
 // Tests the realistic-target learning (V10): clean data, a moult, a mortality spike, too little data, never above book.
 //   npx tsx scripts/realistic-check.mts
-import { buildCtx, addDays, type EngineInput, type ProdRow, type FlockRef } from "../lib/analytics/engine.ts";
-import { learnRealistic, realisticFor, bandAgeWeeks, findSlips, percentile, REALISTIC_CONFIG } from "../lib/analytics/realistic.ts";
+import { buildCtx, flockCards, addDays, type EngineInput, type ProdRow, type FlockRef } from "../lib/analytics/engine.ts";
+import { attachRealistic, learnRealistic, realisticFor, bandAgeWeeks, findSlips, percentile, REALISTIC_CONFIG } from "../lib/analytics/realistic.ts";
 
 let failed = 0;
 const ok = (name: string, cond: boolean, extra = "") => { if (!cond) failed++; console.log(`${cond ? "PASS" : "FAIL"}  ${name}${cond ? "" : "  " + extra}`); };
@@ -85,6 +85,20 @@ const hd30 = (m: ReturnType<typeof learnRealistic>) => m.bands.find((b) => b.gro
   const f = { placementDate: "2026-01-01", placementIsChickDate: true };
   ok("band age: chick-date flock 30 weeks after arrival -> laying age 12", bandAgeWeeks(f, "2026-07-30") === 12);
   ok("band age: normal flock", bandAgeWeeks({ placementDate: "2026-01-01" }, "2026-07-30") === 30);
+}
+// the traffic light is judged against the realistic target, never silently against the book
+{
+  const asOf = addDays(START, 33);
+  const c = buildCtx(build());
+  const bookCard = flockCards(c, asOf).find((x) => x.flockId === "A")!;
+  ok("without a model the card is judged against the book (80 of 90 = 89% -> amber)", bookCard.status === "amber", bookCard.status);
+  attachRealistic(c);
+  const rc = flockCards(c, asOf).find((x) => x.flockId === "A")!;
+  ok("with the model: 80 against realistic 80 -> green, book still shown", rc.status === "green" && rc.stdHd === 90 && Math.abs(rc.realisticHd! - 80) < 0.2 && Math.abs(rc.gap! - 10) < 0.2, JSON.stringify([rc.status, rc.stdHd, rc.realisticHd, rc.gap]));
+  const c1 = buildCtx(build({ ids: ["A"] }));
+  attachRealistic(c1);
+  const g = flockCards(c1, asOf)[0];
+  ok("not learned: grey, reason realistic_not_learned, no colour, book line kept", g.status === "no_reference" && g.refReason === "realistic_not_learned" && g.realisticHd == null && g.stdHd === 90 && /not learned yet/.test(g.statusNote), g.statusNote);
 }
 // percentile and slip
 ok("percentile 70 of 1..11 is 8", percentile([1,2,3,4,5,6,7,8,9,10,11], 70) === 8);

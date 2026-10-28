@@ -1,17 +1,25 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useRef } from "react";
 import { paperHistoryAction, type ImportState } from "./actions";
 
 export function ImportForm() {
   const [state, action, pending] = useActionState<ImportState | null, FormData>(paperHistoryAction, null);
+  // React clears the form after each action; keep the chosen file so "check" then "import" works without choosing it again.
+  const fileRef = useRef<File | null>(null);
+  const submit = (fd: FormData) => {
+    const f = fd.get("file");
+    if (f instanceof File && f.size > 0) fileRef.current = f;
+    else if (fileRef.current) fd.set("file", fileRef.current);
+    return action(fd);
+  };
   const rep = state?.report;
   const bad = rep?.results.filter((r) => r.state !== "ok") ?? [];
   return (
-    <form action={action} className="card">
+    <form action={submit} className="card">
       <label>
         File (CSV or Excel .xlsx)
-        <input type="file" name="file" accept=".csv,.xlsx,text/csv" required />
+        <input type="file" name="file" accept=".csv,.xlsx,text/csv" onChange={(e) => { fileRef.current = e.target.files?.[0] ?? null; }} />
       </label>
       <label className="an-tiny" style={{ display: "block", marginTop: "0.5rem" }}>
         <input type="checkbox" name="replace" /> also replace days that already exist (otherwise they are left untouched)

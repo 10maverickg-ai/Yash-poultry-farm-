@@ -302,17 +302,17 @@ export interface Slip {
   points: number; // percentage points the learned level moved the wrong way
 }
 
-/** Bands whose LEARNED ratio moved the wrong way by more than cfg.slipPoints between two consecutive computations. */
+/** Egg-production (HD) bands whose LEARNED ratio fell by more than cfg.slipPoints between two consecutive computations. */
 export function findSlips(history: RealisticModel[], cfg = REALISTIC_CONFIG): Slip[] {
   const out: Slip[] = [];
   for (let i = 1; i < history.length; i++) {
     const prev = history[i - 1];
     const now = history[i];
     for (const b of now.bands) {
-      if (b.learnedRatio == null) continue;
+      if (b.metric !== "hd" || b.learnedRatio == null) continue; // egg production only: feed and death ratios are not a "level that slips"
       const p = prev.bands.find((x) => x.group === b.group && x.metric === b.metric && x.band === b.band);
       if (!p || p.learnedRatio == null) continue;
-      const wrong = b.metric === "mortality" ? (b.learnedRatio - p.learnedRatio) * 100 : (p.learnedRatio - b.learnedRatio) * 100;
+      const wrong = (p.learnedRatio - b.learnedRatio) * 100; // a fall in the learned level
       if (wrong > cfg.slipPoints) out.push({ group: b.group, metric: b.metric, band: b, from: { asOf: prev.asOf, ratio: p.learnedRatio }, to: { asOf: now.asOf, ratio: b.learnedRatio }, points: wrong });
     }
   }

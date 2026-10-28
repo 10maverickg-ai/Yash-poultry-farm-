@@ -2566,3 +2566,12 @@ change is NOT reflected here.
 - **Moulting:** once any moult is recorded, only recorded moults count (no inference from feed dips). Only BAB-3 moulted (the owner says September; the 15 Aug start in the register is inferred and stays "not confirmed"). BAB-4 did not moult.
 - **Sales corrections:** local sales are stored as transaction_type 'other', buyer "Local" (or the person's name), price = rate + 0.01; Farmfresh = rate − 0.03. The one-tap answers on the review screen follow the same rule. The owner's handwritten monthly price list is his NET price per egg: stored as list + 0.03.
 - **Review:** July is not cleared (only August is); the July questions are shown.
+
+
+## V10 — realistic target (28 Oct 2026)
+- **Realistic target = the farm's own 70th percentile healthy-day ratio to the breeder's book, per group (main / young) and 5-week age band; never above the book; owner override allowed.** It is shown beside the breeder's book, never instead of it; the book stays as a neutral reference (gap shown as a plain number, no colour).
+- Traffic lights are judged against the realistic target. Where a band has fewer than 28 healthy flock-days or fewer than 2 flocks the card is grey ("not learned yet for this age") and is never silently judged against the book.
+- Healthy days exclude: unaccepted flagged days, moult days, the first 14 days of lay, days with more than 3× the flock's median deaths, missing eggs/birds/feed, the last 7 days of a departed flock. Feed is learned for the main group only (the young group has no feed column). Chick-arrival-date flocks use laying age = age − 18 weeks to choose their band.
+- An owner override per band wins over the learned value (it is still capped at the book) and is marked "set by owner"; one button returns to the learned value.
+- A 3-point fall of a band's learned HD ratio between two consecutive month-end computations raises an amber "our realistic level is slipping" alert. Sudden-drop alerts (a flock against itself) are unchanged.
+- Open for the owner: 70th percentile versus median (`REALISTIC_CONFIG.percentile`).
