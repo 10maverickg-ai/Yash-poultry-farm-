@@ -739,3 +739,16 @@ textarea { width: 100%; font: inherit; padding: 0.55rem 0.7rem; border: 1px soli
 @keyframes loadbar { from { background-position: 200% 0; } to { background-position: -200% 0; } }
 .error-card { border-left: 6px solid var(--an-red); }
 @media (prefers-reduced-motion: reduce) { .loading-bar { animation: none; } }
+
+/* every control is at least 44px tall (phone, tablet, gloves) */
+button, .btn, select, textarea, summary,
+input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]):not([type="file"]) { min-height: 44px; }
+.btn, a.btn { display: inline-flex; align-items: center; justify-content: center; }
+input[type="checkbox"], input[type="radio"] { width: 1.3rem; height: 1.3rem; }
+label:has(> input[type="checkbox"]), label:has(> input[type="radio"]) { min-height: 44px; display: inline-flex; align-items: center; gap: 0.5rem; }
+.farm-badge, .td-group-tag, .badge { font-size: 0.82rem; }
+th { font-size: 0.82rem; }
+.bn-label { font-size: 0.78rem; }
+.pv-nav .btn { min-width: 48px; justify-content: center; }
+.flag-banner a, .data-stamp a { display: inline-flex; align-items: center; min-height: 44px; }
+input[type="file"] { min-height: 44px; padding: 0.55rem 0.4rem; }
