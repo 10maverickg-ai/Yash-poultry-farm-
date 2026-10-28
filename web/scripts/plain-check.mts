@@ -1,0 +1,10 @@
+import { plainFlagReason } from "../lib/plainReason.ts";
+let bad = 0;
+const t = (raw: string, want: RegExp) => { const p = plainFlagReason(raw); const ok = want.test(p) && !/bird_population|OCR|eggs_total|HD%/.test(p); if (!ok) bad++; console.log(`${ok ? "PASS" : "FAIL"}  ${p.slice(0, 130)}`); };
+t("HD% mismatch: written 64.70%, calculated 68.78% (5910 eggs / 8593 birds x 100)", /wrote 64.70 eggs per 100 birds.*68.78/);
+t("bird_population readings disagree: 7280, 9708 — 9708 looks right (matches written HD); eggs_total 7280 is not a multiple of 30 (this farm counts eggs in trays of 30) — suggested: 7230", /two ways.*9,708.*whole number of trays.*7,230/);
+t("mortality outlier: 13 vs trailing 7-day average 2.0", /13 deaths is far more than the usual 2.0/);
+t("low OCR confidence on mortality; low OCR confidence on feed_bags; bird_population readings disagree: 10560, 12693", /hard to read for deaths.*hard to read for feed.*two ways/);
+t("Previous day's saved bird_population (8538) looks misread: today's bird_population (8582) matches today's written HD (6150/8582 = 71.66% vs written 71.6%). Suggested value for this row: 8588 (today's 8582 + today's mortality 6).", /Yesterday's bird count \(8,538\).*8,588/);
+t("An addition of 300 eggs is written with no name. Please say what it is.", /addition of 300 eggs/);
+process.exit(bad ? 1 : 0);

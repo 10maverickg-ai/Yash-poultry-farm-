@@ -760,3 +760,6 @@ input[type="file"] { min-height: 44px; padding: 0.55rem 0.4rem; }
 .td-more > summary::before { content: "▸ "; }
 .td-more[open] > summary::before { content: "▾ "; }
 .check-line { display: flex; align-items: center; gap: 0.6rem; min-height: 44px; }
+.fr-quick { gap: 0.4rem; }
+.fr-quick form { flex: 1 1 9rem; }
+.fr-quick button { width: 100%; }

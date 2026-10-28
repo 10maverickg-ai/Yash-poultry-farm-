@@ -1,7 +1,9 @@
 import { pool } from "@/lib/db";
 import { ACTIVE_FARM } from "@/lib/farm";
 import type { DateFilter } from "@/lib/records";
+import { plainFlagReason } from "@/lib/plainReason";
 import {
+  isCleared,
   isNeverFlaggedProduction,
   isNeverFlaggedLedgerGap,
   isNeverFlaggedEggEntry,
@@ -35,7 +37,8 @@ export type ReviewItem =
       tag: string | null;
       focus: "feed" | "eggs" | "mortality" | "birds" | null;
       cells: { feed: number | null; eggs: number | null; mortality: number | null; birds: number | null; hd: string | null };
-      reason: string;
+      reason: string; // plain words
+      rawReason: string; // the reader's original text
     }
   | {
       kind: "ledger_gap";
@@ -53,6 +56,9 @@ export type ReviewItem =
       category: string;
       amount: number | null;
       reason: string;
+      rawReason: string;
+      section: string;
+      sourceOk: boolean;
     }
   | {
       kind: "movement";
@@ -107,7 +113,7 @@ export async function loadFlagReview(filter: DateFilter = {}): Promise<{ days: R
       [ACTIVE_FARM, from, to]
     ),
     pool.query(
-      `SELECT e.id, s.date, e.label_as_written, e.category, e.amount_eggs, e.flag_reason
+      `SELECT e.id, s.date, s.section, e.label_as_written, e.category, e.amount_eggs, e.flag_reason
          FROM daily_egg_stock_entries e
          JOIN daily_egg_stock_summary s ON s.id = e.egg_stock_summary_id
         WHERE s.farm_code = $1 AND s.deleted_at IS NULL AND e.flagged AND NOT e.reviewed_by_owner
@@ -183,12 +189,13 @@ export async function loadFlagReview(filter: DateFilter = {}): Promise<{ days: R
       tag: tag(r.flock_internal_id),
       focus: focusOf(reason),
       cells: { feed: r.feed_bags, eggs: r.eggs_total, mortality: r.mortality, birds: r.bird_population, hd: r.hd_percent },
-      reason,
+      reason: plainFlagReason(reason),
+      rawReason: reason,
     });
   }
 
   for (const m of movements.rows) {
-    if (m.date < "2026-09-01") continue;
+    if (isCleared(m.date)) continue;
     const rows = history.rows.filter((h) => h.flock_internal_id === m.flock_internal_id);
     const onDay = rows.find((h) => h.date === m.date);
     const before = [...rows].reverse().find((h) => h.date < m.date);
@@ -220,7 +227,10 @@ export async function loadFlagReview(filter: DateFilter = {}): Promise<{ days: R
       label: e.label_as_written ?? "(no label)",
       category: String(e.category),
       amount: e.amount_eggs,
-      reason: e.flag_reason ?? "flagged",
+      reason: plainFlagReason(e.flag_reason ?? "flagged"),
+      rawReason: e.flag_reason ?? "flagged",
+      section: e.section ?? "",
+      sourceOk: true,
     });
   }
 

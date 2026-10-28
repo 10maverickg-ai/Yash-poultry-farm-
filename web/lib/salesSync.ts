@@ -28,8 +28,10 @@ function buyerFromLabel(label: string): string {
 // V5 F3: Farmfresh (big or small) vs local is decided by classifySale() —
 // category, a "local" label, or a small lot of up to ~150 eggs (never Farmfresh).
 // sales.transaction_type gained the member 'local' for it (migration 0033).
+// Local sales are stored the way the owner's corrected rows already are: transaction_type 'other', buyer "Local"
+// (V9: the 15 and 24 Sep corrections). The enum member 'local' still exists and is treated as local everywhere.
 function transactionTypeFor(kind: SaleKind): string {
-  return kind === "farmfresh" ? "sale_farmfresh" : "local";
+  return kind === "farmfresh" ? "sale_farmfresh" : "other";
 }
 
 // A generic ledger word ("Buy", "Sale", "local") says nothing about WHO bought;
@@ -88,4 +90,34 @@ export async function syncSaleForEntry(
     await client.query(`UPDATE daily_egg_stock_entries SET linked_sale_id = NULL WHERE id = $1`, [entry.id]);
     await client.query(`DELETE FROM sales WHERE id = $1`, [entry.linkedSaleId]);
   }
+}
+
+/**
+ * The owner's one-tap answer on the review screen: this ledger line IS a Farmfresh sale / a local sale. Any sales row
+ * the line already had is removed first (it may have the other kind), then a new one is created at that day's rate:
+ * Farmfresh = rate − 0.03, local = rate + 0.01. A day without its own rate reuses the previous day's for up to 3
+ * days; beyond that the row is created unpriced (never a guess). Returns what happened, for the confirmation line.
+ */
+export async function createSaleForEntryAs(
+  client: PoolClient,
+  entry: { id: number; labelAsWritten: string; amountEggsSigned: number; linkedSaleId: number | null },
+  date: string,
+  section: EggStockSection,
+  kind: SaleKind,
+  farmCode: string = ACTIVE_FARM
+): Promise<{ saleId: number; price: number | null; rateDate: string | null }> {
+  if (entry.linkedSaleId) {
+    await client.query(`UPDATE daily_egg_stock_entries SET linked_sale_id = NULL WHERE id = $1`, [entry.id]);
+    await client.query(`DELETE FROM sales WHERE id = $1`, [entry.linkedSaleId]);
+  }
+  const qty = Math.abs(entry.amountEggsSigned);
+  const rate = await rateFor(client, date);
+  const price = rate ? salePrice(rate.rate, kind) : null;
+  const { rows } = await client.query(
+    `INSERT INTO sales (date, farm_code, source_ledger_entry_id, transaction_type, buyer_or_recipient, eggs_quantity, grade, price_per_unit, amount)
+     VALUES ($1,$2,$3,$4::sales_transaction_type,$5,$6,$7,$8,$9) RETURNING id`,
+    [date, farmCode, entry.id, transactionTypeFor(kind), buyerFor(kind, entry.labelAsWritten), qty, section, price, price != null ? Math.round(qty * price * 100) / 100 : null]
+  );
+  await client.query(`UPDATE daily_egg_stock_entries SET linked_sale_id = $2 WHERE id = $1`, [entry.id, rows[0].id]);
+  return { saleId: Number(rows[0].id), price, rateDate: rate ? rate.rateDate : null };
 }
