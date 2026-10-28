@@ -1,5 +1,6 @@
 // The Today screen in three plain parts (V9 J8): what is right, what is wrong now, what may go wrong soon.
 // Every item says one plain sentence, the numbers behind it, what to do (for the wrong ones) and where to tap.
+import { slipItems } from "./realistic";
 import {
   flockCards,
   SEGMENT_NAME,
@@ -129,6 +130,7 @@ export function buildToday(
         group: g,
       });
     }
+    for (const sl of slipItems(ctx).filter((x) => x.group === g)) soon.push({ id: sl.id, title: sl.title, detail: sl.detail, href: "/analytics/targets", group: g });
     for (const c of mine.filter((x) => x.status === "amber")) {
       soon.push({ id: `amber-${c.flockId}`, title: `${c.label} is a little below our realistic target.`, detail: c.statusNote, href: flockHref(c), group: g });
     }

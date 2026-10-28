@@ -798,3 +798,5 @@ main:focus { outline: none; }
 .tl-table th, .tl-table td { padding: 0.3rem 0.4rem; border-bottom: 1px solid var(--border, #ddd); text-align: left; white-space: normal; }
 .tl-table .num { text-align: right; white-space: nowrap; }
 .tl-scroll { overflow-x: auto; }
+.btn-small { padding: 0.25rem 0.6rem; font-size: 0.8rem; min-height: 2rem; }
+.tl-ov { display: flex; gap: 0.3rem; margin-bottom: 0.25rem; }

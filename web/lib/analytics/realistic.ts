@@ -345,10 +345,26 @@ export function attachRealistic(ctx: Ctx): { model: RealisticModel; history: Rea
     cache = { key, model: history[history.length - 1], history };
   }
   ctx.realistic = cache.model;
+  ctx.realisticHistory = cache.history;
   const model = cache.model;
   ctx.realisticHd = (flockId, date): RealisticHdTarget => {
     const t = realisticFor(ctx, flockId, date, model);
     return { value: t.value, book: t.book, ratio: t.ratio, source: t.source, reason: t.reason, bandLabel: t.band ? `weeks ${t.band.fromWeek}-${t.band.toWeek}` : null };
   };
   return { model, history: cache.history };
+}
+
+const METRIC_WORDS: Record<RMetric, string> = { hd: "eggs per 100 birds", feed: "feed per bird", mortality: "deaths" };
+/** Amber "slipping" items for Today / Analytics: the farm's realistic level fell between two monthly computations. */
+export function slipItems(ctx: Ctx): { id: string; group: RGroup; title: string; detail: string }[] {
+  if (!ctx.realisticHistory) return [];
+  // only the latest pair matters for an alert: older slips are history on the "How is this learned?" page
+  const h = ctx.realisticHistory;
+  if (h.length < 2) return [];
+  return findSlips(h.slice(-2)).map((s) => ({
+    id: `slip-${s.group}-${s.metric}-${s.band.band}`,
+    group: s.group,
+    title: `Our realistic level is slipping: ${s.group === "main" ? "main" : "young"} flocks aged ${s.band.fromWeek}–${s.band.toWeek} weeks (${METRIC_WORDS[s.metric]}).`,
+    detail: `Learned level was ${(s.from.ratio * 100).toFixed(1)}% of the book at ${s.from.asOf} and is ${(s.to.ratio * 100).toFixed(1)}% at ${s.to.asOf} (${s.points.toFixed(1)} points). Check housing, feed and ventilation.`,
+  }));
 }

@@ -198,6 +198,7 @@ export interface Ctx {
   stdByAge: Map<number, number>;
   stdByBreed: Map<string, Map<number, number>>;
   realistic?: RealisticModel; // learned from the farm's own records; attached by attachRealistic (V10)
+  realisticHistory?: RealisticModel[]; // month-end computations, oldest first (trend chart and slip alert)
   /** Realistic HD target for a flock on a date. Absent = judge against the book (old behaviour; unit tests). */
   realisticHd?: (flockId: string, date: string) => RealisticHdTarget;
 }

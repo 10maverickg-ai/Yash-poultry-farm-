@@ -1,3 +1,4 @@
+import { slipItems } from "@/lib/analytics/realistic";
 import { TargetLines } from "@/components/TargetLines";
 import { buildFarmCtx } from "@/lib/analytics/ctx";
 import Link from "next/link";
@@ -87,6 +88,7 @@ export default async function AnalyticsPage({
     pool.query(`SELECT alert_key, verdict FROM alert_feedback WHERE farm_code = $1`, [ACTIVE_FARM]),
   ]);
   const { ctx } = buildFarmCtx(engineInput);
+  const slips = slipItems(ctx);
   const view = sp.view === "week" || sp.view === "month" || sp.view === "year" ? sp.view : "day";
 
   if (view !== "day" && ctx.dates.length > 0) {
@@ -237,6 +239,11 @@ export default async function AnalyticsPage({
           return (
             <div className="card" key={g}>
               <h3 style={{ marginTop: 0 }}>{SEGMENT_NAME[g]}</h3>
+              {slips.filter((x) => x.group === g).map((x) => (
+                <p key={x.id} className="an-note" style={{ borderLeft: "4px solid #b7791f", paddingLeft: "0.5rem" }}>
+                  <strong>⚠ {x.title}</strong> {x.detail} <Link href="/analytics/targets">See how it moved →</Link>
+                </p>
+              ))}
               {w.length === 0 ? (
                 <p className="muted" style={{ margin: 0 }}>{g === "young" ? "Nothing to watch: no mortality creep. Young flocks are not judged against the breeder&apos;s target while they ramp up." : "No flock is slipping below its target and no flock has rising deaths."}</p>
               ) : (
