@@ -765,3 +765,15 @@ input[type="file"] { min-height: 44px; padding: 0.55rem 0.4rem; }
 .fr-quick button { width: 100%; }
 .rate-source { border: 1px solid var(--line); border-radius: 10px; padding: 0.6rem 0.8rem; margin: 0; }
 .rate-source legend { padding: 0 0.3rem; }
+/* labels may wrap (a long label must never push the amount off the screen); numbers stay on one line */
+.an-table td, .an-table th { white-space: normal; }
+.an-table td.num, .an-table th.num { white-space: nowrap; }
+.flock-cards { display: grid; gap: 0.7rem; grid-template-columns: 1fr; }
+@media (min-width: 640px) { .flock-cards { grid-template-columns: 1fr 1fr; } }
+.flock-card.depleted { opacity: 0.8; }
+.flock-card-head { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; }
+.flock-card-name { font-size: 1.2rem; font-weight: 700; }
+.flock-facts { display: grid; grid-template-columns: 1fr 1fr; gap: 0.4rem 0.8rem; margin: 0.4rem 0 0.7rem; }
+.flock-facts dt { font-size: 0.85rem; color: var(--muted); }
+.flock-facts dd { margin: 0; font-weight: 600; }
+.seg-form { align-items: flex-end; }

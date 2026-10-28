@@ -92,6 +92,7 @@ export default async function AnalyticsPage({
     return (
       <>
         <h1>Analytics</h1>
+        <DataStamp latest={lastDayOfData(ctx)} today={new Date().toISOString().slice(0, 10)} />
         <PeriodView input={engineInput} cost={costInput} extras={extras} kind={view} p={sp.p} />
       </>
     );

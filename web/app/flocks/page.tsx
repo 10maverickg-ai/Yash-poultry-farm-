@@ -32,7 +32,7 @@ export default async function FlocksPage() {
       </div>
 
       <p className="muted an-sub">
-        <b>Segment</b> decides which group a flock is counted in on Analytics, Today and the exports. Main = right page of the register (big eggs, mature). Young = left page (small eggs, still ramping up). A flock with no segment is counted only in the whole-farm total; nothing is guessed. Moving a flock keeps its past in the old group.
+        <b>Group</b> decides which group a flock is counted in on Analytics, Today and the exports. Main = right page of the register (big eggs, mature). Young = left page (small eggs, still ramping up). A flock with no group is counted only in the whole-farm total; nothing is guessed. Moving a flock keeps its past in the old group.
       </p>
       {flocks.length === 0 ? (
         <p className="card muted">
@@ -40,56 +40,36 @@ export default async function FlocksPage() {
           to get started — every other register depends on this list.
         </p>
       ) : (
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Flock</th>
-                <th>Status</th>
-                <th>Stage</th>
-                <th>Shed</th>
-                <th>Birds</th>
-                <th>Placed (chick arrival for BAB-9, 10, 11)</th>
-                <th>Age</th>
-                <th>Breed</th>
-                <th>Segment</th>
-              </tr>
-            </thead>
-            <tbody>
-              {[...active, ...depleted].map((f) => (
-                <tr key={f.flock_internal_id} className={f.status}>
-                  <td>
-                    <Link href={`/flocks/${f.flock_internal_id}`}>
-                      {f.display_label}
-                    </Link>
-                  </td>
-                  <td>
-                    <span className={`badge badge-${f.status}`}>{f.status}</span>
-                  </td>
-                  <td>{f.current_stage ?? "—"}</td>
-                  <td>{f.current_shed ?? "—"}</td>
-                  <td>{f.current_bird_count?.toLocaleString("en-IN") ?? "—"}</td>
-                  <td>{f.placement_date ? dmy(String(f.placement_date)) : <span className="badge badge-flagged">not set</span>}{f.placement_date && !f.placement_date_confirmed && isPlaceholderDate(f.placement_date, f.placement_date_confirmed) ? " (placeholder)" : ""}</td>
-                  <td>
-                    {!f.placement_date || isPlaceholderDate(f.placement_date, f.placement_date_confirmed)
-                      ? <span className="badge badge-flagged">age unknown</span>
-                      : `${weeksSince(f.placement_date)} wk`}
-                  </td>
-                  <td>{f.breed ?? "—"}</td>
-                  <td>
-                    <form action={setFlockSegment.bind(null, f.flock_internal_id)} className="seg-form">
-                      <select name="segment" defaultValue={f.segment ?? "none"} aria-label={`Segment of ${f.display_label}`}>
-                        <option value="none">Not set</option>
-                        <option value="main">Main (big eggs)</option>
-                        <option value="young">Young (small eggs)</option>
-                      </select>
-                      <button type="submit" className="btn-secondary an-small">Set</button>
-                    </form>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="flock-cards">
+          {[...active, ...depleted].map((f) => {
+            const noAge = !f.placement_date || isPlaceholderDate(f.placement_date, f.placement_date_confirmed);
+            return (
+              <div key={f.flock_internal_id} className={`card flock-card ${f.status}`}>
+                <div className="flock-card-head">
+                  <Link href={`/flocks/${f.flock_internal_id}`} className="plain-link flock-card-name">{f.display_label} ›</Link>
+                  <span className={`badge badge-${f.status}`}>{f.status === "active" ? "on the farm" : "left the farm"}</span>
+                </div>
+                <dl className="flock-facts">
+                  <div><dt>Birds</dt><dd>{f.current_bird_count?.toLocaleString("en-IN") ?? "—"}</dd></div>
+                  <div><dt>Age</dt><dd>{noAge ? <span className="badge badge-flagged">age unknown</span> : `${weeksSince(f.placement_date!)} weeks`}</dd></div>
+                  <div><dt>{f.placement_is_chick_date ? "Chicks arrived" : "Placed"}</dt><dd>{f.placement_date ? dmy(String(f.placement_date)) : <span className="badge badge-flagged">not set</span>}{f.placement_date && isPlaceholderDate(f.placement_date, f.placement_date_confirmed) ? " (placeholder)" : ""}</dd></div>
+                  <div><dt>Breed</dt><dd>{f.breed ?? "—"}</dd></div>
+                  <div><dt>Shed</dt><dd>{f.current_shed ?? "—"}</dd></div>
+                </dl>
+                <form action={setFlockSegment.bind(null, f.flock_internal_id)} className="seg-form">
+                  <label className="field" style={{ flex: 1, margin: 0 }}>
+                    <span>Group</span>
+                    <select name="segment" defaultValue={f.segment ?? "none"} aria-label={`Group of ${f.display_label}`}>
+                      <option value="none">Not set</option>
+                      <option value="main">Main (big eggs)</option>
+                      <option value="young">Young (small eggs)</option>
+                    </select>
+                  </label>
+                  <button type="submit" className="btn-secondary">Save group</button>
+                </form>
+              </div>
+            );
+          })}
         </div>
       )}
     </>
