@@ -30,5 +30,5 @@
     ".next/dev/types/**/*.ts",
     "**/*.mts"
   ],
-  "exclude": ["node_modules", "scripts/analytics-check.mts", "scripts/rates-check.mts", "scripts/costs-check.mts", "scripts/import-knowledge.mts", "scripts/std-for-check.mts", "scripts/fixtureInput.mts", "scripts/alerts-report.mts", "scripts/period-check.mts", "scripts/segment-check.mts", "scripts/friendly-check.mts", "scripts/costs-report.mts", "scripts/plain-check.mts"]
+  "exclude": ["node_modules", "scripts/analytics-check.mts", "scripts/rates-check.mts", "scripts/costs-check.mts", "scripts/import-knowledge.mts", "scripts/std-for-check.mts", "scripts/fixtureInput.mts", "scripts/alerts-report.mts", "scripts/period-check.mts", "scripts/segment-check.mts", "scripts/friendly-check.mts", "scripts/costs-report.mts", "scripts/plain-check.mts", "scripts/realistic-check.mts", "scripts/realistic-report.mts", "scripts/import-check.mts"]
 }

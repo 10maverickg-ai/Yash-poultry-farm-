@@ -16,6 +16,7 @@
 //      It is NEVER above the book (HD, feed) — and for deaths never BETTER than the book.
 //   5. Realistic target for a flock today = the book value at its age × its band's ratio. An owner override wins.
 import { breedKey, diffDays, addDays, firstLayDate, lastDayOfData, moultOn, segmentOn, stdFor, type Ctx, type FlockRef, type ProdRow } from "./engine";
+import type { RealisticHdTarget } from "./engine";
 import type { RealisticBand, RealisticModel, RealisticOverride, RGroup, RMetric } from "./realisticTypes";
 
 /** Every threshold in one place. Nothing about the learning is hidden anywhere else. */
@@ -327,3 +328,27 @@ export function judge(actual: number, realistic: number, cfg = REALISTIC_CONFIG)
 // kept for callers that want to look at a row set directly
 export type { ProdRow, RealisticModel, RealisticBand, RealisticOverride };
 export const addDaysR = addDays;
+
+// ---- attach to a context (cached) ---------------------------------------------
+let cache: { key: string; model: RealisticModel; history: RealisticModel[] } | null = null;
+
+/**
+ * Learn the model once for this data (cached until the data changes: last day, row count, overrides) and attach it to the
+ * context, so flockCards judge against the realistic target. Also returns the month-end history for the trend chart / slip alert.
+ */
+export function attachRealistic(ctx: Ctx): { model: RealisticModel; history: RealisticModel[] } {
+  const ov = ctx.input.realisticOverrides ?? [];
+  const asOf = lastDayOfData(ctx);
+  const key = `${asOf}|${ctx.input.prod.length}|${JSON.stringify(ov)}|${ctx.input.flocks.map((f) => f.id + (f.segment ?? "") + (f.placementDate ?? "")).join(",")}`;
+  if (!cache || cache.key !== key) {
+    const history = learnHistory(ctx, ov);
+    cache = { key, model: history[history.length - 1], history };
+  }
+  ctx.realistic = cache.model;
+  const model = cache.model;
+  ctx.realisticHd = (flockId, date): RealisticHdTarget => {
+    const t = realisticFor(ctx, flockId, date, model);
+    return { value: t.value, book: t.book, ratio: t.ratio, source: t.source, reason: t.reason, bandLabel: t.band ? `weeks ${t.band.fromWeek}-${t.band.toWeek}` : null };
+  };
+  return { model, history: cache.history };
+}

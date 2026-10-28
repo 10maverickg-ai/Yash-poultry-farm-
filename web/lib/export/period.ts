@@ -1,7 +1,8 @@
+import { buildFarmCtx } from "@/lib/analytics/ctx";
 import { loadEngineInput } from "@/lib/analytics/load";
 import { loadPeriodExtras } from "@/lib/analytics/periodLoad";
 import { loadCostInput } from "@/lib/costs/load";
-import { buildCtx, ledgerSegment, rowsOn, segmentOn } from "@/lib/analytics/engine";
+import { ledgerSegment, rowsOn, segmentOn } from "@/lib/analytics/engine";
 import { monthsWithin, rangeOf, summarizePeriod, type PeriodKind } from "@/lib/analytics/period";
 import { SEGMENT_NAME, type SegFilter } from "@/lib/analytics/engine";
 import { dayEconomics } from "@/lib/costs/engine";
@@ -18,7 +19,7 @@ export function validPeriod(kind: string, p: string): boolean {
 
 export async function periodDataset(kind: PeriodKind, p: string, seg: SegFilter = "all"): Promise<Dataset> {
   const [input, cost, extras] = await Promise.all([loadEngineInput(), loadCostInput(), loadPeriodExtras()]);
-  const ctx = buildCtx(input);
+  const { ctx } = buildFarmCtx(input);
   const anchor = kind === "year" ? `${p}-01-01` : kind === "month" ? `${p}-01` : p;
   const range = rangeOf(kind, anchor);
   const s = summarizePeriod(ctx, cost, extras, range, seg);

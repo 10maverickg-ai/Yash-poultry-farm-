@@ -784,3 +784,17 @@ input[type="file"] { min-height: 44px; padding: 0.55rem 0.4rem; }
 .skip-link:focus { left: 0.5rem; top: 0.5rem; }
 main:focus { outline: none; }
 .skip-link { min-height: 44px; display: inline-flex; align-items: center; }
+
+/* V10: three target lines per flock (book / our realistic / actual) */
+.tl { margin: 0.35rem 0 0.2rem; display: grid; gap: 0.1rem; font-size: 0.85rem; }
+.tl > div { display: flex; justify-content: space-between; gap: 0.75rem; align-items: baseline; }
+.tl dt { color: var(--muted, #666); min-width: 0; }
+.tl dd { margin: 0; text-align: right; white-space: normal; }
+.tl .tl-book { color: var(--muted, #666); }
+.tl .tl-gap { justify-content: flex-start; font-size: 0.78rem; }
+.tl-compact { font-size: 0.78rem; max-width: 24rem; }
+.tl-trend svg { width: 100%; height: auto; display: block; }
+.tl-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+.tl-table th, .tl-table td { padding: 0.3rem 0.4rem; border-bottom: 1px solid var(--border, #ddd); text-align: left; white-space: normal; }
+.tl-table .num { text-align: right; white-space: nowrap; }
+.tl-scroll { overflow-x: auto; }

@@ -128,6 +128,7 @@ export interface FlockPeriod {
   hd: number | null; // pooled
   stdHd: number | null; // standard for the flock's age/breed at the end of its period
   gap: number | null; // std - hd (points; positive = below)
+  realisticHd: number | null; // our realistic target at the end of the period (null = not learned yet)
   status: CardStatus;
   refReason: RefReason;
   statusNote: string;
@@ -333,7 +334,9 @@ export function summarizePeriod(ctx: Ctx, cost: CostInput, extras: PeriodExtras,
     const eggs = sum(rs.map((r) => r.eggs ?? 0));
     const bd = sum(rs.map((r) => r.pop ?? 0));
     const hd = bd > 0 ? (eggs / bd) * 100 : null;
-    const { std, why, reason } = stdFor(ctx, flock, last.date);
+    const { std, why, reason: baseReason } = stdFor(ctx, flock, last.date);
+    let reason: RefReason = baseReason;
+    const rt = std != null && ctx.realisticHd ? ctx.realisticHd(flockId, last.date) : null;
     const moultDays = rs.filter((r) => moultOn(ctx, flockId, r.date)).length;
     const gap = std != null && hd != null ? std - hd : null;
     let status: CardStatus;
@@ -349,10 +352,17 @@ export function summarizePeriod(ctx: Ctx, cost: CostInput, extras: PeriodExtras,
     } else if (std == null || hd == null) {
       status = "no_reference";
       note = why || "No HD% in this period.";
+    } else if (rt && rt.value == null) {
+      status = "no_reference";
+      reason = "realistic_not_learned";
+      note = `HD ${hd.toFixed(1)}%; breeder's target ${std.toFixed(1)}% (${Math.abs(std - hd).toFixed(1)} points ${std > hd ? "below" : "above"} the book). Our realistic target is not learned yet for this age, so there is no colour.`;
     } else {
-      const ratio = hd / std;
+      const target = rt ? rt.value! : std;
+      const ratio = hd / target;
       status = ratio >= RULES.greenMinRatio ? "green" : ratio >= RULES.amberMinRatio ? "amber" : "red";
-      note = `HD ${hd.toFixed(1)}% vs ${breedName(flock?.breed)} standard ${std.toFixed(1)}% (${Math.round(ratio * 100)}% of standard).`;
+      note = rt
+        ? `HD ${hd.toFixed(1)}% vs our realistic target ${target.toFixed(1)}% (${Math.round(ratio * 100)}% of it); the breeder's book says ${std.toFixed(1)}%.`
+        : `HD ${hd.toFixed(1)}% vs ${breedName(flock?.breed)} standard ${std.toFixed(1)}% (${Math.round(ratio * 100)}% of standard).`;
     }
     const fRows = rs.filter((r) => r.feed != null);
     const fd = sum(fRows.map((r) => r.feed ?? 0));
@@ -370,6 +380,7 @@ export function summarizePeriod(ctx: Ctx, cost: CostInput, extras: PeriodExtras,
       hd,
       stdHd: std,
       gap,
+      realisticHd: rt?.value ?? null,
       status,
       refReason: reason,
       statusNote: note,

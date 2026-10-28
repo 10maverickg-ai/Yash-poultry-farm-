@@ -3,9 +3,9 @@ import type { CardStatus, RefReason } from "./engine";
 // The chip on a flock: a word AND an icon (colour is never the only signal). "No reference loaded" is never
 // shown: when a flock has no age-based target the chip says why, in plain words.
 const BY_STATUS: Record<Exclude<CardStatus, "no_reference">, { icon: string; label: string; tone: "green" | "amber" | "red" | "blue" | "grey" }> = {
-  green: { icon: "✔", label: "On target", tone: "green" },
-  amber: { icon: "⚠", label: "Below target", tone: "amber" },
-  red: { icon: "✖", label: "Well below target", tone: "red" },
+  green: { icon: "✔", label: "On our target", tone: "green" },
+  amber: { icon: "⚠", label: "Below our target", tone: "amber" },
+  red: { icon: "✖", label: "Well below our target", tone: "red" },
   moult: { icon: "◐", label: "Moulting", tone: "blue" },
   ramping: { icon: "↗", label: "Ramping up", tone: "blue" },
   left: { icon: "–", label: "Left the farm", tone: "grey" },
@@ -17,6 +17,7 @@ const BY_REASON: Partial<Record<RefReason, string>> = {
   before_table: "Too young for the table",
   no_breed_ref: "No target for this breed",
   no_age_row: "No target for this week",
+  realistic_not_learned: "Realistic target not learned yet",
 };
 
 export function chip(c: { status: CardStatus; refReason?: RefReason }): { icon: string; label: string; tone: string; css: string } {

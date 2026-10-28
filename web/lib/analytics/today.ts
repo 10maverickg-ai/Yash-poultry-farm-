@@ -83,7 +83,7 @@ export function buildToday(
     if (onTarget.length > 0) {
       right.push({
         id: `green-${g}`,
-        title: `${onTarget.length} of ${mine.length} ${g === "main" ? "main" : "young"} flocks are meeting the breeder's target for their age.`,
+        title: `${onTarget.length} of ${mine.length} ${g === "main" ? "main" : "young"} flocks are meeting our realistic target for their age.`,
         detail: onTarget.map((c) => c.label).join(", "),
         href: `/analytics?date=${asOf}#flocks`,
         group: g,
@@ -111,7 +111,7 @@ export function buildToday(
     for (const c of mine.filter((x) => x.status === "red")) {
       wrong.push({
         id: `red-${c.flockId}`,
-        title: `${c.label} is laying far below the breeder's target for its age.`,
+        title: `${c.label} is laying far below our realistic target for its age.`,
         detail: c.statusNote,
         action: "Check feed, water, health and lights; compare with the day's register photo.",
         href: flockHref(c),
@@ -130,7 +130,7 @@ export function buildToday(
       });
     }
     for (const c of mine.filter((x) => x.status === "amber")) {
-      soon.push({ id: `amber-${c.flockId}`, title: `${c.label} is a little below the breeder's target.`, detail: c.statusNote, href: flockHref(c), group: g });
+      soon.push({ id: `amber-${c.flockId}`, title: `${c.label} is a little below our realistic target.`, detail: c.statusNote, href: flockHref(c), group: g });
     }
     if (p.stock && p.stock.days > 4) {
       soon.push({ id: `stock-high-${g}`, title: `${g === "main" ? "Big" : "Small"} eggs are building up: ${n1(p.stock.days)} days of laying in stock.`, detail: `${n0(p.stock.closing)} eggs. Sell or collect soon.`, href: `/egg-stock?date=${asOf}`, group: g });
