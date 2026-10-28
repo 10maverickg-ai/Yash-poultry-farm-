@@ -76,7 +76,7 @@ export async function addDiesel(formData: FormData) {
 }
 
 // ---- monthly "inputs still missing" checklist ---------------------------------
-const MONTH_INPUTS = ["electricity", "diesel", "medicines", "labour", "packing"] as const;
+const MONTH_INPUTS = ["electricity", "diesel", "medicines", "labour", "packing", "other"] as const;
 
 async function setStatus(month: string, key: string, status: "none" | "confirmed") {
   await pool.query(
@@ -118,6 +118,16 @@ export async function completeMonthInput(month: string, key: string, formData: F
       if (!item || amount == null) back("Say what was bought and the amount, or tap “None this month”.");
       if (!iso.test(date) || !date.startsWith(month)) back("The date must be inside that month.");
       await pool.query(`INSERT INTO purchases (farm_code, date, category, item, amount_inr, note) VALUES ($1,$2,'medicine',$3,$4,'Entered from the monthly checklist')`, [ACTIVE_FARM, date, item, amount]);
+    }
+  } else if (key === "other") {
+    if (none) await setStatus(month, "other", "none");
+    else {
+      const amount = num("amount_inr");
+      const item = String(formData.get("item") ?? "").trim();
+      const date = String(formData.get("date") ?? first);
+      if (!item || amount == null) back("Say what it was and the amount, or tap “None this month”.");
+      if (!iso.test(date) || !date.startsWith(month)) back("The date must be inside that month.");
+      await pool.query(`INSERT INTO purchases (farm_code, date, category, item, amount_inr, note) VALUES ($1,$2,'other',$3,$4,'Entered from the monthly checklist')`, [ACTIVE_FARM, date, item, amount]);
     }
   } else if (key === "labour") {
     const v = num("value");

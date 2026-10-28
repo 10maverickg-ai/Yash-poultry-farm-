@@ -33,6 +33,7 @@ function Checklist({ month, items }: { month: string; items: ChecklistItem[] }) 
               {i.key === "electricity" && (<><input type="number" name="value" step="0.01" min="0" inputMode="decimal" placeholder="Bill ₹" aria-label="Electricity bill in rupees" /><button type="submit">Save</button></>)}
               {i.key === "diesel" && (<><input type="number" name="litres" step="0.1" min="0" inputMode="decimal" placeholder="Litres" aria-label="Litres" /><input type="number" name="amount_inr" step="0.01" min="0" inputMode="decimal" placeholder="₹" aria-label="Amount in rupees" /><input type="date" name="date" defaultValue={`${month}-01`} min={`${month}-01`} aria-label="Date" /><button type="submit">Save</button><button type="submit" name="none" value="1" className="btn-secondary">None this month</button></>)}
               {i.key === "medicines" && (<><input type="text" name="item" placeholder="What" aria-label="What was bought" /><input type="number" name="amount_inr" step="0.01" min="0" inputMode="decimal" placeholder="₹" aria-label="Amount in rupees" /><input type="date" name="date" defaultValue={`${month}-01`} min={`${month}-01`} aria-label="Date" /><button type="submit">Save</button><button type="submit" name="none" value="1" className="btn-secondary">None this month</button></>)}
+              {i.key === "other" && (<><input type="text" name="item" placeholder="What" aria-label="What it was" /><input type="number" name="amount_inr" step="0.01" min="0" inputMode="decimal" placeholder="₹" aria-label="Amount in rupees" /><input type="date" name="date" defaultValue={`${month}-01`} min={`${month}-01`} aria-label="Date" /><button type="submit">Save</button><button type="submit" name="none" value="1" className="btn-secondary">None this month</button></>)}
               {i.key === "labour" && (<><input type="number" name="value" step="0.01" min="0" inputMode="decimal" defaultValue={i.standing} aria-label="Labour total for the month in rupees" /><button type="submit">Confirm this month</button></>)}
               {i.key === "packing" && (<><input type="number" name="value" step="0.01" min="0" inputMode="decimal" defaultValue={i.standing} aria-label="Packing cost per tray in rupees" /><button type="submit">Confirm</button></>)}
             </form>
@@ -43,6 +44,10 @@ function Checklist({ month, items }: { month: string; items: ChecklistItem[] }) 
   );
 }
 
+const daysIn = (ym: string) => { const [y, mo] = ym.split("-").map(Number); return new Date(Date.UTC(y, mo, 0)).getUTCDate(); };
+
+const latestSetting = (settings: { type: string; value: number; effectiveFrom: string; month: string | null }[], type: string) => settings.filter((x) => x.type === type && !x.month).sort((a, b) => (a.effectiveFrom < b.effectiveFrom ? 1 : -1))[0]?.value ?? null;
+
 export default async function PurchasesPage({ searchParams }: { searchParams: Promise<{ saved?: string; error?: string }> }) {
   const sp = await searchParams;
   const today = new Date().toISOString().slice(0, 10);
@@ -52,6 +57,7 @@ export default async function PurchasesPage({ searchParams }: { searchParams: Pr
     pool.query(`SELECT date, category, item, quantity, unit, amount_inr, supplier FROM purchases WHERE farm_code = $1 ORDER BY date DESC, id DESC LIMIT 30`, [ACTIVE_FARM]),
     pool.query(`SELECT date, litres, amount_inr FROM diesel_purchases WHERE farm_code = $1 ORDER BY date DESC, id DESC LIMIT 15`, [ACTIVE_FARM]),
   ]);
+  const chickPrice = latestSetting(input.settings, "chick_cost_per_chick");
   const months = [...new Set(input.prod.map((p) => p.date.slice(0, 7)))].sort().reverse();
   const checklists = new Map<string, ChecklistItem[]>();
   for (const m of months) checklists.set(m, await monthChecklist(m));
@@ -76,15 +82,17 @@ export default async function PurchasesPage({ searchParams }: { searchParams: Pr
         return (
           <div key={m} className="card">
             <h3 style={{ marginTop: 0 }}>{monthName(m)}</h3>
+            {e.days < daysIn(m) && <p className="muted an-tiny" style={{ marginTop: 0 }}><b>To date, not the full month:</b> {e.days} of {daysIn(m)} days have data, so the monthly bills (electricity, labour) are counted for those {e.days} days only.</p>}
             <div style={{ overflowX: "auto" }}><table className="an-table" style={{ minWidth: 0 }}>
               <tbody>
-                <tr><td>Feed</td><td className="num">₹{inr(e.cost.feed)}</td></tr>
+                <tr><td>Feed</td><td className="num">{e.missing.some((x) => x.startsWith("feed price")) ? <span className="badge badge-flagged">not entered (price starts 1 Aug)</span> : `₹${inr(e.cost.feed)}`}</td></tr>
                 <tr><td>Electricity</td><td className="num">{e.missing.some((x) => x.startsWith("electricity")) ? <span className="badge badge-flagged">missing: not entered</span> : `₹${inr(e.cost.electricity)}`}</td></tr>
-                <tr><td>Labour</td><td className="num">₹{inr(e.cost.labour)}</td></tr>
-                <tr><td>Packing</td><td className="num">₹{inr(e.cost.packing)}</td></tr>
-                <tr><td>Diesel</td><td className="num">₹{inr(e.cost.diesel)}</td></tr>
-                <tr><td>Medicines &amp; vaccines</td><td className="num">₹{inr(e.cost.medicine)}</td></tr>
-                <tr><td>Other purchases</td><td className="num">₹{inr(e.cost.other)}</td></tr>
+                <tr><td>Labour</td><td className="num">{e.missing.some((x) => x.startsWith("labour")) ? <span className="badge badge-flagged">not entered</span> : `₹${inr(e.cost.labour)}`}</td></tr>
+                <tr><td>Packing</td><td className="num">{e.missing.some((x) => x.startsWith("packing price")) ? <span className="badge badge-flagged">not entered (price starts 1 Aug)</span> : `₹${inr(e.cost.packing)}`}</td></tr>
+                <tr><td>Diesel</td><td className="num">{e.missing.some((x) => x.startsWith("diesel")) ? <span className="badge badge-flagged">not entered</span> : `₹${inr(e.cost.diesel)}`}</td></tr>
+                <tr><td>Medicines &amp; vaccines</td><td className="num">{e.missing.some((x) => x.startsWith("medicines")) ? <span className="badge badge-flagged">not entered</span> : `₹${inr(e.cost.medicine)}`}</td></tr>
+                <tr><td>Other costs</td><td className="num">{e.missing.some((x) => x.startsWith("other costs")) ? <span className="badge badge-flagged">not entered</span> : `₹${inr(e.cost.other)}`}</td></tr>
+                <tr><td>Chick purchase <span className="muted an-tiny">(average {chickPrice != null ? `₹${chickPrice}` : "price"} per chick × chicks that arrived; counted in the month they arrived, not spread over laying months)</span></td><td className="num">{`₹${inr(e.cost.chicks)}`}</td></tr>
               </tbody>
               <tfoot>
                 <tr><th>Total cost so far{e.missing.length ? " (incomplete)" : ""} <span className="muted an-tiny">estimate</span></th><th className="num">₹{inr(e.cost.total)}</th></tr>
@@ -92,7 +100,6 @@ export default async function PurchasesPage({ searchParams }: { searchParams: Pr
                 <tr><th>Estimated profit{e.missing.length ? " — INCOMPLETE" : ""} <span className="muted an-tiny">estimate</span></th><th className="num">{e.revenue ? `₹${inr(e.profit)}` : "—"}</th></tr>
               </tfoot>
             </table></div>
-            {e.chickPurchases > 0 && <p className="muted an-tiny">Chick purchases this month (not in the total): ₹{inr(e.chickPurchases)}</p>}
             {e.birdSaleRevenue > 0 && <p className="muted an-tiny">Bird sales this month (not in egg revenue): ₹{inr(e.birdSaleRevenue)}</p>}
             <Checklist month={m} items={checklists.get(m) ?? []} />
             {e.unpricedEggsSold > 0 && <div className="flag-banner">{e.unpricedEggsSold.toLocaleString("en-IN")} eggs were sold without a BAFTA rate, so revenue and profit here are incomplete. <Link href="/sales/rates">Enter the rates</Link>.</div>}

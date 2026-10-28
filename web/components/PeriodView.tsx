@@ -156,9 +156,11 @@ function CompareTable({ changes, vsLabel, lastYear }: { changes: Change[]; vsLab
 function Money({ s, month }: { s: PeriodSummary; month?: string }) {
   const m = s.money;
   const profitLabel = m.costComplete ? "Estimated profit" : "Estimated profit — INCOMPLETE";
+  const miss = (what: string) => m.missing.some((x) => x.startsWith(what));
   return (
     <section className="card" aria-label="Money">
       <h2 style={{ marginTop: 0 }}>Money <span className="badge badge-flagged">estimate</span></h2>
+      <p className="an-sub" style={{ marginTop: 0 }}><b>{s.partial ? `To date, not the full period: ${s.daysWithData} of ${s.range.days} days have data` : `Full period: all ${s.range.days} days have data`}.</b> {s.partial ? "Monthly bills (electricity, labour) are counted for those days only." : ""}</p>
       <div className="an-grid">
         <Card title="Egg revenue" value={m.revenue ? inr(m.revenue) : "—"} sub={`${n0(m.eggsSold)} eggs sold${m.avgPricePerEgg != null ? ` · avg ₹${n2(m.avgPricePerEgg)}/egg` : ""}`} />
         <Card title={m.costComplete ? "Cost" : "Cost so far"} value={inr(m.cost.total)} sub={m.costComplete ? "all inputs entered" : "some inputs missing"} />
@@ -175,14 +177,14 @@ function Money({ s, month }: { s: PeriodSummary; month?: string }) {
       )}
       <div style={{ overflowX: "auto" }}><table className="an-table" style={{ minWidth: 0, marginTop: "0.6rem" }}>
         <tbody>
-          <tr><td>Feed</td><td className="num">{inr(m.cost.feed)}</td></tr>
+          <tr><td>Feed <span className="muted an-tiny">{m.feedPerKg != null ? `(₹${m.feedPerKg.toFixed(2)} per kg = ₹${n0(m.feedPerKg * 45)} per 45 kg bag, own mill)` : ""}</span></td><td className="num">{miss("feed price") ? <span className="badge badge-flagged">not entered</span> : inr(m.cost.feed)}</td></tr>
           <tr><td>Electricity</td><td className="num">{m.missing.some((x) => x.startsWith("electricity")) ? <span className="badge badge-flagged">missing: not entered</span> : inr(m.cost.electricity)}</td></tr>
           <tr><td>Labour</td><td className="num">{m.missing.includes("labour") ? <span className="badge badge-flagged">missing: not entered</span> : inr(m.cost.labour)}</td></tr>
-          <tr><td>Packing</td><td className="num">{inr(m.cost.packing)}</td></tr>
-          <tr><td>Diesel</td><td className="num">{inr(m.cost.diesel)}</td></tr>
-          <tr><td>Medicines and vaccines</td><td className="num">{inr(m.cost.medicine)}</td></tr>
-          <tr><td>Other</td><td className="num">{inr(m.cost.other)}</td></tr>
-          {m.chickPurchases > 0 && <tr><td>Chicks bought <span className="muted an-tiny">(not in cost)</span></td><td className="num">{inr(m.chickPurchases)}</td></tr>}
+          <tr><td>Packing</td><td className="num">{miss("packing price") ? <span className="badge badge-flagged">not entered</span> : inr(m.cost.packing)}</td></tr>
+          <tr><td>Diesel</td><td className="num">{miss("diesel") ? <span className="badge badge-flagged">not entered</span> : inr(m.cost.diesel)}</td></tr>
+          <tr><td>Medicines and vaccines</td><td className="num">{miss("medicines") ? <span className="badge badge-flagged">not entered</span> : inr(m.cost.medicine)}</td></tr>
+          <tr><td>Other costs</td><td className="num">{miss("other costs") ? <span className="badge badge-flagged">not entered</span> : inr(m.cost.other)}</td></tr>
+          <tr><td>Chick purchase <span className="muted an-tiny">{`(average ${m.chickPrice != null ? `₹${m.chickPrice}` : "price"} per chick × chicks that arrived; counted in the month they arrived)`}</span></td><td className="num">{inr(m.cost.chicks)}</td></tr>
         </tbody>
       </table></div>
       {month && <p className="muted an-foot"><Link href="/purchases">Complete this month&apos;s inputs →</Link></p>}
