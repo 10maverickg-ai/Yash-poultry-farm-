@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { buildCtx, watchList, lastDayOfData, SEGMENTS, SEGMENT_NAME, type AlertKind, type CardStatus, type Ctx, type Segment } from "@/lib/analytics/engine";
+import { buildCtx, watchList, lastDayOfData, SEGMENTS, SEGMENT_NAME, type AlertKind, type Ctx, type Segment } from "@/lib/analytics/engine";
 import {
   compare,
   lastYearRange,
@@ -18,12 +18,10 @@ import {
 import type { CostInput } from "@/lib/costs/engine";
 import type { EngineInput } from "@/lib/analytics/engine";
 import { SeriesChart } from "@/components/PeriodCharts";
+import { chip } from "@/lib/analytics/chips";
+import { dmy, n0, n1, n2, inr } from "@/lib/format";
 
-const n0 = (x: number) => Math.round(x).toLocaleString("en-IN");
-const n1 = (x: number) => (Math.round(x * 10) / 10).toLocaleString("en-IN");
-const n2 = (x: number) => x.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const inr = (x: number) => (x < 0 ? `−₹${n0(-x)}` : `₹${n0(x)}`);
-const pretty = (d: string) => new Date(d + "T00:00:00Z").toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" });
+const pretty = (d: string) => dmy(d);
 const KIND_LABEL: Record<AlertKind, string> = {
   production_drop: "Production drop",
   high_mortality: "High mortality",
@@ -33,7 +31,6 @@ const KIND_LABEL: Record<AlertKind, string> = {
   feed_anomaly: "Feed anomaly",
   missing_day: "Missing data",
 };
-const STATUS: Record<CardStatus, string> = { ramping: "Ramping up", green: "On standard", amber: "Below standard", red: "Well below", moult: "Moulting", no_reference: "No reference loaded", left: "Left" };
 
 const VIEWS: { key: "day" | PeriodKind; label: string }[] = [
   { key: "day", label: "Day" },
@@ -102,13 +99,13 @@ function FlockTable({ s }: { s: PeriodSummary }) {
     <div className="card an-scroll">
       <table className="an-table">
         <thead>
-          <tr><th>Flock</th><th className="num">Days</th><th className="num">Eggs</th><th className="num">Share</th><th className="num">HD %</th><th className="num">Standard</th><th className="num">Gap</th><th className="num">Deaths</th><th className="num">Deaths %</th><th className="num">Feed g/bird</th></tr>
+          <tr><th>Flock</th><th className="num">Days</th><th className="num">Eggs</th><th className="num">Share of eggs</th><th className="num">Eggs per 100 birds</th><th className="num">Breeder&apos;s target</th><th className="num">Gap</th><th className="num">Deaths</th><th className="num">Deaths %</th><th className="num">Feed g/bird</th></tr>
         </thead>
         <tbody>
           {s.flocks.map((f) => (
             <tr key={f.flockId}>
               <td>
-                <strong>{f.label}</strong> <span className={`an-pill an-pill-${f.status}`}>{STATUS[f.status]}</span>
+                <strong>{f.label}</strong> <span className={`an-pill an-pill-${chip(f).css}`}><span aria-hidden="true">{chip(f).icon}</span> {chip(f).label}</span>
                 <div className="muted an-tiny">{f.breed}{f.registerLabel !== f.label ? ` · register ${f.registerLabel}` : ""}</div>
                 <div className="muted an-tiny">{f.statusNote}</div>
               </td>
@@ -255,7 +252,7 @@ function Headline({ s, c }: { s: PeriodSummary; c: Change[] }) {
       <p className="muted an-sub" style={{ marginTop: 0 }}>{s.dataNote}{s.partial ? " — averages use only days with data" : ""}.</p>
       <div className="an-grid">
         <Card title="Eggs per day" value={s.eggs.perDay != null ? n0(s.eggs.perDay) : "–"} sub={`${n0(s.eggs.total)} eggs · ${n0(s.eggs.trays)} trays`} c={g("eggsPerDay")} />
-        <Card title="HD % (pooled)" value={s.eggs.hdPooled != null ? `${n1(s.eggs.hdPooled)}%` : "–"} sub="eggs ÷ bird-days" c={g("hd")} digits={1} />
+        <Card title="Eggs per 100 birds (HD %)" value={s.eggs.hdPooled != null ? `${n1(s.eggs.hdPooled)}%` : "–"} sub="all eggs ÷ all bird-days × 100" c={g("hd")} digits={1} />
         <Card title="Deaths" value={n0(s.birds.deaths)} sub={s.birds.deathsPct != null ? `${s.birds.deathsPct.toFixed(2)}% of opening birds · ${s.birds.deathsPer1000!.toFixed(1)} per 1,000` : undefined} c={g("deathsPct")} digits={1} />
         {s.feed.recorded ? (
           <Card title="Feed g / bird / day" value={s.feed.gPerBirdDay != null ? n0(s.feed.gPerBirdDay) : "–"} sub={`${n0(s.feed.bags)} bags · ${s.feed.kgPer100Eggs != null ? n1(s.feed.kgPer100Eggs) : "–"} kg per 100 eggs`} c={g("feedG")} digits={1} />
@@ -309,7 +306,7 @@ function DayTable({ s }: { s: PeriodSummary }) {
   return (
     <div className="card an-scroll">
       <table className="an-table" style={{ minWidth: 0 }}>
-        <thead><tr><th>Day</th><th className="num">Eggs</th><th className="num">HD %</th><th className="num">Deaths</th><th className="num">Feed</th></tr></thead>
+        <thead><tr><th>Day</th><th className="num">Eggs</th><th className="num">Eggs per 100 birds</th><th className="num">Deaths</th><th className="num">Feed</th></tr></thead>
         <tbody>
           {s.series.map((p) => (
             <tr key={p.date}>
@@ -328,7 +325,7 @@ function WeekTable({ weeks }: { weeks: PeriodSummary[] }) {
   return (
     <div className="card an-scroll">
       <table className="an-table">
-        <thead><tr><th>Week</th><th className="num">Days</th><th className="num">Eggs/day</th><th className="num">HD %</th><th className="num">Deaths</th><th className="num">Feed g/bird</th><th className="num">Revenue</th></tr></thead>
+        <thead><tr><th>Week</th><th className="num">Days</th><th className="num">Eggs/day</th><th className="num">Eggs per 100 birds</th><th className="num">Deaths</th><th className="num">Feed g/bird</th><th className="num">Revenue</th></tr></thead>
         <tbody>
           {weeks.map((w) => (
             <tr key={w.range.from}>
@@ -363,7 +360,7 @@ function YearView({ ctx, s, months, input, yearsLabel }: { ctx: Ctx; s: PeriodSu
       <section className="card an-scroll" aria-label="Month by month">
         <h2 style={{ marginTop: 0 }}>Month by month</h2>
         <table className="an-table">
-          <thead><tr><th>Month</th><th className="num">Days</th><th className="num">Eggs/day</th><th className="num">HD %</th><th className="num">Deaths %</th><th className="num">Feed g/bird</th><th className="num">Revenue</th><th className="num">Cost</th><th className="num">Profit</th></tr></thead>
+          <thead><tr><th>Month</th><th className="num">Days</th><th className="num">Eggs/day</th><th className="num">Eggs per 100 birds</th><th className="num">Deaths %</th><th className="num">Feed g/bird</th><th className="num">Revenue</th><th className="num">Cost</th><th className="num">Profit</th></tr></thead>
           <tbody>
             {withData.map((m) => (
               <tr key={m.range.from}>
@@ -398,11 +395,11 @@ function YearView({ ctx, s, months, input, yearsLabel }: { ctx: Ctx; s: PeriodSu
       <section className="card an-scroll" aria-label="Flocks this year">
         <h2 style={{ marginTop: 0 }}>Flocks this year</h2>
         <table className="an-table">
-          <thead><tr><th>Flock</th><th className="num">Months</th><th className="num">HD %</th><th className="num">Deaths %</th><th className="num">Birds sold</th></tr></thead>
+          <thead><tr><th>Flock</th><th className="num">Months</th><th className="num">Eggs per 100 birds</th><th className="num">Deaths %</th><th className="num">Birds sold</th></tr></thead>
           <tbody>
             {s.flocks.map((f) => (
               <tr key={f.flockId}>
-                <td><b>{f.label}</b> <span className={`an-pill an-pill-${f.status}`}>{STATUS[f.status]}</span></td>
+                <td><b>{f.label}</b> <span className={`an-pill an-pill-${chip(f).css}`}><span aria-hidden="true">{chip(f).icon}</span> {chip(f).label}</span></td>
                 <td className="num">{monthsOf(f.flockId)}</td>
                 <td className="num">{f.hd != null ? n1(f.hd) : "–"}</td>
                 <td className="num">{f.deathsPct != null ? f.deathsPct.toFixed(2) : "–"}</td>

@@ -1,9 +1,7 @@
 // The Today screen in three plain parts (V9 J8): what is right, what is wrong now, what may go wrong soon.
 // Every item says one plain sentence, the numbers behind it, what to do (for the wrong ones) and where to tap.
 import {
-  alertsFor,
   flockCards,
-  SEGMENTS,
   SEGMENT_NAME,
   watchList,
   type AlertKind,

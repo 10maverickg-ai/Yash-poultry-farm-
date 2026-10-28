@@ -22,6 +22,9 @@ import { ACTIVE_FARM } from "@/lib/farm";
 import { loadCostInput } from "@/lib/costs/load";
 import { loadPeriodExtras } from "@/lib/analytics/periodLoad";
 import { PeriodView, ViewSwitch } from "@/components/PeriodView";
+import { DataStamp } from "@/components/DataStamp";
+import { chip } from "@/lib/analytics/chips";
+import { dmy, n0, n1 } from "@/lib/format";
 import { allSegmentPanels, farmCheck } from "@/lib/analytics/segments";
 import { FarmLine, SegmentPanelView } from "@/components/SegmentPanels";
 import { dayEconomics, monthEconomics, rangeEconomics, flockMonthEconomics } from "@/lib/costs/engine";
@@ -38,21 +41,9 @@ const KIND_LABEL: Record<AlertKind, string> = {
   missing_day: "Missing data",
 };
 
-const STATUS_LABEL: Record<CardStatus, string> = {
-  ramping: "Ramping up",
-  green: "On standard",
-  amber: "Below standard",
-  red: "Well below",
-  moult: "Moulting",
-  no_reference: "No reference loaded",
-  left: "Left the register",
-};
 
 const iso = /^\d{4}-\d{2}-\d{2}$/;
-const n0 = (x: number) => Math.round(x).toLocaleString("en-IN");
-const n1 = (x: number) => (Math.round(x * 10) / 10).toLocaleString("en-IN");
-const pretty = (d: string) =>
-  new Date(d + "T00:00:00Z").toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
+const pretty = dmy;
 
 function Spark({ values, color }: { values: number[]; color: string }) {
   if (values.length < 2) return null;
@@ -64,7 +55,7 @@ function Spark({ values, color }: { values: number[]; color: string }) {
     .map((v, i) => `${(i / (values.length - 1)) * w},${h - 2 - ((v - min) / (max - min || 1)) * (h - 4)}`)
     .join(" ");
   return (
-    <svg viewBox={`0 0 ${w} ${h}`} width={w} height={h} role="img" aria-label="HD% over the last 14 days">
+    <svg viewBox={`0 0 ${w} ${h}`} width={w} height={h} role="img" aria-label="Eggs per 100 birds over the last 14 days">
       <polyline points={pts} fill="none" stroke={color} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
     </svg>
   );
@@ -149,15 +140,13 @@ export default async function AnalyticsPage({
   const mv = monthView(ctx, month);
   const monthBySeg = { main: monthView(ctx, month, "main"), young: monthView(ctx, month, "young") };
   const returnTo = `/analytics?date=${asOf}&month=${month}`;
-  const staleDays = Math.round((Date.parse(new Date().toISOString().slice(0, 10)) - Date.parse(latest)) / 86400000);
 
   return (
     <>
       <h1>Analytics</h1>
-      <p className="muted" style={{ marginTop: 0 }}>
-        Data through <strong>{pretty(latest)}</strong>
-        {staleDays > 1 ? ` (${staleDays} days ago — nothing newer has been entered)` : ""}.{" "}
-        <Link href="/flagged">{"Review flags →"}</Link>
+      <DataStamp latest={latest} today={new Date().toISOString().slice(0, 10)} />
+      <p className="muted an-sub">
+        HD % means <b>eggs per 100 birds</b>. The <b>breeder&apos;s target</b> is what the breeder says a flock of this age should lay. <Link href="/flagged">Review flags →</Link>
       </p>
 
       <ViewSwitch view="day" anchor={asOf} />
@@ -243,12 +232,12 @@ export default async function AnalyticsPage({
             <div className="card" key={g}>
               <h3 style={{ marginTop: 0 }}>{SEGMENT_NAME[g]}</h3>
               {w.length === 0 ? (
-                <p className="muted" style={{ margin: 0 }}>{g === "young" ? "Nothing to watch: no mortality creep. Young flocks are not compared with the standard while they ramp up." : "No flock is trending below standard, no mortality creep, and feed days left could not be worked out."}</p>
+                <p className="muted" style={{ margin: 0 }}>{g === "young" ? "Nothing to watch: no mortality creep. Young flocks are not judged against the breeder&apos;s target while they ramp up." : "No flock is slipping below its target and no flock has rising deaths."}</p>
               ) : (
                 <ul className="an-list">
                   {w.map((x, i) => (
                     <li key={i}>
-                      <strong>{x.kind === "trending_below" ? "Trending below standard" : x.kind === "mortality_creeping" ? "Mortality creeping" : "Feed days left"}.</strong>{" "}
+                      <strong>{x.kind === "trending_below" ? "Slipping below target" : x.kind === "mortality_creeping" ? "Mortality creeping" : "Feed days left"}.</strong>{" "}
                       {x.text}
                     </li>
                   ))}
@@ -267,9 +256,9 @@ export default async function AnalyticsPage({
 
       {/* ---- Flock cards ---- */}
       <section aria-labelledby="an-flocks-h">
-        <h2 id="an-flocks-h">Flocks vs their own breed standard</h2>
+        <h2 id="an-flocks-h">Each flock against the breeder&apos;s target</h2>
         <p className="muted an-sub">
-          Green: 7-day HD at least 90% of the standard for the flock&apos;s age; amber 80–90%; red under 80%. A flock is identified by the database, not the register label — labels shift when a flock leaves.
+          ✔ On target: at least 90% of the breeder&apos;s target for the flock&apos;s age. ⚠ Below target: 80–90%. ✖ Well below: under 80%. A flock without a placement date or past the end of the target table says so instead of a colour. Tap a flock for its page.
         </p>
         {[...SEGMENTS, null].map((g) => {
           const list = live.filter((c) => c.segment === g);
@@ -339,7 +328,7 @@ function MonthTable({ mv, monthMoney, flockMoney, totalOnly }: { mv: ReturnType<
                 <th>Flock</th>
                 <th className="num">Days</th>
                 <th className="num">Eggs</th>
-                <th className="num">HD %</th>
+                <th className="num">Eggs per 100 birds</th>
                 <th className="num">Feed bags</th>
                 <th className="num">Deaths</th>
                 <th className="num">Deaths %</th>
@@ -418,7 +407,7 @@ function AlertCard({ a, returnTo, compact, verdict }: { a: Alert; returnTo: stri
 
 function FlockCardView({ c }: { c: FlockCard }) {
   return (
-    <div className={`card an-flock an-${c.status}`}>
+    <Link href={`/flocks/${c.flockId}`} className={`card an-flock an-${c.status} card-link`}>
       <div className="an-flock-head">
         <div>
           <strong className="an-flock-name">{c.label}</strong>
@@ -431,16 +420,16 @@ function FlockCardView({ c }: { c: FlockCard }) {
             ].filter(Boolean).join(" · ")}
           </div>
         </div>
-        <span className={`an-pill an-pill-${c.status}`}>{STATUS_LABEL[c.status]}</span>
+        <span className={`an-pill an-pill-${chip(c).css}`}><span aria-hidden="true">{chip(c).icon}</span> {chip(c).label}</span>
       </div>
       <div className="an-flock-body">
         <div>
           <div className="an-flock-nums">
             <span>
-              <b>{c.hd7 != null ? `${n1(c.hd7)}%` : "–"}</b> HD (7-day)
+              <b>{c.hd7 != null ? n1(c.hd7) : "–"}</b> eggs per 100 birds (7 days)
             </span>
             <span>
-              <b>{c.stdHd != null ? `${n1(c.stdHd)}%` : "—"}</b> standard
+              <b>{c.stdHd != null ? n1(c.stdHd) : "—"}</b> breeder&apos;s target
             </span>
           </div>
           <div className="muted an-tiny">
@@ -453,6 +442,6 @@ function FlockCardView({ c }: { c: FlockCard }) {
       </div>
       <p className="an-note">{c.statusNote}</p>
       {c.formerLabels.length > 0 && <p className="muted an-tiny">Written in the register on earlier days as: {c.formerLabels.join(", ")} (the register renumbered when flocks left; this flock is always {c.label} now)</p>}
-    </div>
+    </Link>
   );
 }

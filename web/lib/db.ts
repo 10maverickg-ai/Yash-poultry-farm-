@@ -59,7 +59,7 @@ function poolConfig(): { connectionString: string; max: number; ssl: false | obj
     const ca = process.env.DATABASE_CA_CERT;
     ssl = ca ? { ca, rejectUnauthorized: true } : { rejectUnauthorized: false };
   }
-  return { connectionString: url, max: 5, ssl };
+  return { connectionString: url, max: 5, ssl, connectionTimeoutMillis: 10000, idleTimeoutMillis: 30000 } as { connectionString: string; max: number; ssl: false | object };
 }
 
 // One pool per process, created lazily on FIRST QUERY — never at import.
@@ -78,9 +78,33 @@ function getPool(): Pool {
   return lazyPool;
 }
 
+// A slow or briefly unreachable database must not blank a screen: a READ-ONLY statement (SELECT / WITH) is
+// retried up to 2 more times with a short pause when the failure looks like a dropped or busy connection.
+// Writes are never retried (they could run twice).
+const TRANSIENT = /ECONNRESET|ECONNREFUSED|ETIMEDOUT|EPIPE|Connection terminated|timeout exceeded when trying to connect|too many clients|remaining connection slots|terminating connection|57P01|08006|08001|53300/i;
+const isRead = (q: unknown): boolean => {
+  const text = typeof q === "string" ? q : q && typeof q === "object" && "text" in q ? String((q as { text: unknown }).text) : "";
+  return /^\s*(select|with)\b/i.test(text);
+};
+function withRetry(real: Pool): Pool["query"] {
+  const run = real.query.bind(real) as (...a: unknown[]) => Promise<unknown>;
+  return (async (...args: unknown[]) => {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await run(...args);
+      } catch (err) {
+        const msg = `${(err as { code?: string })?.code ?? ""} ${(err as Error)?.message ?? ""}`;
+        if (attempt >= 2 || !isRead(args[0]) || !TRANSIENT.test(msg)) throw err;
+        await new Promise((r) => setTimeout(r, 250 * 2 ** attempt));
+      }
+    }
+  }) as unknown as Pool["query"];
+}
+
 export const pool: Pool = new Proxy({} as Pool, {
   get(_target, prop) {
     const real = getPool() as unknown as Record<string | symbol, unknown>;
+    if (prop === "query") return withRetry(getPool());
     const value = real[prop];
     return typeof value === "function" ? (value as CallableFunction).bind(real) : value;
   },

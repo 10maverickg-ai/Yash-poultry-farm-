@@ -732,3 +732,10 @@ textarea { width: 100%; font: inherit; padding: 0.55rem 0.7rem; border: 1px soli
 .td-hicon-wrong { background: var(--an-red); }
 .td-hicon-soon { background: var(--an-amber); }
 .plain-link { color: inherit; text-decoration: none; display: inline-block; min-height: 44px; }
+.card-link { display: block; text-decoration: none; color: inherit; }
+.card-link:hover { background: #f6f8fa; }
+.loading-card { display: grid; gap: 0.6rem; }
+.loading-bar { height: 6px; border-radius: 3px; background: linear-gradient(90deg, #dfe6ec 0%, var(--accent) 50%, #dfe6ec 100%); background-size: 200% 100%; animation: loadbar 1.2s linear infinite; }
+@keyframes loadbar { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+.error-card { border-left: 6px solid var(--an-red); }
+@media (prefers-reduced-motion: reduce) { .loading-bar { animation: none; } }
