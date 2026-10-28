@@ -86,6 +86,7 @@ export default async function TodayPage() {
       <h1>Today</h1>
       <DataStamp latest={latest} today={realToday} />
       <p className="muted an-sub">
+        <Link href="/changes">What changed in the app →</Link><br />
         HD % means <b>eggs per 100 birds</b>. The <b>breeder&apos;s target</b> is what the breeder says a flock of this age should lay.
       </p>
       <p className="actions-bar">

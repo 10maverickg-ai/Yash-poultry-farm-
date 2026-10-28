@@ -9,6 +9,10 @@ export default function Home() {
           <h3>Today</h3>
           <p className="muted">Eggs, alerts, stock, cash and what is still missing</p>
         </Link>
+        <Link href="/changes" className="card">
+          <h3>What changed</h3>
+          <p className="muted">The latest changes to the app, in plain words</p>
+        </Link>
         <Link href="/analytics?view=week" className="card">
           <h3>This week</h3>
           <p className="muted">Week summary, compared with the week before</p>
