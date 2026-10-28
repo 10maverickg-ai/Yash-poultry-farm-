@@ -578,25 +578,25 @@ export function flockCards(ctx: Ctx, asOf: string): FlockCard[] {
       status = "ramping";
       const prev7 = rowsBefore(ctx, flockId, win.length ? win[0].date : asOf, 7);
       const hdPrev = mean(prev7.map((r) => r.hd).filter((x): x is number => x != null));
-      note = `Ramping up: day ${ramp.day} of lay (first eggs ${ramp.since}); judged against the breeder's target only from day ${RAMP_DAYS + 1}${std != null ? ` (for information, the target at week ${age} is ${round(std)}%)` : ""}. ` +
-        (hd7 != null ? `Last 7 days HD ${round(hd7)}%` : "No HD% in the last 7 days") +
-        (hd7 != null && hdPrev != null ? ` vs ${round(hdPrev)}% the 7 days before (${hd7 - hdPrev >= 0 ? "+" : "−"}${round(Math.abs(hd7 - hdPrev))} points).` : ".");
+      note = `Ramping up: day ${ramp.day} of lay (first eggs ${ramp.since}); judged against the breeder's target only from day ${RAMP_DAYS + 1}${std != null ? ` (for information, the target at week ${age} is ${round(std)} eggs per 100 birds)` : ""}. ` +
+        (hd7 != null ? `Last 7 days: ${round(hd7)} eggs per 100 birds` : "No eggs-per-100-birds figure in the last 7 days") +
+        (hd7 != null && hdPrev != null ? `, against ${round(hdPrev)} the 7 days before (${hd7 - hdPrev >= 0 ? "up" : "down"} ${round(Math.abs(hd7 - hdPrev))}).` : ".");
     } else if (moult) {
       status = "moult";
       const day = diffDays(asOf, moult.startedOn) + 1;
-      note = `Moulting, day ${day} (since ${moult.startedOn}${moult.recorded ? "" : ", inferred"}${moult.confirmed ? "" : "; moult dates not confirmed"}); HD ${hd7 != null ? round(hd7) : "–"}% vs ${round(moult.baselineHd)}% before. Not compared with the breeder's target while moulting.`;
+      note = `Moulting, day ${day} (since ${moult.startedOn}${moult.recorded ? "" : ", inferred"}${moult.confirmed ? "" : "; moult dates not confirmed"}); last 7 days ${hd7 != null ? round(hd7) : "–"} eggs per 100 birds, against ${round(moult.baselineHd)} before. Not compared with the breeder's target while moulting.`;
     } else if (std == null) {
       status = "no_reference";
       note = why;
     } else if (gap == null) {
       status = "no_reference";
-      note = "No HD% in the last 7 days.";
+      note = "No eggs-per-100-birds figure in the last 7 days.";
     } else {
       const ratio = hd7! / std;
       status = ratio >= RULES.greenMinRatio ? "green" : ratio >= RULES.amberMinRatio ? "amber" : "red";
-      note = `7-day HD ${round(hd7!)}% vs ${breedName(flock?.breed)} standard ${round(std)}% at week ${age} (${round(ratio * 100, 0)}% of standard, ${gap > 0 ? "−" : "+"}${round(Math.abs(gap))} points).`;
+      note = `Last 7 days: ${round(hd7!)} eggs per 100 birds. The breeder's target (${breedName(flock?.breed)}, week ${age}) is ${round(std)}, so it is at ${round(ratio * 100, 0)}% of target (${round(Math.abs(gap))} ${gap > 0 ? "below" : "above"}).`;
       const w = recentFeedWithdrawal(ctx, flockId, asOf);
-      if (w) note += ` Feed was withdrawn ${w}, so this flock is recovering from a moult; the standard assumes none.`;
+      if (w) note += ` Feed was withdrawn ${w}, so this flock is recovering from a moult; the target assumes none.`;
     }
     cards.push({
       refReason: reason,
@@ -819,9 +819,9 @@ function alertsForRaw(ctx: Ctx, date: string, opts: { includeCleared?: boolean }
             ...base,
             kind: "production_drop",
             reason:
-              `HD ${round(r.hd)}% vs its own 7-day average ${round(d0.avg)}% (−${round(d0.drop)} points, ${fmt(r.eggs ?? 0)} eggs` +
+              `Laid ${round(r.hd)} eggs per 100 birds, against its own usual ${round(d0.avg)} over the previous 7 days — ${round(d0.drop)} lower (${fmt(r.eggs ?? 0)} eggs` +
               `${mv ? `; bird count also moved ${mv > 0 ? "+" : "−"}${fmt(Math.abs(mv))} that day` : ""})` +
-              `${!big && twoDays ? `, and −${round(d1!.drop)} points the day before as well` : ""}.`,
+              `${!big && twoDays ? `, and ${round(d1!.drop)} lower the day before as well` : ""}.`,
           });
         }
       }
@@ -838,7 +838,7 @@ function alertsForRaw(ctx: Ctx, date: string, opts: { includeCleared?: boolean }
         out.push({
           ...base,
           kind: "high_mortality",
-          reason: `${r.mort} deaths vs its own 7-day average ${round(avg)}/day (${round(r.mort / Math.max(avg, 0.01), 1)}×) and ${round((r.mort / flockSize) * 100, 2)}% of ${fmt(flockSize)} birds.`,
+          reason: `${r.mort} deaths today; its usual is ${round(avg)} a day (${round(r.mort / Math.max(avg, 0.01), 1)} times that), and ${round((r.mort / flockSize) * 100, 2)}% of its ${fmt(flockSize)} birds.`,
         });
       }
     }
@@ -848,7 +848,7 @@ function alertsForRaw(ctx: Ctx, date: string, opts: { includeCleared?: boolean }
       out.push({
         ...base,
         kind: "feed_anomaly",
-        reason: `0 feed bags recorded for ${fmt(r.pop!)} live birds (own 7-day average ${round(mean(prior.map((p) => p.feed).filter((x): x is number => x != null)) ?? 0)} bags/day), and the flock is not moulting.`,
+        reason: `No feed (0 bags) was written for ${fmt(r.pop!)} live birds; its usual is ${round(mean(prior.map((p) => p.feed).filter((x): x is number => x != null)) ?? 0)} bags a day, and the flock is not moulting.`,
       });
     }
 
@@ -938,8 +938,8 @@ function alertsForRaw(ctx: Ctx, date: string, opts: { includeCleared?: boolean }
     const noSale = gap != null && gap >= lim.noSaleDays;
     if (tooMuch || noSale) {
       const parts: string[] = [];
-      if (tooMuch) parts.push(`${fmt(es.closing)} eggs (${fmt(es.closing / 30)} trays) in stock vs ${fmt(es.perDay)} laid/day = ${round(es.days, 2)} days (alert above ${lim.stockDays})`);
-      if (noSale) parts.push(`${gap} days since the last Farmfresh sale of ${seg === "young" ? "small" : "big"} eggs (${last}; alert at ${lim.noSaleDays}+)`);
+      if (tooMuch) parts.push(`${fmt(es.closing)} eggs (${fmt(es.closing / 30)} trays) in stock vs ${fmt(es.perDay)} laid/day = ${round(es.days, 2)} days (limit ${lim.stockDays})`);
+      if (noSale) parts.push(`${gap} days since the last Farmfresh sale of ${seg === "young" ? "small" : "big"} eggs (${last}; limit ${lim.noSaleDays} days)`);
       out.push({
         kind: "egg_buildup",
         segment: seg,
@@ -1034,7 +1034,7 @@ export function watchList(ctx: Ctx, asOf: string, seg: SegFilter = "all"): Watch
             kind: "trending_below",
             flockId: c.flockId,
             label: c.label,
-            text: `${c.label}: HD ${round(before)}% → ${round(recent)}% week on week, now ${round(c.stdHd - recent)} points under the ${round(c.stdHd)}% standard.`,
+            text: `${c.label}: eggs per 100 birds went from ${round(before)} to ${round(recent)} (previous week to this week), now ${round(c.stdHd - recent)} under the breeder's target of ${round(c.stdHd)}.`,
           });
         }
       }

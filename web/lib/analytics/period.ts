@@ -30,6 +30,7 @@ import {
   type AlertKind,
   type CardStatus,
   type Ctx,
+  type RefReason,
   type SegFilter,
 } from "./engine";
 import { BAG_KG, dayEconomics, type CostInput } from "../costs/engine";
@@ -128,6 +129,7 @@ export interface FlockPeriod {
   stdHd: number | null; // standard for the flock's age/breed at the end of its period
   gap: number | null; // std - hd (points; positive = below)
   status: CardStatus;
+  refReason: RefReason;
   statusNote: string;
   deaths: number;
   deathsPct: number | null; // of the flock's first-day bird count
@@ -331,7 +333,7 @@ export function summarizePeriod(ctx: Ctx, cost: CostInput, extras: PeriodExtras,
     const eggs = sum(rs.map((r) => r.eggs ?? 0));
     const bd = sum(rs.map((r) => r.pop ?? 0));
     const hd = bd > 0 ? (eggs / bd) * 100 : null;
-    const { std, why } = stdFor(ctx, flock, last.date);
+    const { std, why, reason } = stdFor(ctx, flock, last.date);
     const moultDays = rs.filter((r) => moultOn(ctx, flockId, r.date)).length;
     const gap = std != null && hd != null ? std - hd : null;
     let status: CardStatus;
@@ -369,6 +371,7 @@ export function summarizePeriod(ctx: Ctx, cost: CostInput, extras: PeriodExtras,
       stdHd: std,
       gap,
       status,
+      refReason: reason,
       statusNote: note,
       deaths: d,
       deathsPct: first.pop != null ? pct(d, first.pop + (first.mort ?? 0)) : null,

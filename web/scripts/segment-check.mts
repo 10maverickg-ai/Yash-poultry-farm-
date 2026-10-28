@@ -52,7 +52,7 @@ ok("small ledger is main before 4 Oct and young from 4 Oct", ledgerSegment(ctx, 
 const cards = flockCards(ctx, D);
 const young3 = cards.filter((c) => c.segment === "young");
 ok("BAB-9, 10, 11 are ramping up (day 23 of lay on 26 Oct); age known from the chick arrival date, the target is shown for information only", young3.length === 3 && young3.every((c) => c.status === "ramping" && c.rampDay === 23 && c.stdHd != null && c.ageWeeks != null && c.ageWeeks >= 20 && c.ageWeeks <= 26), young3.map((c) => `${c.label}:${c.status}:${c.rampDay}:wk${c.ageWeeks}:${c.stdHd}`).join(" "));
-ok("ramping note shows the trend against its own previous 7 days", young3.every((c) => /vs [\d.]+% the 7 days before/.test(c.statusNote)), young3[0]?.statusNote);
+ok("ramping note shows the trend against its own previous 7 days", young3.every((c) => /against [\d.]+ the 7 days before/.test(c.statusNote)), young3[0]?.statusNote);
 ok("ramping ends after 60 days (day 61 = 3 Dec)", rampingUp(ctx, young3[0].flockId, "2026-12-02") != null && rampingUp(ctx, young3[0].flockId, "2026-12-03") == null);
 const departed = cards.filter((c) => /^Old BAB/.test(c.label));
 ok("departed flocks are 'left', not active cards", departed.length === 2 && departed.every((c) => c.status === "left"));
@@ -99,7 +99,7 @@ ok("every alert carries a segment or is a flock with no segment", alertsFor(ctx,
   const oct = (seg: "main" | "young") => { const out: string[] = []; for (let d = "2026-10-01"; d <= D; d = addDays(d, 1)) for (const a of alertsFor(ctx, d, { segment: seg })) if (a.kind === "egg_buildup") out.push(d); return out; };
   const y = oct("young");
   ok("young: 4 days without a sale (7 and 20 Oct) no longer alerts", !y.includes("2026-10-07") && !y.includes("2026-10-20"), y.join(","));
-  ok("young: 6 days without a sale (9 Oct) alerts with 'alert at 6+'", alertsFor(ctx, "2026-10-09", { segment: "young" }).some((a) => a.kind === "egg_buildup" && /alert at 6\+/.test(a.reason)));
+  ok("young: 6 days without a sale (9 Oct) alerts with 'limit 6 days'", alertsFor(ctx, "2026-10-09", { segment: "young" }).some((a) => a.kind === "egg_buildup" && /limit 6 days/.test(a.reason)));
   ok("young October egg build-up alerts: 5 (was 7 with the 4-day limit)", y.length === 5, String(y.length));
   ok("main keeps the 4-day limit", EGG_LIMITS.main.noSaleDays === 4 && EGG_LIMITS.young.noSaleDays === 6);
 }

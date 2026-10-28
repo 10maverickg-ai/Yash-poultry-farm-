@@ -46,8 +46,13 @@ ok("weeks inside September are clipped to the month", weeksWithin(rangeOf("month
 // ---- September month: known figures
 const sep = S(rangeOf("month", "2026-09-01"));
 ok("September has data on all 30 days", sep.daysWithData === 30 && !sep.partial, sep.dataNote);
-ok("eggs sold in September = 13,46,850", sep.money.eggsSold === 1346850, String(sep.money.eggsSold));
-near("September sales = ₹72,24,898 (Farmfresh 7,223,930 + local 968, after the list-price re-pricing)", sep.money.revenue, 7224897.9, 0.05);
+ok("eggs sold in September = 13,54,350 (12,79,860 Farmfresh + 74,490 local after the 15 and 24 Sep corrections)", sep.money.eggsSold === 1354350, String(sep.money.eggsSold));
+const sepSales = extras.sales.filter((x) => x.date.startsWith("2026-09"));
+const ffS = sepSales.filter((x) => x.channel === "farmfresh"), loS = sepSales.filter((x) => x.channel === "local");
+ok("J7 SQL: September Farmfresh 21 rows, 12,79,860 eggs, ₹68,75,181.60", ffS.length === 21 && ffS.reduce((t, x) => t + x.eggs, 0) === 1279860 && Math.abs(ffS.reduce((t, x) => t + (x.amount ?? 0), 0) - 6875181.6) < 0.05);
+ok("J7 SQL: September local 7 rows, 74,490 eggs, ₹3,92,438.70; 103 sales rows in all", loS.length === 7 && loS.reduce((t, x) => t + x.eggs, 0) === 74490 && Math.abs(loS.reduce((t, x) => t + (x.amount ?? 0), 0) - 392438.7) < 0.05 && extras.sales.length === 103);
+ok("J7: 15 Sep local lots are priced 5.26 and the 24 Sep lot 5.34 (rate + 0.01)", sf.filter((x) => x.date === "2026-09-15" && x.tt === "other").every((x) => x.p === 5.26) && sf.filter((x) => x.date === "2026-09-24" && x.tt === "other").every((x) => x.p === 5.34));
+near("September sales = ₹72,67,620.30 (Farmfresh 68,75,181.60 + local 3,92,438.70)", sep.money.revenue, 7267620.3, 0.05);
 const dp: any[] = j("dp").filter((r: any) => r.date.startsWith("2026-09"));
 const eggsDp = dp.reduce((s, r) => s + (r.eggs_total ?? 0), 0);
 ok("eggs total = sum of the daily rows", sep.eggs.total === eggsDp, `${sep.eggs.total}`);
