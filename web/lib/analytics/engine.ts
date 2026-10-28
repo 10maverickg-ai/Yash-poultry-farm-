@@ -121,7 +121,7 @@ export const RULES = {
   feedDaysMin: 0.5, // low feed: closing stock under 0.5 day of consumption (the mill delivers daily; ~1 day is normal)
   feedShortfallDays: 3, // ... or feed received below consumption 3 days in a row
   eggDaysMax: 5, // egg build-up: closing stock (big + small) above 5 days of production (the farm normally holds 3-6 days; Farmfresh collects every 3-4 days)
-  eggNoSaleDays: 4, // ... or 4+ days with no Farmfresh sale
+  eggNoSaleDays: 4, // ... or 4+ days with no Farmfresh sale (main group; the young group's small eggs use EGG_LIMITS below)
   birdTolerance: 2, // bird-count chain: |residual| <= 2 is register rounding
   // Choices the brief did not specify (flagged in the PR description):
   greenMinRatio: 0.9, // flock card green: 7-day HD >= 90% of the BV300 standard for its age
@@ -132,6 +132,17 @@ export const RULES = {
   creepRatio: 1.5, // mortality creeping: 7-day avg >= 1.5x prior 14-day avg
   creepMinDeaths: 1, // ... and at least +1 death/day
   trendWorsenPoints: 2, // trending below: gap grew >= 2 points week on week
+};
+
+/**
+ * Egg-stock alert limits per group, in ONE place. Main (big eggs): Farmfresh collects every 3-4 days, so
+ * 4+ days without a sale or more than 5 days of stock is an alert. Young (small eggs): the owner moved the
+ * "days without a sale" limit from 4 to 6 on 28 Oct 2026 (small eggs sell less often). The stock-days limit
+ * is unchanged (5) for both groups.
+ */
+export const EGG_LIMITS: Record<Segment, { noSaleDays: number; stockDays: number }> = {
+  main: { noSaleDays: RULES.eggNoSaleDays, stockDays: RULES.eggDaysMax },
+  young: { noSaleDays: 6, stockDays: RULES.eggDaysMax },
 };
 
 export function addDays(d: string, n: number): string {
@@ -900,12 +911,13 @@ function alertsForRaw(ctx: Ctx, date: string, opts: { includeCleared?: boolean }
     if (!es || eggRows.every((e) => e.reviewed)) continue;
     const last = lastFarmfreshOnOrBefore(ctx, date, seg);
     const gap = last ? diffDays(date, last) : null;
-    const tooMuch = es.days > RULES.eggDaysMax;
-    const noSale = gap != null && gap >= RULES.eggNoSaleDays;
+    const lim = EGG_LIMITS[seg];
+    const tooMuch = es.days > lim.stockDays;
+    const noSale = gap != null && gap >= lim.noSaleDays;
     if (tooMuch || noSale) {
       const parts: string[] = [];
-      if (tooMuch) parts.push(`${fmt(es.closing)} eggs (${fmt(es.closing / 30)} trays) in stock vs ${fmt(es.perDay)} laid/day = ${round(es.days, 2)} days (alert above ${RULES.eggDaysMax})`);
-      if (noSale) parts.push(`${gap} days since the last Farmfresh sale of ${seg === "young" ? "small" : "big"} eggs (${last}; alert at ${RULES.eggNoSaleDays}+)`);
+      if (tooMuch) parts.push(`${fmt(es.closing)} eggs (${fmt(es.closing / 30)} trays) in stock vs ${fmt(es.perDay)} laid/day = ${round(es.days, 2)} days (alert above ${lim.stockDays})`);
+      if (noSale) parts.push(`${gap} days since the last Farmfresh sale of ${seg === "young" ? "small" : "big"} eggs (${last}; alert at ${lim.noSaleDays}+)`);
       out.push({
         kind: "egg_buildup",
         segment: seg,

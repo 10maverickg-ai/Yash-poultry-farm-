@@ -1,6 +1,6 @@
 // Segment engine on the exported live rows (V8 S0): tsx scripts/segment-check.mts <fixture-dir>
 import { loadInput } from "./fixtureInput.mts";
-import { buildCtx, dayTotals, alertsFor, flockCards, eggStockDays, feedDaysLeft, rampingUp, segmentOn, ledgerSegment, firstYoungDate, SEGMENTS, addDays, type Segment } from "../lib/analytics/engine";
+import { buildCtx, dayTotals, alertsFor, flockCards, eggStockDays, feedDaysLeft, rampingUp, segmentOn, ledgerSegment, firstYoungDate, SEGMENTS, EGG_LIMITS, addDays, type Segment } from "../lib/analytics/engine";
 
 const dir = process.argv[2];
 const input = loadInput(dir);
@@ -79,6 +79,16 @@ console.log("\nOctober alerts by segment:", JSON.stringify(counts));
 ok("no production-drop alerts for young flocks while ramping", youngDrop === 0);
 ok("no feed alerts for young flocks (feed not recorded)", nullFeedAlerts === 0);
 ok("every alert carries a segment or is a flock with no segment", alertsFor(ctx, D).every((a) => a.segment === null || SEGMENTS.includes(a.segment as Segment)));
+
+// J1: young small-egg limit is 6 days without a sale (main stays 4); October build-up alerts 7 -> 5
+{
+  const oct = (seg: "main" | "young") => { const out: string[] = []; for (let d = "2026-10-01"; d <= D; d = addDays(d, 1)) for (const a of alertsFor(ctx, d, { segment: seg })) if (a.kind === "egg_buildup") out.push(d); return out; };
+  const y = oct("young");
+  ok("young: 4 days without a sale (7 and 20 Oct) no longer alerts", !y.includes("2026-10-07") && !y.includes("2026-10-20"), y.join(","));
+  ok("young: 6 days without a sale (9 Oct) alerts with 'alert at 6+'", alertsFor(ctx, "2026-10-09", { segment: "young" }).some((a) => a.kind === "egg_buildup" && /alert at 6\+/.test(a.reason)));
+  ok("young October egg build-up alerts: 5 (was 7 with the 4-day limit)", y.length === 5, String(y.length));
+  ok("main keeps the 4-day limit", EGG_LIMITS.main.noSaleDays === 4 && EGG_LIMITS.young.noSaleDays === 6);
+}
 
 // stock
 const es = { main: eggStockDays(ctx, D, "main"), young: eggStockDays(ctx, D, "young"), all: eggStockDays(ctx, D) };
