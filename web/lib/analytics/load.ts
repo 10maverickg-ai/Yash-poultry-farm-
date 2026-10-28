@@ -82,8 +82,8 @@ export async function loadEngineInput(): Promise<EngineInput> {
     ),
     pool.query(`SELECT h.flock_internal_id, h.segment, h.effective_from FROM flock_segment_history h JOIN flocks f USING (flock_internal_id) WHERE f.farm_code = $1`, [ACTIVE_FARM]),
   ]);
-  const histBy = new Map<string, { from: string; segment: "main" | "young" }[]>();
-  for (const h of segHist.rows) (histBy.get(h.flock_internal_id) ?? histBy.set(h.flock_internal_id, []).get(h.flock_internal_id)!).push({ from: String(h.effective_from).slice(0, 10), segment: h.segment });
+  const histBy = new Map<string, { from: string; segment: "main" | "young" | null }[]>();
+  for (const h of segHist.rows) (histBy.get(h.flock_internal_id) ?? histBy.set(h.flock_internal_id, []).get(h.flock_internal_id)!).push({ from: String(h.effective_from).slice(0, 10), segment: h.segment === "main" || h.segment === "young" ? h.segment : null });
   const stdByBreed: Record<string, { age: number; hdp: number }[]> = {};
   for (const r of kstd.rows) {
     const k = breedKey(r.breed);

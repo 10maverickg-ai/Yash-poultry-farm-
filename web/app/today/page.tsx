@@ -15,7 +15,17 @@ import { dmy, inr, n0, n1 } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
-function Part({ tone, title, icon, intro, items }: { tone: "right" | "wrong" | "soon"; title: string; icon: string; intro: string; items: TodayItem[] }) {
+function Item({ it, tone, icon }: { it: TodayItem; tone: "right" | "wrong" | "soon"; icon: string }) {
+  return (
+    <Link href={it.href} className={`card td-item td-${tone}`}>
+      <p className="td-item-title"><span className="td-icon" aria-hidden="true">{icon}</span>{it.title}{it.group !== "farm" && <span className="td-group-tag">{it.group === "main" ? "Main" : "Young"}</span>}</p>
+      {it.detail && <p className="td-item-detail">{it.detail}</p>}
+      {it.action && <p className="td-item-action"><b>What to do:</b> {it.action}</p>}
+    </Link>
+  );
+}
+
+function Part({ tone, title, icon, intro, items, show }: { tone: "right" | "wrong" | "soon"; title: string; icon: string; intro: string; items: TodayItem[]; show: number }) {
   return (
     <section aria-labelledby={`td-${tone}`}>
       <h2 id={`td-${tone}`} className="td-part">
@@ -23,13 +33,13 @@ function Part({ tone, title, icon, intro, items }: { tone: "right" | "wrong" | "
       </h2>
       <p className="muted an-sub td-empty">{intro}</p>
       {items.length === 0 && <p className="card muted">{tone === "wrong" ? "Nothing is wrong right now." : tone === "soon" ? "Nothing to watch." : "Nothing to report."}</p>}
-      {items.map((it) => (
-        <Link key={it.id} href={it.href} className={`card td-item td-${tone}`}>
-          <p className="td-item-title"><span className="td-icon" aria-hidden="true">{icon}</span>{it.title}{it.group !== "farm" && <span className="td-group-tag">{it.group === "main" ? "Main" : "Young"}</span>}</p>
-          {it.detail && <p className="td-item-detail">{it.detail}</p>}
-          {it.action && <p className="td-item-action"><b>What to do:</b> {it.action}</p>}
-        </Link>
-      ))}
+      {items.slice(0, show).map((it) => <Item key={it.id} it={it} tone={tone} icon={icon} />)}
+      {items.length > show && (
+        <details className="td-more">
+          <summary>Show the other {items.length - show}</summary>
+          {items.slice(show).map((it) => <Item key={it.id} it={it} tone={tone} icon={icon} />)}
+        </details>
+      )}
     </section>
   );
 }
@@ -81,9 +91,9 @@ export default async function TodayPage() {
         <Link href="/analytics?view=year" className="btn btn-secondary">This year</Link>
       </p>
 
-      <Part tone="right" icon="✔" title="What is right" intro="Things that are going well." items={t.right} />
-      <Part tone="wrong" icon="✖" title="What is wrong now" intro="Act on these today. Tap one for the details." items={t.wrong} />
-      <Part tone="soon" icon="⚠" title="What may go wrong soon" intro="Not a problem yet, but the numbers are heading the wrong way." items={t.soon} />
+      <Part tone="right" icon="✔" title="What is right" intro="Things that are going well." items={t.right} show={4} />
+      <Part tone="wrong" icon="✖" title="What is wrong now" intro="Act on these today. Tap one for the details." items={t.wrong} show={50} />
+      <Part tone="soon" icon="⚠" title="What may go wrong soon" intro="Not a problem yet, but the numbers are heading the wrong way." items={t.soon} show={5} />
 
       <h2 className="td-part">The two groups</h2>
       <div className="seg-pair">

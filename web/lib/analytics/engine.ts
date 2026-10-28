@@ -32,7 +32,7 @@ export interface FlockRef {
   placementConfirmed: boolean; // false for the 2026-01-01 placeholders
   segment?: Segment | null;
   // When a flock moved between segments: history keeps the old segment, the new one counts from `from`.
-  segmentHistory?: { from: string; segment: Segment }[];
+  segmentHistory?: { from: string; segment: Segment | null }[];
 }
 
 export interface MoultPeriod {
@@ -232,7 +232,7 @@ export function segmentOn(ctx: Ctx, flockId: string, date: string): Segment | nu
   if (!f) return null;
   const h = f.segmentHistory;
   if (h && h.length) {
-    let best: { from: string; segment: Segment } | null = null;
+    let best: { from: string; segment: Segment | null } | null = null;
     for (const x of h) if (x.from <= date && (!best || x.from > best.from)) best = x;
     if (best) return best.segment;
     // before the first recorded change: the earliest known segment

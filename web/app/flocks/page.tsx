@@ -3,12 +3,14 @@ import { listFlocks } from "@/lib/flocks";
 import { weeksSince, isPlaceholderDate } from "@/lib/ageWeeks";
 
 import { setFlockSegment } from "./segment-actions";
+import { compareLabels } from "@/lib/naturalSort";
+import { dmy } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
 export default async function FlocksPage() {
   const flocks = await listFlocks();
-  const active = flocks.filter((f) => f.status === "active");
+  const active = flocks.filter((f) => f.status === "active").sort((a, b) => compareLabels(a.display_label, b.display_label));
   const depleted = flocks.filter((f) => f.status === "depleted");
 
   return (
@@ -42,12 +44,12 @@ export default async function FlocksPage() {
           <table>
             <thead>
               <tr>
-                <th>Label</th>
+                <th>Flock</th>
                 <th>Status</th>
                 <th>Stage</th>
                 <th>Shed</th>
                 <th>Birds</th>
-                <th>Placed</th>
+                <th>Placed (chick arrival for BAB-9, 10, 11)</th>
                 <th>Age</th>
                 <th>Breed</th>
                 <th>Segment</th>
@@ -67,7 +69,7 @@ export default async function FlocksPage() {
                   <td>{f.current_stage ?? "—"}</td>
                   <td>{f.current_shed ?? "—"}</td>
                   <td>{f.current_bird_count?.toLocaleString("en-IN") ?? "—"}</td>
-                  <td>{f.placement_date ?? "—"}</td>
+                  <td>{f.placement_date ? dmy(String(f.placement_date)) : <span className="badge badge-flagged">not set</span>}{f.placement_date && !f.placement_date_confirmed && isPlaceholderDate(f.placement_date, f.placement_date_confirmed) ? " (placeholder)" : ""}</td>
                   <td>
                     {!f.placement_date || isPlaceholderDate(f.placement_date, f.placement_date_confirmed)
                       ? <span className="badge badge-flagged">age unknown</span>
@@ -76,8 +78,8 @@ export default async function FlocksPage() {
                   <td>{f.breed ?? "—"}</td>
                   <td>
                     <form action={setFlockSegment.bind(null, f.flock_internal_id)} className="seg-form">
-                      <select name="segment" defaultValue={f.segment ?? ""} aria-label={`Segment of ${f.display_label}`}>
-                        {!f.segment && <option value="" disabled>segment not set</option>}
+                      <select name="segment" defaultValue={f.segment ?? "none"} aria-label={`Segment of ${f.display_label}`}>
+                        <option value="none">Not set</option>
                         <option value="main">Main (big eggs)</option>
                         <option value="young">Young (small eggs)</option>
                       </select>

@@ -752,3 +752,10 @@ th { font-size: 0.82rem; }
 .pv-nav .btn { min-width: 48px; justify-content: center; }
 .flag-banner a, .data-stamp a { display: inline-flex; align-items: center; min-height: 44px; }
 input[type="file"] { min-height: 44px; padding: 0.55rem 0.4rem; }
+.card > .an-table, .card > div > .an-table:not(.x) { max-width: 100%; }
+.card > .an-table { display: block; overflow-x: auto; }
+.seg-pair > * { min-width: 0; }
+.an-grid.seg-grid { grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr)); }
+.td-more > summary { cursor: pointer; font-weight: 600; padding: 0.5rem 0; list-style: none; }
+.td-more > summary::before { content: "▸ "; }
+.td-more[open] > summary::before { content: "▾ "; }

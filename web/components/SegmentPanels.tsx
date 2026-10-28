@@ -39,7 +39,7 @@ export function SegmentPanelView({ p, detailHref }: { p: SegmentPanel; detailHre
       {!t ? (
         <p className="muted">No rows for this group on this day.</p>
       ) : (
-        <div className="an-grid">
+        <div className="an-grid seg-grid">
           <Cell title="Eggs per 100 birds (HD %), last 7 days" value={p.hd7 != null ? n1(p.hd7) : "–"} sub={trend(p.hd7, p.hdPrev7) ?? (t.hd != null ? `today ${n1(t.hd)}` : undefined)} />
           <Cell title="Eggs laid today" value={n0(t.eggs)} sub={p.eggsAvg7 != null ? `usual: ${n0(p.eggsAvg7)} a day` : undefined} />
           <Cell title="Birds" value={n0(t.birds)} sub={`${t.flocks} flock${t.flocks === 1 ? "" : "s"}`} />
