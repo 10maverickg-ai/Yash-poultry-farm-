@@ -8,6 +8,16 @@ export interface Change {
 
 export const CHANGES: Change[] = [
   {
+    date: "2026-10-29",
+    title: "Deaths judged on our own level, by season, and weather in the app",
+    points: [
+      "Every flock card now shows “deaths this week, our usual, the book”. The colour compares the week with our own usual level, because the breeder's book assumes a modern house. Until a flock's age has enough history, starting limits are used and marked “starting value”.",
+      "The realistic targets are learned separately for each Punjab season (hot, monsoon, cool, cold, spring). Where one season has too little history, the card says “all seasons”.",
+      "The weather for Mohali (max and min temperature, humidity, rain) is kept each day. A hot day next to a low egg count or high deaths adds a plain sentence; it does not change the colour. A thin line shows max temperature on the egg and deaths charts. A very hot (38 °C or more) or very cold (under 4 °C) forecast shows under “What may go wrong soon”.",
+      "New page “Farm reference”: the seasons, the starting death values, what the farm has learned so far, and what is known from research. These are the farm's own working targets, not published standards: confirm them with your vet.",
+    ],
+  },
+  {
     date: "2026-10-28",
     title: "A realistic target, learned from our own records",
     points: [

@@ -380,3 +380,175 @@ Only four months (2 Jul – 26 Oct 2026) of records exist, so many bands cannot 
 - Vercel preview build and runtime logs (connector not authorised); the app was not run against the live database (migration 0042 was applied to live through the connector).
 - Real iPhone Safari / Android Chrome (Chromium at 360, 390, 820 px).
 - Importing an .xlsx file in the browser (CSV was tested end to end; the .xlsx reader uses the existing exceljs library, not exercised).
+
+
+---
+
+# V11 — seasons, deaths on the farm's own level, weather (29 Oct 2026)
+
+Owner decisions (29 Oct 2026): keep the 70th percentile as "a reasonable good week"; deaths are judged against what is realistic for this 25-year-old cage-battery farm in Mohali / Dandrala in this climate, not against the breeder's book; the reference is built from the farm's own 2026 data plus the climate and is labelled "farm's own reference, confirm with vet", never a published standard. A published benchmark for Indian cage farms by Punjab climate was not found.
+
+| Item | Status | What / how checked |
+|---|---|---|
+| M1 season dimension | built | `REALISTIC_CONFIG.seasonByMonth` (HOT Apr–Jun, MONSOON Jul–Sep, COOL Oct–Nov, COLD Dec–Feb, SPRING Mar, one commented map). Each band is learned per season when that season alone has ≥ 28 healthy flock-days from ≥ 2 flocks; otherwise the all-seasons value is used and the card says "all seasons". Moult days are never mixed in. Unit tests: enough data, too little data, fall-back. |
+| M2 deaths | built | Deaths are no longer a ratio to the book. Weekly death rate = deaths in 7 days ÷ the week's average birds × 100; "our usual" = 70th percentile of the farm's own weekly rates per group, season and 5-week age band. Amber above usual × 1.5, red above × 2.5, with two guard rails (below). Starting values until a band has data: cool/cold/spring 0.35 amber / 0.6 red, monsoon/hot 0.55 / 0.9 — marked "starting value". Owner override per band (percent of birds per week). Every flock card shows "Deaths this week x%, our usual y% (season), book z%" with the colour judged against our usual only. Death items on Today (red = what is wrong, amber = may go wrong). |
+| M3 weather | built, live fetch NOT testable here | Migration 0043 `weather_daily`; `lib/weather/openMeteo.ts` (Open-Meteo archive + forecast, Mohali 30.70 / 76.72, no key, 10 s timeout, never throws); `lib/weather/store.ts` (cached daily, upsert); `/api/weather` + Vercel cron (`web/vercel.json`, 00:30 UTC daily); pages refresh after the response is sent. The sandbox blocks `archive-api.open-meteo.com` and `api.open-meteo.com` (403), so nothing could be fetched and the live table is empty until the first daily run on Vercel. The app shows "weather not available" and works without it. |
+| M4 heat-aware messages | built | A hot day (> 35 °C, or > 30 °C with humidity > 70%) next to a low HD or high deaths adds "hot day: 38 °C, feed intake and eggs usually drop on such days" (week version too) on Analytics cards, Today rows and the flock page; the colour never changes. Max temperature as a thin dashed line on the HD and deaths charts. "What may go wrong soon" from the 3-day forecast: ≥ 38 °C (more water, ventilate, shade) or < 4 °C (cover curtains). |
+| M5 Farm reference | built | `/analytics/reference`: season map, starting death values and how they were derived, learned bands with days used, weather columns, the research facts with links, and "These are this farm's own working targets, not published standards; confirm them with your vet", with a link to "How is this learned?". |
+| M6 report | done | `docs/FARM_REFERENCE_REPORT.md` (below, read-only, printed before the screens were built). |
+| M7 Phase Z | done | see "V11 Checks run". |
+
+## V11 farm reference report (M6)
+
+Printed before anything was shown in the app. Nothing here is invented: a season with no records (HOT, COLD, SPRING) is not shown, and a band with too little healthy data says "not learned yet". These are this farm's own working numbers from its 2026 records, not published standards: confirm them with the vet.
+
+Method: `web/lib/analytics/realistic.ts` (`REALISTIC_CONFIG`). HD ratio = eggs per 100 birds ÷ the breeder's book for the flock's age, 70th percentile of 7-day rolling healthy-day values, per group, 5-week age band and season (fall back to all seasons when the season alone has fewer than 28 healthy flock-days or fewer than 2 flocks). Deaths = the farm's own weekly death rate (% of birds per week), 70th percentile of weekly rates; amber at usual × 1.5 and red at usual × 2.5, with two guard rails (amber never above the starting red limit, red never above 2 × the starting red) and bad weeks (above the starting red) not counted as "usual". Until a band has enough data the starting limits apply: cool/cold/spring 0.35 amber, 0.6 red; monsoon/hot 0.55 amber, 0.9 red.
+
+Reproduce: `npx tsx scripts/farm-reference-report.mts <fixture-dir>` (the fixture = the local copy of the live data, refreshed to 28 Oct 2026).
+
+Seasons present in the data: MONSOON (91 days), COOL (28 days). Seasons with no records (HOT, COLD, SPRING) are not shown and nothing is invented for them.
+
+Starting death limits (percent of birds per week): cool/cold/spring amber 0.35, red 0.6; monsoon/hot amber 0.55, red 0.9. Learned limits = usual x 1.5 (amber) and x 2.5 (red).
+
+
+## main group, MONSOON
+
+| age band (weeks) | healthy days | flocks | HD: learned % of book | realistic HD (book@mid) | deaths: usual %/wk (healthy days, flocks) | learned amber / red | starting amber / red | book %/wk |
+|---|---|---|---|---|---|---|---|---|
+| 20–24 | 18 | 2 | not learned yet | – | not learned yet (18 days, 2 flocks) | – | 0.55 / 0.9 | 0.02 |
+| 25–29 | 84 | 3 | 75.5% | 73.3 (97.0) | 0.68 (86, 3) | 1.03 / 1.71 | 0.55 / 0.9 | 0.05 |
+| 30–34 | 104 | 3 | 74.8% | 73.3 (98.0) | 0.39 (105, 3) | 0.58 / 0.97 | 0.55 / 0.9 | 0.05 |
+| 35–39 | 35 | 3 | 80.7% | 78.6 (97.5) | 0.29 (36, 3) | 0.43 / 0.72 | 0.55 / 0.9 | 0.07 |
+| 40–44 | 15 | 1 | not learned yet | – | not learned yet (15 days, 1 flock) | – | 0.55 / 0.9 | 0.08 |
+| 45–49 | 35 | 1 | not learned yet | – | not learned yet (35 days, 1 flock) | – | 0.55 / 0.9 | 0.10 |
+| 50–54 | 35 | 1 | not learned yet | – | not learned yet (35 days, 1 flock) | – | 0.55 / 0.9 | 0.11 |
+| 55–59 | 57 | 4 | 90.3% | 83.8 (92.8) | 0.31 (57, 4) | 0.47 / 0.79 | 0.55 / 0.9 | 0.12 |
+| 60–64 | 92 | 3 | 92.2% | 84.2 (91.3) | 0.34 (93, 3) | 0.51 / 0.84 | 0.55 / 0.9 | 0.13 |
+| 65–69 | 74 | 3 | 86.0% | 77.1 (89.7) | 0.36 (74, 3) | 0.54 / 0.90 | 0.55 / 0.9 | 0.14 |
+| 70–74 | 12 | 1 | not learned yet | – | not learned yet (12 days, 1 flock) | – | 0.55 / 0.9 | 0.15 |
+| 75–79 | 29 | 1 | not learned yet | – | not learned yet (29 days, 1 flock) | – | 0.55 / 0.9 | 0.15 |
+| 80–84 | 28 | 1 | not learned yet | – | not learned yet (28 days, 1 flock) | – | 0.55 / 0.9 | 0.15 |
+| 95–99 | 8 | 1 | not learned yet | – | not learned yet (8 days, 1 flock) | – | 0.55 / 0.9 | 0.15 |
+| 100–104 | 7 | 1 | not learned yet | – | not learned yet (35 days, 1 flock) | – | 0.55 / 0.9 | – |
+| 105–109 | 0 | 0 | not learned yet | – | 0.35 (63, 2) | 0.53 / 0.88 | 0.55 / 0.9 | – |
+| 110–114 | 0 | 0 | not learned yet | – | 0.51 (47, 2) | 0.77 / 1.28 | 0.55 / 0.9 | – |
+| 115–119 | 0 | 0 | not learned yet | – | not learned yet (0 days, 0 flocks) | – | 0.55 / 0.9 | – |
+
+## main group, COOL
+
+| age band (weeks) | healthy days | flocks | HD: learned % of book | realistic HD (book@mid) | deaths: usual %/wk (healthy days, flocks) | learned amber / red | starting amber / red | book %/wk |
+|---|---|---|---|---|---|---|---|---|
+| 35–39 | 59 | 3 | 89.9% | 87.6 (97.5) | 0.23 (63, 3) | 0.34 / 0.57 | 0.35 / 0.6 | 0.07 |
+| 40–44 | 19 | 1 | not learned yet | – | not learned yet (21 days, 1 flock) | – | 0.35 / 0.6 | 0.08 |
+| 55–59 | 26 | 1 | not learned yet | – | not learned yet (28 days, 1 flock) | – | 0.35 / 0.6 | 0.12 |
+| 70–74 | 72 | 3 | 93.8% | 82.5 (87.9) | 0.31 (78, 3) | 0.46 / 0.77 | 0.35 / 0.6 | 0.15 |
+| 75–79 | 5 | 1 | not learned yet | – | not learned yet (5 days, 1 flock) | – | 0.35 / 0.6 | 0.15 |
+| 110–114 | 0 | 0 | not learned yet | – | not learned yet (22 days, 1 flock) | – | 0.35 / 0.6 | – |
+| 115–119 | 0 | 0 | not learned yet | – | not learned yet (6 days, 1 flock) | – | 0.35 / 0.6 | – |
+
+## main group, all seasons together
+
+| age band (weeks) | healthy days | flocks | HD: learned % of book | realistic HD (book@mid) | deaths: usual %/wk (healthy days, flocks) | learned amber / red | starting amber / red | book %/wk |
+|---|---|---|---|---|---|---|---|---|
+| 20–24 | 18 | 2 | not learned yet | – | not learned yet (18 days, 2 flocks) | – | (depends on season) | 0.02 |
+| 25–29 | 84 | 3 | 75.5% | 73.3 (97.0) | 0.68 (86, 3) | 1.03 / 1.71 | (depends on season) | 0.05 |
+| 30–34 | 104 | 3 | 74.8% | 73.3 (98.0) | 0.39 (105, 3) | 0.58 / 0.97 | (depends on season) | 0.05 |
+| 35–39 | 94 | 3 | 87.1% | 84.9 (97.5) | 0.24 (99, 3) | 0.35 / 0.59 | (depends on season) | 0.07 |
+| 40–44 | 34 | 2 | 89.4% | 86.3 (96.5) | 0.20 (36, 2) | 0.30 / 0.50 | (depends on season) | 0.08 |
+| 45–49 | 35 | 1 | not learned yet | – | not learned yet (35 days, 1 flock) | – | (depends on season) | 0.10 |
+| 50–54 | 35 | 1 | not learned yet | – | not learned yet (35 days, 1 flock) | – | (depends on season) | 0.11 |
+| 55–59 | 83 | 4 | 91.6% | 85.0 (92.8) | 0.29 (85, 4) | 0.43 / 0.71 | (depends on season) | 0.12 |
+| 60–64 | 92 | 3 | 92.2% | 84.2 (91.3) | 0.34 (93, 3) | 0.51 / 0.84 | (depends on season) | 0.13 |
+| 65–69 | 74 | 3 | 86.0% | 77.1 (89.7) | 0.36 (74, 3) | 0.54 / 0.90 | (depends on season) | 0.14 |
+| 70–74 | 84 | 3 | 91.5% | 80.4 (87.9) | 0.32 (90, 3) | 0.48 / 0.81 | (depends on season) | 0.15 |
+| 75–79 | 34 | 2 | 87.8% | 75.6 (86.1) | 0.30 (34, 2) | 0.45 / 0.75 | (depends on season) | 0.15 |
+| 80–84 | 28 | 1 | not learned yet | – | not learned yet (28 days, 1 flock) | – | (depends on season) | 0.15 |
+| 95–99 | 8 | 1 | not learned yet | – | not learned yet (8 days, 1 flock) | – | (depends on season) | 0.15 |
+| 100–104 | 7 | 1 | not learned yet | – | not learned yet (35 days, 1 flock) | – | (depends on season) | – |
+| 105–109 | 0 | 0 | not learned yet | – | 0.35 (63, 2) | 0.53 / 0.88 | (depends on season) | – |
+| 110–114 | 0 | 0 | not learned yet | – | 0.48 (69, 2) | 0.72 / 1.19 | (depends on season) | – |
+| 115–119 | 0 | 0 | not learned yet | – | not learned yet (6 days, 1 flock) | – | (depends on season) | – |
+
+## young group, COOL
+
+| age band (weeks) | healthy days | flocks | HD: learned % of book | realistic HD (book@mid) | deaths: usual %/wk (healthy days, flocks) | learned amber / red | starting amber / red | book %/wk |
+|---|---|---|---|---|---|---|---|---|
+| 0–4 | 24 | 3 | not learned yet | – | not learned yet (24 days, 3 flocks) | – | 0.35 / 0.6 | – |
+| 5–9 | 9 | 1 | not learned yet | – | not learned yet (9 days, 1 flock) | – | 0.35 / 0.6 | – |
+
+## young group, all seasons together
+
+| age band (weeks) | healthy days | flocks | HD: learned % of book | realistic HD (book@mid) | deaths: usual %/wk (healthy days, flocks) | learned amber / red | starting amber / red | book %/wk |
+|---|---|---|---|---|---|---|---|---|
+| 0–4 | 24 | 3 | not learned yet | – | not learned yet (24 days, 3 flocks) | – | (depends on season) | – |
+| 5–9 | 9 | 1 | not learned yet | – | not learned yet (9 days, 1 flock) | – | (depends on season) | – |
+
+## Weeks that crossed amber or red (calendar weeks Monday to Sunday, at least 5 days of rows)
+
+Judged two ways: (A) the limits the app will use (our usual from the farm's own data; the starting values where a band is not learned yet) and (B) the starting values alone.
+
+| flock | week (Mon–Sun) | season | deaths | avg birds | deaths % that week | A: our usual / amber / red | A verdict | B: starting amber / red | B verdict |
+|---|---|---|---|---|---|---|---|---|---|
+| BAB-1 | 2026-09-28 – 2026-10-04 | COOL | 25 | 6537 | 0.38 | 0.31 / 0.46 / 0.77 (learned, cool) | ok | 0.35 / 0.6 | amber |
+| BAB-1 | 2026-10-12 – 2026-10-18 | COOL | 25 | 6491 | 0.39 | 0.31 / 0.46 / 0.77 (learned, cool) | ok | 0.35 / 0.6 | amber |
+| BAB-2 | 2026-10-19 – 2026-10-25 | COOL | 41 | 9636 | 0.43 | 0.31 / 0.46 / 0.77 (learned, cool) | ok | 0.35 / 0.6 | amber |
+| BAB-4 | 2026-09-28 – 2026-10-04 | COOL | 43 | 9808 | 0.44 | 0.48 / 0.60 / 1.19 (learned, all seasons) | ok | 0.35 / 0.6 | amber |
+| BAB-4 | 2026-10-12 – 2026-10-18 | COOL | 38 | 9732 | 0.39 | 0.48 / 0.60 / 1.19 (learned, all seasons) | ok | 0.35 / 0.6 | amber |
+| BAB-4 | 2026-10-19 – 2026-10-25 | COOL | 36 | 9699 | 0.37 | starting / 0.35 / 0.60 (starting) | amber | 0.35 / 0.6 | amber |
+| BAB-6 | 2026-07-06 – 2026-07-12 | MONSOON | 56 | 6417 | 0.87 | 0.68 / 0.90 / 1.71 (learned, monsoon) | ok | 0.55 / 0.9 | amber |
+| BAB-6 | 2026-07-13 – 2026-07-19 | MONSOON | 36 | 6374 | 0.56 | 0.68 / 0.90 / 1.71 (learned, monsoon) | ok | 0.55 / 0.9 | amber |
+| BAB-7 | 2026-07-06 – 2026-07-12 | MONSOON | 47 | 4491 | 1.05 | starting / 0.55 / 0.90 (starting) | RED | 0.55 / 0.9 | RED |
+| BAB-7 | 2026-07-13 – 2026-07-19 | MONSOON | 25 | 4465 | 0.56 | 0.68 / 0.90 / 1.71 (learned, monsoon) | ok | 0.55 / 0.9 | amber |
+| BAB-8 | 2026-07-06 – 2026-07-12 | MONSOON | 73 | 10157 | 0.72 | starting / 0.55 / 0.90 (starting) | amber | 0.55 / 0.9 | amber |
+| BAB-8 | 2026-07-13 – 2026-07-19 | MONSOON | 165 | 10037 | 1.64 | 0.68 / 0.90 / 1.71 (learned, monsoon) | amber | 0.55 / 0.9 | RED |
+| BAB-8 | 2026-07-20 – 2026-07-26 | MONSOON | 90 | 9904 | 0.91 | 0.68 / 0.90 / 1.71 (learned, monsoon) | amber | 0.55 / 0.9 | RED |
+| BAB-8 | 2026-07-27 – 2026-08-02 | MONSOON | 75 | 9827 | 0.76 | 0.68 / 0.90 / 1.71 (learned, monsoon) | ok | 0.55 / 0.9 | amber |
+| BAB-8 | 2026-08-03 – 2026-08-09 | MONSOON | 61 | 9762 | 0.62 | 0.68 / 0.90 / 1.71 (learned, monsoon) | ok | 0.55 / 0.9 | amber |
+| BAB-8 | 2026-08-10 – 2026-08-16 | MONSOON | 71 | 9695 | 0.73 | 0.68 / 0.90 / 1.71 (learned, monsoon) | ok | 0.55 / 0.9 | amber |
+| BAB-8 | 2026-08-17 – 2026-08-23 | MONSOON | 60 | 10402 | 0.58 | 0.39 / 0.58 / 0.97 (learned, monsoon) | ok | 0.55 / 0.9 | amber |
+| Old BAB-1 (sold Sep) | 2026-08-17 – 2026-08-23 | MONSOON | 47 | 8518 | 0.55 | 0.51 / 0.77 / 1.28 (learned, monsoon) | ok | 0.55 / 0.9 | amber |
+
+18 flock-weeks cross amber or red under at least one rule. Under (A): 1 red, 4 amber. Under (B): 3 red, 15 amber.
+
+## What this shows, in plain words
+
+* **Seasons in the data:** MONSOON (Jul–Sep, 91 days) and COOL (Oct, 28 days). Nothing is known yet about HOT (Apr–Jun), COLD (Dec–Feb) or SPRING (Mar): those flocks will use the starting limits (and all-season HD ratios) until a year of records or imported paper registers exist.
+* **Main group, monsoon:** weekly death rate usual 0.3–0.7 % depending on age (0.68 at 25–29 weeks, 0.39 at 30–34, about 0.3 from 35 weeks on). Many bands outside weeks 25–39 and 55–69 are single-flock, so they fall back to all seasons or the starting limits.
+* **Main group, cool (October):** usual about 0.23 % at 35–39 weeks and 0.31 % at 70–74 weeks — close to the starting cool limits (0.35 / 0.6) and about half the monsoon level, as expected.
+* **Young group (BAB-9/10/11):** not learned yet (24 healthy days in the youngest band, one flock in the next). They use the cool starting limits.
+* **The bad July weeks:** BAB-7 (week of 6 Jul, 1.05 % that week) is red and BAB-8 (week of 13 Jul, 1.64 %, and 20 Jul, 0.91 %) is amber under the app's rules (red under the starting limits alone). Weeks of 0.55–0.9 % for BAB-6/7/8 in July are inside the learned monsoon band and are not flagged by the app, but the starting limits alone would call them amber — a judgement for the vet.
+* **BAB-4 (week 115):** 0.37–0.44 % a week all four months. In October the starting cool limit (0.35) calls it amber; the learned all-season band for its age (0.48 usual) does not. Its age band has only two flocks of data, so it is the clearest case for the vet to decide.
+* **Honest limits:** with 3 flocks and one season per band the learned "usual" is one season of weather. The guard rail keeps a bad month from silencing its own alert. More years (the paper-register import) make the season bands real.
+
+
+## V11 Checks run
+- `npx tsc --noEmit`, `npx eslint app components lib scripts`, `npx next build`: clean.
+- `scripts/realistic-check.mts` (now also: season map; season learned on its own; season too thin so it falls back to all seasons and the card says "all seasons"; weekly death rate arithmetic and scaling; starting limits cool vs monsoon; learned usual and the two guard rails; owner override): all pass.
+- `scripts/weather-check.mts` (Open-Meteo response parsing, URLs, India date, archive + forecast calls, MOCKED failures: network error, HTTP 503, junk JSON, a hanging service, database down, missing table; cached daily): all pass. `scripts/heat-check.mts` (hot-day rule at the boundaries, exact sentence, week sentence, forecast alerts at 38 / 37.9 and 4.0 / 3.9, the colour is the same with and without weather): all pass.
+- Existing checks: import-check, std-for-check, rates-check, friendly-check, plain-check, segment-check, analytics-check and the 13 `regression-*.ts` scripts pass. `costs-check` and `period-check` hard-code the live data as it stood on 26 Oct: they pass on the 26 Oct fixture and "fail" only on the fixture refreshed to 28 Oct (October day counts 28 instead of 26) — expected, not a regression.
+- Browser (production build, local copy of the live data refreshed to 28 Oct): sweep at 360, 390 and 820 px of Today, Analytics (day/week/month/year), How targets are learned, Farm reference, Import, Flocks and a flock page — no overflow, no error screen — once with synthetic weather rows (only to see the temperature line, heat sentence and forecast alerts; removed afterwards) and once with the weather table empty. Death override set (0.40%), rejected above 5%, cleared. Page times 0.03–0.12 s locally.
+
+## V11 Known bugs / findings
+- FOUND AND FIXED: a first version learned "usual" deaths from every week, so in a band with only two flocks the bad July weeks of BAB-7 and BAB-8 set the level and silenced their own alert (BAB-7 1.05% was "ok"). Now weeks above the starting red are not counted as usual, amber is never above the starting red, and red is capped at 2× the starting red. With these rules BAB-7 (week of 6 Jul) is red and BAB-8 (weeks of 13 and 20 Jul) amber.
+- OPEN: learning can still relax the limits in a thin band: the monsoon 25–29-week band learned 0.68% a week (starting amber 0.55). It is one season of three flocks. The vet should confirm.
+- OPEN: BAB-4 (week 115) runs 0.37–0.44% a week; the starting cool limit calls that amber, the learned all-season band for its age (two flocks) does not.
+- OPEN: young flocks (BAB-9/10/11) have no learned death band yet (24 healthy days in the youngest band) and use the cool starting limits.
+- OPEN: owner overrides apply to every season of a band (the overrides table has no season column; adding one would change a unique constraint, which is not an additive migration).
+- OPEN: HOT, COLD and SPRING have no records; those months use all-season HD ratios and the starting death limits until a year of data or imported paper registers exist.
+- OPEN: the Mashaly 2004 figures and the Ontario 27 °C threshold on the reference page come from a web-search summary (the sites could not be opened here); the owner's brief figures are shown as "not checked against a source here". The ">10% for older conventional-cage farms" statement was not confirmed by what I found (one US trial reports 4.7% for conventional cages).
+- Death limits scale with flock size only through the weekly percentage; a tiny flock (BAB-7, about 1,700 birds) can cross amber on three deaths.
+
+## V11 Needs owner
+1. Vet to confirm the starting death thresholds (0.35 / 0.6 cool, 0.55 / 0.9 hot), the multiples 1.5 / 2.5, and the season map.
+2. Allow `archive-api.open-meteo.com` and `api.open-meteo.com` for the Claude cloud environment if weather should be fetched from here; on Vercel the daily cron needs nothing but a deploy (optionally set `CRON_SECRET`).
+3. Older paper-register data to import (more years make the season bands real).
+4. BAB-3 moult start day.
+5. Diesel, medicines and other costs.
+6. Open ledger questions: 29/30 Jul +300 small eggs, 21 Jul feed box, 19/20/21 Oct feed boxes, 1 July page, 2 Oct and 20 Oct chick rows, 27 and 28 Oct pages.
+7. Vercel access approval; Anthropic credits; RLS decision.
+
+## V11 Could not test
+- Fetching real weather (Open-Meteo hosts are blocked in this environment). The fetch, parse and refresh code is tested with mocked responses only (including failures); the Vercel cron was not run.
+- Weather on screen was seen with synthetic rows in the local copy only; the live table `weather_daily` is empty.
+- Daily photo upload and the reader (no Anthropic credit); Vercel preview logs; real iPhone / Android (Chromium at 360, 390, 820 px).
+- Migration 0043 was applied to live through the connector; the app was not run against the live database.

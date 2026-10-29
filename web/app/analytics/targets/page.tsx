@@ -33,7 +33,7 @@ export default async function TargetsPage({ searchParams }: { searchParams: Prom
   });
   const pts = mainHd.filter((p) => p.mean != null);
 
-  const Row = ({ b }: { b: RealisticBand }) => {
+  const Row = ({ b, only }: { b: RealisticBand; only?: string | null }) => {
     const mid = b.fromWeek + 2;
     const bk = book(b.metric, mid);
     const isD = b.metric === "mortality";
@@ -44,7 +44,7 @@ export default async function TargetsPage({ searchParams }: { searchParams: Prom
     return (
       <tr>
         <td>{b.fromWeek}–{b.toWeek}</td>
-        <td>{seasonName(b.season)}</td>
+        <td>{seasonName(b.season)}{only ? <div className="muted an-tiny">only {only} data so far</div> : null}</td>
         <td className="num">{n0(b.healthyDays)} <span className="muted">of {n0(b.daysSeen)}</span></td>
         <td className="num">{b.flocks}</td>
         <td>{b.dateFrom ? `${dmy(b.dateFrom)} – ${dmy(b.dateTo!)}` : "–"}</td>
@@ -135,9 +135,12 @@ export default async function TargetsPage({ searchParams }: { searchParams: Prom
         <section key={g}>
           <h2>{SEGMENT_NAME[g]}</h2>
           {(["hd", "feed", "mortality"] as RMetric[]).map((m) => {
-            // an empty season (no records in it) is not listed; "All seasons" is always the first row of a band
-            const rows = model.bands.filter((b) => b.group === g && b.metric === m && (b.season === "all" || b.healthyDays > 0 || b.daysSeen > 0));
-            if (m === "feed" && g === "young") return <p key={m} className="muted">Feed per bird: the young group has no feed column in the register, so nothing is learned.</p>;
+            // "All seasons" is always the first row of a band. A season is listed on its own only when the band has healthy days in
+            // two or more seasons (otherwise it would repeat the all-seasons row); an empty season is never listed.
+            const all = model.bands.filter((b) => b.group === g && b.metric === m);
+            const seasonsWith = (band: number) => all.filter((b) => b.band === band && b.season !== "all" && b.healthyDays > 0).map((b) => b.season);
+            const rows = all.filter((b) => (b.season === "all" ? b.daysSeen > 0 || b.source === "owner" : b.healthyDays > 0 && seasonsWith(b.band).length >= 2));
+            const only = (b: RealisticBand) => (b.season === "all" && seasonsWith(b.band).length === 1 ? seasonName(seasonsWith(b.band)[0]).split(" ")[0] : null);
             return (
               <div key={m} className="card">
                 <h3 style={{ marginTop: 0 }}>{METRIC_NAME[m]}</h3>
@@ -149,7 +152,7 @@ export default async function TargetsPage({ searchParams }: { searchParams: Prom
                       <thead>
                         <tr><th>Age (weeks)</th><th>Season</th><th className="num">Healthy days</th><th className="num">Flocks</th><th>Dates used</th><th className="num">{m === "mortality" ? "Learned (70th percentile)" : "Learned, % of book"}</th><th className="num">Book (mid-band)</th><th className="num">{m === "mortality" ? "Our usual" : "Our realistic target"}</th><th>Owner level (all seasons)</th></tr>
                       </thead>
-                      <tbody>{rows.map((b) => <Row key={`${b.band}-${b.season}`} b={b} />)}</tbody>
+                      <tbody>{rows.map((b) => <Row key={`${b.band}-${b.season}`} b={b} only={only(b)} />)}</tbody>
                     </table>
                   </div>
                 )}

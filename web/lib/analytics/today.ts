@@ -174,7 +174,7 @@ export function buildToday(
     });
   }
   // 3-day weather forecast (V11): very hot or very cold days coming
-  for (const f of forecastAlerts(ctx.input.weather ?? [], todayDate)) soon.push({ id: f.id, title: f.title, detail: f.detail, href: "/analytics/reference", group: "farm" });
+  for (const f of forecastAlerts(ctx.input.weather ?? [], todayDate)) soon.unshift({ id: f.id, title: f.title, detail: f.detail, href: "/analytics/reference", group: "farm" });
   if (money.missing.length === 0 && money.revenue > 0) right.push({ id: "cash", title: `Cash for the day: ${inr(money.revenue)} from eggs sold; estimated cost ${inr(money.cost.total)}.`, href: "/purchases", group: "farm" });
   if (extras.sales.length && money.unpricedEggsSold === 0) right.push({ id: "priced", title: "Every egg sold is priced.", href: "/sales", group: "farm" });
   return { right, wrong, soon };
