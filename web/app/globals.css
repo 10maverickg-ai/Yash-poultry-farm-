@@ -890,3 +890,6 @@ body { padding-left: env(safe-area-inset-left); padding-right: env(safe-area-ins
 .install-go { min-height: 44px; padding: 0 1rem; }
 .pwa-x { min-height: 44px; min-width: 44px; background: transparent; color: var(--muted); border: 0; font-size: 1.1rem; cursor: pointer; }
 .pwa-note { position: fixed; left: 0; right: 0; bottom: calc(64px + env(safe-area-inset-bottom)); z-index: 60; margin: 0 1rem; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18); }
+
+/* a link that is a card's title (Knowledge topics) is a full-height tap target */
+.card h3 > a { display: inline-flex; align-items: center; min-height: 44px; }

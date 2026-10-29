@@ -300,7 +300,7 @@ try {
   const staffLeaks: string[] = [];
   let staffRefused = 0;
   for (const r of routes) {
-    if (["/api/login", "/api/logout", "/login", "/api/weather"].includes(r.path)) continue;
+    if (["/api/login", "/api/logout", "/login", "/api/weather"].includes(r.path) || isPublic(r.path)) continue; // open to everybody by design
     for (const m of ["GET", "POST"]) {
       const res = await call(URL, r.path, { method: m, cookie: staffCookie, headers: m === "POST" ? { "next-action": "0000000000000000000000000000000000000000" } : {} });
       const mayGet = m === "GET" && allowedGet.has(r.path);
