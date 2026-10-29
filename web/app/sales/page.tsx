@@ -6,6 +6,7 @@ import { listUnpricedLedgerSales, listBirdSales, listAnilMovements, youngStartDa
 import { setBirdSaleBuyer } from "./actions";
 import { ExportLinks } from "@/components/ExportLinks";
 import { dmy } from "@/lib/format";
+import { recipientLabel, RECIPIENTS } from "@/lib/sales/recipients";
 
 export const dynamic = "force-dynamic";
 
@@ -158,14 +159,36 @@ export default async function SalesPage({
             Big eggs are sold from the main flocks, small eggs from the young flocks (from {youngFrom ?? "the day a young flock starts"}; before that the small eggs were the main flocks&apos; graded small eggs). Check: main + young = whole farm in every month{months.every((mk) => { const t = byMonth.get(mk) ?? { eggs: 0, amount: 0 }; const g = byMonthGroup.get(mk); return !g || (g.main.eggs + g.young.eggs === t.eggs && Math.abs(g.main.amount + g.young.amount - t.amount) < 0.5); }) ? " ✓" : " — ⚠ a month does not add up"}.
           </p>
 
+          <h2>Who got the eggs</h2>
+          <div className="table-wrap">
+            <table>
+              <thead><tr><th>Recipient</th><th>Sales</th><th>Eggs</th><th>Amount</th><th>Average price per egg</th></tr></thead>
+              <tbody>
+                {RECIPIENTS.map((r) => {
+                  const mine = sales.filter((x) => x.recipient === r.key);
+                  if (mine.length === 0) return null;
+                  const eggs = mine.reduce((t, x) => t + (x.eggs_quantity ?? 0), 0);
+                  const amt = mine.reduce((t, x) => t + num(x.amount), 0);
+                  return (
+                    <tr key={r.key}><td>{r.label}</td><td>{mine.length}</td><td>{eggs.toLocaleString("en-IN")}</td><td>{inr(amt)}</td><td>{eggs ? (amt / eggs).toFixed(2) : "—"}</td></tr>
+                  );
+                })}
+                {sales.some((x) => !x.recipient) && (
+                  <tr><td>Not set</td><td>{sales.filter((x) => !x.recipient).length}</td><td colSpan={3} className="muted">open a sale and choose who got the eggs</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+          <p className="muted an-sub">The recipient never changes a price. A sale to a Yash P.F. farm is priced like a Farmfresh sale: the day&apos;s selling price. If the day&apos;s rate changes later (for example when a subsidy arrives), use <Link href="/sales/reprice">Re-price a day</Link>.</p>
+
           <h2>Sales</h2>
           <div className="table-wrap">
             <table>
               <thead>
                 <tr>
                   <th>Date</th>
-                  <th>Buyer</th>
-                  <th>Type</th>
+                  <th>Who got the eggs</th>
+                  <th>Kind</th>
                   <th>Grade</th>
                   <th>Eggs</th>
                   <th>Trays</th>
@@ -183,7 +206,7 @@ export default async function SalesPage({
                         <td>
                           <Link href={`/sales/${s.id}`}>{dmy(s.date)}</Link>
                         </td>
-                        <td>{s.buyer_or_recipient ?? "—"}</td>
+                        <td>{recipientLabel(s.recipient)}{s.buyer_or_recipient && !["Farmfresh", "Local"].includes(s.buyer_or_recipient) ? <span className="muted"> · {s.buyer_or_recipient}</span> : null} <Link href={`/sales/${s.id}`} className="muted an-tiny">change</Link></td>
                         <td>{s.transaction_type === "sale_farmfresh" ? "Farmfresh" : s.transaction_type === "other" || s.transaction_type === "local" ? "Local" : (s.transaction_type?.replaceAll("_", " ") ?? "—")}</td>
                         <td>{s.grade ?? "—"}</td>
                         <td>{s.eggs_quantity?.toLocaleString("en-IN") ?? "—"}</td>

@@ -86,4 +86,5 @@ export interface SaleRow {
   trays_quantity: string | null; // pg numeric
   price_per_unit: string | null;
   amount: string | null;
+  recipient: string | null; // who got the eggs (V12): farmfresh | local | yash_12 | ... — never changes the price
 }
