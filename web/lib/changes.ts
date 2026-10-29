@@ -9,6 +9,18 @@ export interface Change {
 export const CHANGES: Change[] = [
   {
     date: "2026-10-29",
+    title: "Medicines ready for the register photos, enter a day by hand, health alert, who got the eggs",
+    points: [
+      "Medicines and vaccines: type a line quickly and tap “Save and add next”, see each month with totals per flock, tap “None this month” when nothing was given, edit or delete a line (it asks first), and import a CSV or Excel file (a template and a dry run that changes nothing come first). A priced line goes into Costs as medicines or vaccines. The vaccination list now says done, due soon, overdue or later.",
+      "New screen “Enter a day by hand” (under Upload): type one whole day for all 11 flocks, the feed box, both egg ledgers and the chick rows when photo reading is not available. The app adds up your rows against the page totals, the birds from day to day and the ledgers as you type, and saves into the same tables as a photo, marked “manual entry”. Anything that does not tie is saved with a flag, never guessed.",
+      "A flock whose deaths are above its usual two days running while its eggs fall more than 5% in a week now shows under “What is wrong now” with “call the vet”. It speaks once per episode, not every day.",
+      "Sales: every sale shows who got the eggs (Farmfresh, Local, Yash P.F. 12, 13 or 14 farm, Anil farm, other) and you can change it without changing the price. After you correct a day's rate, “Re-price the sales of this day” shows the before and after totals and only changes them when you tap to confirm.",
+      "New Settings page (under Analytics): when the weather last came in, the last problem in plain words, and a button “Refresh weather now”.",
+      "On a phone the wide tables turn into cards, buttons and tick boxes are big enough for a thumb, every page has its own tab title, and the Medicines and Egg stock forms use plain words.",
+    ],
+  },
+  {
+    date: "2026-10-29",
     title: "Deaths judged on our own level, by season, and weather in the app",
     points: [
       "Every flock card now shows “deaths this week, our usual, the book”. The colour compares the week with our own usual level, because the breeder's book assumes a modern house. Until a flock's age has enough history, starting limits are used and marked “starting value”.",
