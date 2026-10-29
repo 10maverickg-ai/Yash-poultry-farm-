@@ -21,6 +21,9 @@ export default async function UploadPage() {
         not add up is flagged for you, never saved as a guess; a date that is already saved is never overwritten without asking; and if the
         date on the page is not the date you entered, I stop and ask.
       </p>
+      <p className="card" style={{ margin: "0 0 0.75rem" }}>
+        Photo reading not available, or one page will not read? <Link href="/day/enter"><b>Enter a day by hand →</b></Link> It checks everything the reader checks and saves to the same tables.
+      </p>
       <QueueUploader waiting={count("waiting")} reading={count("reading")} />
       <div className="queue-summary">
         {(["waiting", "reading", "saved", "needs_review", "failed", "duplicate"] as const).map((s) => (

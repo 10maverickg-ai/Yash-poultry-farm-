@@ -56,6 +56,8 @@ export interface DailyProductionRowInput {
   // "bird_population increased" reason, which would otherwise blame
   // today's row for a discrepancy that's actually yesterday's.
   suppressBirdPopulationIncreaseFlag?: boolean;
+  // The left-page table (BAB-9..11) has no Feed column, so a blank feed there is normal, not a missing field.
+  noFeedColumn?: boolean;
   // Every reason pipeline.ts's stages already decided this row should be
   // flagged for (disagreeing readings, tray-of-30, chain mismatches, ...)
   // — fn_validate_daily_production has no way to reproduce any of these,
@@ -141,6 +143,10 @@ export async function insertDailyProductionRow(
 
   if (data.suppressBirdPopulationIncreaseFlag) {
     reasons = reasons.filter((r) => !r.startsWith("bird_population increased"));
+  }
+
+  if (data.noFeedColumn && data.feedBags == null) {
+    reasons = reasons.filter((r) => r !== "missing field: feed_bags");
   }
 
   // Low self-reported confidence on any field is itself a flag trigger, per

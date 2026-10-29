@@ -8,8 +8,8 @@ import { usePathname, useSearchParams } from "next/navigation";
 // lists the pages inside the active section, so every older page stays
 // reachable without a long menu.
 export const SECTIONS = [
-  { key: "upload", label: "Upload", icon: "📷", href: "/upload", match: ["/upload", "/flagged"],
-    subs: [["/upload", "Upload photos"], ["/flagged", "Review flags"]] },
+  { key: "upload", label: "Upload", icon: "📷", href: "/upload", match: ["/upload", "/flagged", "/day/enter"],
+    subs: [["/upload", "Upload photos"], ["/day/enter", "Enter a day by hand"], ["/flagged", "Review flags"]] },
   { key: "day", label: "Day", icon: "🥚", href: "/day", match: ["/day", "/production", "/egg-stock", "/feed-bag-stock", "/records", "/export"],
     subs: [["/day", "Day view"], ["/production", "Correct a day"], ["/egg-stock", "Egg ledger"], ["/feed-bag-stock", "Feed bags"], ["/records", "Records"], ["/export", "Excel / backup"]] },
   { key: "sales", label: "Sales", icon: "₹", href: "/sales", match: ["/sales"],

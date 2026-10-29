@@ -68,8 +68,8 @@ export async function syncSaleForEntry(
       // have set them): only the quantity/date/grade follow the ledger line, and
       // the amount follows the quantity at the row's own price.
       await client.query(
-        `UPDATE sales SET date = $2, eggs_quantity = $3, grade = $4,
-                amount = CASE WHEN price_per_unit IS NOT NULL THEN round($3::numeric * price_per_unit, 2) ELSE amount END
+        `UPDATE sales SET date = $2, eggs_quantity = $3::integer, grade = $4,
+                amount = CASE WHEN price_per_unit IS NOT NULL THEN round($3::integer::numeric * price_per_unit, 2) ELSE amount END
           WHERE id = $1`,
         [entry.linkedSaleId, date, qty, section]
       );

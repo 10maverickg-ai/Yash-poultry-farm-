@@ -795,7 +795,7 @@ main:focus { outline: none; }
 .tl-compact { font-size: 0.78rem; max-width: 24rem; }
 .tl-trend svg { width: 100%; height: auto; display: block; }
 .tl-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
-.tl-table th, .tl-table td { padding: 0.3rem 0.4rem; border-bottom: 1px solid var(--border, #ddd); text-align: left; white-space: normal; }
+.tl-table th, .tl-table td { padding: 0.3rem 0.4rem; border-bottom: 1px solid var(--line); text-align: left; white-space: normal; }
 .tl-table .num { text-align: right; white-space: nowrap; }
 .tl-scroll { overflow-x: auto; }
 .btn-small { padding: 0.25rem 0.6rem; font-size: 0.8rem; min-height: 2rem; }
@@ -844,3 +844,19 @@ main:focus { outline: none; }
   .an-scroll:has(> table[data-heavy]), .table-wrap:has(> table[data-heavy]), .tl-scroll:has(> table[data-heavy]) { overflow-x: visible; padding: 0; border: 0; background: transparent; box-shadow: none; }
 }
 .table-wrap td, .table-wrap th { white-space: normal; }
+
+/* "Enter a day by hand" (V12 N4) */
+.md-flock { display: grid; gap: 0.4rem; }
+.md-flock-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0.2rem 0.6rem; align-items: baseline; }
+.md-flag { border-color: #c77700; }
+.md-note { margin: 0; font-size: 0.85rem; color: #8a5200; }
+.md-calc { display: inline-flex; align-items: center; min-height: 44px; font-size: 1.1rem; font-variant-numeric: tabular-nums; }
+.md-line { display: grid; gap: 0.5rem; padding: 0.6rem 0; border-top: 1px solid var(--line); }
+.md-dir, .md-chips { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.md-dir button, .md-chip { min-height: 44px; padding: 0.4rem 0.8rem; border-radius: 999px; border: 1px solid var(--line); background: transparent; color: inherit; font: inherit; cursor: pointer; }
+.md-dir button.md-on, .md-chip.md-on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.md-checks { position: sticky; top: 0.25rem; z-index: 5; }
+.md-checks-ok { border-color: var(--accent); }
+.md-checks-bad { border-color: #c77700; }
+.md-checks ul { margin: 0.3rem 0 0.4rem; }
+@media (max-width: 480px) { .md-checks { position: static; } }
