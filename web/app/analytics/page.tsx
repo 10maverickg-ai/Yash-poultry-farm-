@@ -45,6 +45,7 @@ const KIND_LABEL: Record<AlertKind, string> = {
   bird_count_anomaly: "Bird-count change",
   feed_anomaly: "Feed anomaly",
   missing_day: "Missing data",
+  flock_health: "Flock may be sick",
 };
 
 
