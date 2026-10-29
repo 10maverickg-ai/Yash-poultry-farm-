@@ -125,22 +125,28 @@ export const PIN_FARM_WINDOW_MS = 60 * 60 * 1000; // ... in an hour pauses PIN l
 
 export type LockState = { state: "ok" } | { state: "locked"; until: number } | { state: "paused"; until: number };
 
+/**
+ * When does the lock that `n` failures inside `windowMs` cause end? The lock starts at the failure that completes the set (the 5th, or
+ * the 20th) and lasts one full window from then, so "wait 15 minutes" is true. Returns null when no set of `n` failures fits in the window.
+ */
+export function lockEnd(times: number[], n: number, windowMs: number): number | null {
+  const t = [...times].sort((a, b) => a - b);
+  let until: number | null = null;
+  for (let i = n - 1; i < t.length; i++) if (t[i] - t[i - n + 1] < windowMs) until = Math.max(until ?? 0, t[i] + windowMs);
+  return until;
+}
+
 /** Owner-password tries and PIN tries are counted separately, so guessing the PIN can never lock the owner out. */
 export async function lockState(store: AttemptStore, role: Role, ip: string, fid: string, now: number): Promise<LockState> {
-  const recent = await store.failures(role, now - Math.max(TRY_WINDOW_MS, role === "staff" ? PIN_FARM_WINDOW_MS : 0));
+  const span = Math.max(2 * TRY_WINDOW_MS, role === "staff" ? 2 * PIN_FARM_WINDOW_MS : 0);
+  const recent = await store.failures(role, now - span);
   if (role === "staff") {
-    const hour = recent.filter((r) => r.at > now - PIN_FARM_WINDOW_MS).sort((a, b) => b.at - a.at);
-    if (hour.length >= PIN_FARM_LIMIT) {
-      const until = hour[0].at + PIN_FARM_WINDOW_MS;
-      if (until > now) return { state: "paused", until };
-    }
+    const until = lockEnd(recent.map((r) => r.at), PIN_FARM_LIMIT, PIN_FARM_WINDOW_MS);
+    if (until !== null && until > now) return { state: "paused", until };
   }
   for (const mine of [recent.filter((r) => r.ip === ip), recent.filter((r) => r.fid === fid)]) {
-    const win = mine.filter((r) => r.at > now - TRY_WINDOW_MS).sort((a, b) => b.at - a.at);
-    if (win.length >= TRY_LIMIT) {
-      const until = win[TRY_LIMIT - 1].at + TRY_WINDOW_MS; // free again when the fifth most recent try is 15 minutes old
-      if (until > now) return { state: "locked", until };
-    }
+    const until = lockEnd(mine.map((r) => r.at), TRY_LIMIT, TRY_WINDOW_MS);
+    if (until !== null && until > now) return { state: "locked", until };
   }
   return { state: "ok" };
 }
