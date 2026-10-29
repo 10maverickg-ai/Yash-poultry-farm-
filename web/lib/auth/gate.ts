@@ -46,8 +46,9 @@ export function gate(i: GateInput, e: Env, now: number): GateResult {
   const api = isApiLike(pathname, i.method, i.nextAction);
   const cfg = authConfig(e);
   if (isPublic(pathname)) {
-    // a logged-in browser that opens the login screen goes straight on
-    if (pathname === LOGIN_PATH && cfg.mode === "ready") {
+    // a logged-in browser that opens the login screen goes straight on (not when it was sent here with a message, or a staff phone whose
+    // session the server has ended would bounce between /upload and /login)
+    if (pathname === LOGIN_PATH && cfg.mode === "ready" && !/[?&]e=/.test(i.search)) {
       const s = sessionFromToken(i.cookie, e, nowSec, sessionSecret(e));
       if (s) return { kind: "redirect", to: s.role === "staff" ? STAFF_HOME : OWNER_HOME };
     }

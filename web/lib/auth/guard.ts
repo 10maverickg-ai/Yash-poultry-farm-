@@ -31,7 +31,7 @@ export async function currentSession(): Promise<Session | null> {
 
 export async function requireUser(): Promise<Session> {
   const s = await currentSession();
-  if (!s) redirect(LOGIN_PATH);
+  if (!s) redirect(`${LOGIN_PATH}?e=expired`);
   return s;
 }
 

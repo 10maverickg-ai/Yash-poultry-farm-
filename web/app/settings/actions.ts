@@ -1,6 +1,7 @@
 "use server";
 
 import { requireOwner } from "@/lib/auth/guard";
+import { bumpStaffVersion } from "@/lib/auth/staffVersion";
 import { pool } from "@/lib/db";
 import { ACTIVE_FARM } from "@/lib/farm";
 import { refreshWeather } from "@/lib/weather/store";
@@ -28,4 +29,13 @@ export async function refreshWeatherNow(): Promise<WeatherState> {
   } catch {
     return { ok: false, message: "The weather could not be updated just now. Nothing was changed; try again in a few minutes." };
   }
+}
+
+/** "Log out all staff phones": raises the staff session version, so every staff cookie stops working at once. The owner stays logged in. */
+export async function logOutStaffPhones(): Promise<WeatherState> {
+  await requireOwner();
+  const v = await bumpStaffVersion();
+  return v === null
+    ? { ok: false, message: "That could not be done just now (the login table is not reachable). Try again in a minute." }
+    : { ok: true, message: "Done. Every staff phone is logged out and must log in again with the PIN." };
 }

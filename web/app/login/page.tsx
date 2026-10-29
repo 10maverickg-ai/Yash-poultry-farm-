@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = { title: "Log in", robots: { index: false, follow: false } };
 
-const NOTE: Record<string, string> = { ...MESSAGE, out: "You are logged out.", staffdown: "Staff login is not available right now. Ask the owner." };
+const NOTE: Record<string, string> = { ...MESSAGE, out: "You are logged out.", staffdown: "Staff login is not available right now. Ask the owner.", expired: "Your login has ended. Log in again." };
 
 export default async function LoginPage({ searchParams }: { searchParams: Promise<{ e?: string; next?: string }> }) {
   const sp = await searchParams;
@@ -23,7 +23,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
     );
   }
   const note = sp.e ? NOTE[sp.e] : null;
-  const bad = sp.e && sp.e !== "out";
+  const bad = sp.e && sp.e !== "out" && sp.e !== "expired";
   return (
     <div className="card login-card">
       <h1 style={{ marginTop: 0 }}>Log in</h1>
