@@ -5,7 +5,7 @@ import { friendlyReaderError } from "@/lib/reader/friendlyError";
 import { revalidatePath } from "next/cache";
 import { pool, withTransaction } from "@/lib/db";
 import { ACTIVE_FARM } from "@/lib/farm";
-import { uploadRegisterPhoto } from "@/lib/storage";
+import { uploadRegisterPhoto, photoProblem } from "@/lib/storage";
 import {
   extractDailyProductionSafely,
   ExtractionRejected,
@@ -157,6 +157,8 @@ export async function uploadAndExtractDailyProduction(
   if (!(file instanceof File) || file.size === 0) {
     return { ...EMPTY, error: "Choose a photo first" };
   }
+  const notPhoto = photoProblem(file);
+  if (notPhoto) return { ...EMPTY, error: notPhoto };
   if (typeof dateHint !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(dateHint)) {
     return { ...EMPTY, error: "Pick the date shown on the register page" };
   }

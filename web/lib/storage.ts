@@ -25,6 +25,22 @@ function getClient(): SupabaseClient {
 
 const BUCKET = "register-photos";
 
+/** Only a short letters-and-digits extension from the file name is used in the stored path; anything else becomes jpg/png/webp/heic by type. */
+export function safeExt(name: string, type: string): string {
+  const raw = name.includes(".") ? (name.split(".").pop() ?? "").toLowerCase() : "";
+  if (/^[a-z0-9]{2,5}$/.test(raw)) return raw;
+  return type === "image/png" ? "png" : type === "image/webp" ? "webp" : type === "image/heic" ? "heic" : "jpg";
+}
+
+export const PHOTO_MAX_BYTES = 15 * 1024 * 1024;
+
+/** A plain sentence when the file is not a picture or is too big; null when it is fine. (A phone sometimes sends no type at all: that is accepted.) */
+export function photoProblem(file: File): string | null {
+  if (file.type && !file.type.startsWith("image/")) return "That file is not a picture. Choose a JPEG, PNG, WebP or HEIC photo of the page.";
+  if (file.size > PHOTO_MAX_BYTES) return "That photo is bigger than 15 MB. Take it again at a lower quality.";
+  return null;
+}
+
 /**
  * Uploads a register photo to Supabase Storage and returns its public URL —
  * the exact string that fills a table's source_photo_url column. Path is
@@ -36,7 +52,7 @@ export async function uploadRegisterPhoto(
   registerType: "production" | "feed-stock" | "feed-bag-stock" | "medicines",
   date: string
 ): Promise<string> {
-  const ext = file.name.split(".").pop()?.toLowerCase() || "jpg";
+  const ext = safeExt(file.name, file.type);
   const path = `${registerType}/${date}/${Date.now()}-${crypto.randomUUID().slice(0, 8)}.${ext}`;
 
   const { error } = await getClient().storage.from(BUCKET).upload(path, file, {
@@ -58,7 +74,7 @@ export async function uploadRegisterPhoto(
  * prefix.
  */
 export async function uploadBenchmarkPhoto(file: File, date: string): Promise<string> {
-  const ext = file.name.split(".").pop()?.toLowerCase() || "jpg";
+  const ext = safeExt(file.name, file.type);
   const path = `benchmark/${date}/${Date.now()}-${crypto.randomUUID().slice(0, 8)}.${ext}`;
 
   const { error } = await getClient().storage.from(BUCKET).upload(path, file, {
