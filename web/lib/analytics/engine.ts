@@ -201,6 +201,8 @@ export interface Ctx {
   realisticHistory?: RealisticModel[]; // month-end computations, oldest first (trend chart and slip alert)
   /** Realistic HD target for a flock on a date. Absent = judge against the book (old behaviour; unit tests). */
   realisticHd?: (flockId: string, date: string) => RealisticHdTarget;
+  /** Deaths this week against our usual level (V11). Absent = no death colour. */
+  realisticDeath?: (flockId: string, date: string) => RealisticDeathTarget;
 }
 
 /** What realisticFor (realistic.ts) hands back; declared here so the engine does not import realistic.ts (no cycle). */
@@ -211,6 +213,19 @@ export interface RealisticHdTarget {
   source: "learned" | "owner" | "none";
   reason: string | null;
   bandLabel: string | null; // e.g. "weeks 30-34"
+  seasonLabel: string | null; // "monsoon", "all seasons" or "set by owner": which data the level comes from
+}
+
+/** Deaths this week against OUR usual level (V11): the colour is judged against our usual only; the book is for reference. */
+export interface RealisticDeathTarget {
+  weekPct: number | null; // deaths in the last 7 days, % of the week's average birds
+  usual: number | null; // our usual weekly rate (learned or set by owner); null while the starting limits are in use
+  amber: number | null;
+  red: number | null;
+  source: "learned" | "owner" | "starting";
+  seasonLabel: string; // "monsoon", "all seasons", "set by owner", "cool starting value"
+  bookPct: number | null; // the breeder's book weekly depletion at this age (reference only)
+  status: "green" | "amber" | "red" | "none";
 }
 
 export function buildCtx(input: EngineInput): Ctx {
@@ -515,6 +530,8 @@ export interface FlockCard {
   realisticSource: "learned" | "owner" | "none";
   realisticReason: string | null; // plain words when realisticHd is null
   realisticBand: string | null;
+  realisticSeason: string | null; // "monsoon" / "all seasons" / "set by owner": which data our realistic target comes from
+  death: RealisticDeathTarget | null; // deaths this week against OUR usual level (V11); null when the model is not attached
   birds: number | null;
   mort7: number | null; // deaths/day, last 7 rows
   feed7: number | null; // bags/day, last 7 rows
@@ -642,6 +659,8 @@ export function flockCards(ctx: Ctx, asOf: string): FlockCard[] {
       realisticSource: rt?.source ?? "none",
       realisticReason: rt?.reason ?? null,
       realisticBand: rt?.bandLabel ?? null,
+      realisticSeason: rt?.seasonLabel ?? null,
+      death: ctx.realisticDeath && !left ? ctx.realisticDeath(flockId, asOf) : null,
       segment: segmentOn(ctx, flockId, asOf),
       rampDay: ramp ? ramp.day : null,
       flockId,

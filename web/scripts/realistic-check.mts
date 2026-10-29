@@ -1,7 +1,7 @@
 // Tests the realistic-target learning (V10): clean data, a moult, a mortality spike, too little data, never above book.
 //   npx tsx scripts/realistic-check.mts
 import { buildCtx, flockCards, addDays, type EngineInput, type ProdRow, type FlockRef } from "../lib/analytics/engine.ts";
-import { attachRealistic, learnRealistic, realisticFor, bandAgeWeeks, findSlips, percentile, REALISTIC_CONFIG } from "../lib/analytics/realistic.ts";
+import { attachRealistic, learnRealistic, realisticFor, bandAgeWeeks, findSlips, percentile, seasonOf, weeklyDeathRate, deathTargetFor, deathLimits, findBand, REALISTIC_CONFIG } from "../lib/analytics/realistic.ts";
 
 let failed = 0;
 const ok = (name: string, cond: boolean, extra = "") => { if (!cond) failed++; console.log(`${cond ? "PASS" : "FAIL"}  ${name}${cond ? "" : "  " + extra}`); };
@@ -21,7 +21,7 @@ function build(opts: { days?: number; ids?: string[]; eggsPct?: number; edit?: (
   return { flocks, prod, movements: [], egg: [], feedBoxes: [], chick: [], farmfreshDates: [], moulting: opts.moult ? [{ flockId: "A", start: addDays(START, 20), end: addDays(START, 30), confirmed: true }] : [], std, realisticOverrides: [] };
 }
 const learn = (i: EngineInput, over = []) => { const c = buildCtx(i); const asOf = addDays(START, 45); return { c, m: learnRealistic(c, asOf, over) }; };
-const hd30 = (m: ReturnType<typeof learnRealistic>) => m.bands.find((b) => b.group === "main" && b.metric === "hd" && b.band === 6)!;
+const hd30 = (m: ReturnType<typeof learnRealistic>) => m.bands.find((b) => b.group === "main" && b.metric === "hd" && b.band === 6 && b.season === "all")!;
 
 // clean: 80 eggs per 100 birds against a book of 90 = 88.9 %
 {
@@ -103,11 +103,89 @@ const hd30 = (m: ReturnType<typeof learnRealistic>) => m.bands.find((b) => b.gro
 // percentile and slip
 ok("percentile 70 of 1..11 is 8", percentile([1,2,3,4,5,6,7,8,9,10,11], 70) === 8);
 {
-  const mk = (asOf: string, r: number) => ({ asOf, bands: [{ group: "main", metric: "hd", band: 6, fromWeek: 30, toWeek: 34, daysSeen: 40, healthyDays: 40, flocks: 3, dateFrom: null, dateTo: null, samples: 30, learnedRatio: r, notLearnedReason: null, override: null, ratio: r, source: "learned" }] }) as never;
+  const mk = (asOf: string, r: number) => ({ asOf, bands: [{ group: "main", metric: "hd", band: 6, fromWeek: 30, toWeek: 34, daysSeen: 40, healthyDays: 40, flocks: 3, dateFrom: null, dateTo: null, samples: 30, season: "all", learnedRatio: r, notLearnedReason: null, override: null, ratio: r, learnedRate: null, overrideRate: null, rate: null, source: "learned" }] }) as never;
   ok("slip: 4-point fall raises one item", findSlips([mk("2026-08-31", 0.9), mk("2026-09-30", 0.86)]).length === 1);
   ok("slip: 2-point fall does not", findSlips([mk("2026-08-31", 0.9), mk("2026-09-30", 0.88)]).length === 0);
   ok("slip: a rise does not", findSlips([mk("2026-08-31", 0.85), mk("2026-09-30", 0.9)]).length === 0);
 }
 ok("config is one object with the owner's thresholds", REALISTIC_CONFIG.percentile === 70 && REALISTIC_CONFIG.minHealthyDays === 28 && REALISTIC_CONFIG.minFlocks === 2 && REALISTIC_CONFIG.rampDays === 14 && REALISTIC_CONFIG.bandWeeks === 5);
+// ---- V11: seasons -------------------------------------------------------------------------------------
+const seasonInput = (start: string, days: number, ids: string[], edit?: (r: ProdRow) => void): EngineInput => {
+  const placed = addDays(start, -210); // 30 weeks old on `start`, so the band is 30-34 weeks for the next 5 weeks
+  const fl: FlockRef[] = ids.map((n) => ({ id: n, label: "BAB-" + n, breed: "BV300", placementDate: placed, placementConfirmed: true, segment: "main" }));
+  const prod: ProdRow[] = [];
+  for (const f of ids) for (let i = 0; i < days; i++) {
+    const r: ProdRow = { id: ++id, date: addDays(start, i), flockId: f, label: "BAB-" + f, mort: 1, feed: 20, eggs: 800, pop: 1000, hd: 80, flagged: false, reviewed: false };
+    edit?.(r);
+    prod.push(r);
+  }
+  return { flocks: fl, prod, movements: [], egg: [], feedBoxes: [], chick: [], farmfreshDates: [], moulting: [], std, realisticOverrides: [] };
+};
+const seasonModel = (i: EngineInput, asOf: string) => { const c = buildCtx(i); return { c, m: learnRealistic(c, asOf, []) }; };
+ok("season map: Jul-Sep monsoon, Oct-Nov cool, Dec-Feb cold, Mar spring, Apr-Jun hot", [seasonOf("2026-07-01"), seasonOf("2026-09-30"), seasonOf("2026-10-01"), seasonOf("2026-11-30"), seasonOf("2026-12-01"), seasonOf("2027-02-28"), seasonOf("2027-03-15"), seasonOf("2027-04-01"), seasonOf("2027-06-30")].join() === "MONSOON,MONSOON,COOL,COOL,COLD,COLD,SPRING,HOT,HOT");
+{
+  // enough data: 3 flocks, 40 days in MONSOON -> a monsoon band is learned on its own
+  const { c, m } = seasonModel(seasonInput("2026-07-30", 40, ["A", "B", "C"]), "2026-09-08");
+  const b = m.bands.find((x) => x.group === "main" && x.metric === "hd" && x.band === 6 && x.season === "MONSOON")!;
+  ok("season: enough data -> the monsoon band is learned on its own", b && b.learnedRatio != null && Math.abs(b.learnedRatio - 80 / 90) < 0.005 && b.flocks === 3 && b.healthyDays >= 28, JSON.stringify(b));
+  const f = findBand(m, "main", "hd", 31, "MONSOON")!;
+  ok("season: the lookup for a monsoon date uses the monsoon band", f.season === "MONSOON");
+  const t = realisticFor(c, "A", "2026-08-25", m);
+  ok("season: realisticFor works on the seasonal band", t.band?.season === "MONSOON" && Math.abs(t.value! - 80) < 0.2, JSON.stringify(t.band?.season));
+  ok("season: no other season exists in the data, so none is invented", !m.bands.some((x) => x.season === "COOL" || x.season === "HOT" || x.season === "COLD"));
+}
+{
+  // too little in the season, enough overall: 2 flocks across Sep 10 - Oct 12 -> COOL has only ~24 healthy flock-days, the all-season band is learned
+  const { c, m } = seasonModel(seasonInput("2026-09-10", 33, ["A", "B"]), "2026-10-12");
+  const cool = m.bands.find((x) => x.group === "main" && x.metric === "hd" && x.band === 6 && x.season === "COOL")!;
+  const all = m.bands.find((x) => x.group === "main" && x.metric === "hd" && x.band === 6 && x.season === "all")!;
+  ok("season fall-back: the cool band alone is NOT learned (too few days)", cool.learnedRatio == null && /healthy flock-days/.test(cool.notLearnedReason ?? ""), JSON.stringify([cool.healthyDays, cool.learnedRatio]));
+  ok("season fall-back: the all-season band is learned", all.learnedRatio != null && all.healthyDays >= 28, String(all.healthyDays));
+  const t = realisticFor(c, "A", "2026-10-10", m);
+  ok("season fall-back: realisticFor uses the all-season value", t.band?.season === "all" && t.value != null);
+  const h = deathLimits(m, "main", 31, "2026-10-10");
+  ok("season fall-back: deaths with 1 death a day over 1000 birds (0.7% a week) are learned all-season", h.source === "learned" && h.seasonUsed === "all" && Math.abs(h.usual! - 0.7) < 0.05, JSON.stringify(h));
+  const card = flockCards(c, "2026-10-10").find((x) => x.flockId === "A")!;
+  ok("season fall-back: the card still says which data was used (here nothing is attached, so no label)", card.realisticBand == null);
+  attachRealistic(c);
+  const card2 = flockCards(c, "2026-10-10").find((x) => x.flockId === "A")!;
+  ok("season fall-back: the card carries 'all seasons' next to the number", card2.realisticSeason === "all seasons", String(card2.realisticSeason));
+}
+// ---- V11: death rate -------------------------------------------------------------------------------------
+ok("death rate: 7 deaths in a week over 1000 birds is 0.7%", Math.abs(weeklyDeathRate(Array.from({ length: 7 }, () => ({ mort: 1, pop: 1000 })))! - 0.7) < 1e-9);
+ok("death rate: 5 days are scaled up to a week (5 deaths -> 7)", Math.abs(weeklyDeathRate(Array.from({ length: 5 }, () => ({ mort: 1, pop: 1000 })))! - 0.7) < 1e-9);
+ok("death rate: 4 days are not enough", weeklyDeathRate(Array.from({ length: 4 }, () => ({ mort: 1, pop: 1000 }))) == null);
+ok("death rate: uses the week's AVERAGE birds", Math.abs(weeklyDeathRate([2, 2, 2, 2, 2, 2, 2].map((m, i) => ({ mort: m, pop: 1000 - i * 10 })))! - (14 / 970) * 100) < 1e-9);
+{
+  // starting values (no model): cool 0.35 / 0.6, hot 0.55 / 0.9
+  const mk2 = (start: string, mort: number, pop: number) => { const c = buildCtx(seasonInput(start, 20, ["A"], (r) => { r.mort = mort; r.pop = pop; })); return c; };
+  const cool = deathTargetFor(mk2("2026-10-05", 7, 10000), "A", "2026-10-20"); // 49 / 10000 = 0.49% in October
+  ok("deaths: starting values, cool month: 0.49% is amber (limits 0.35 / 0.6)", cool.status === "amber" && cool.source === "starting" && cool.amber === 0.35 && cool.red === 0.6, JSON.stringify(cool));
+  const hot = deathTargetFor(mk2("2026-07-05", 7, 10000), "A", "2026-07-20"); // same 0.49% in July
+  ok("deaths: starting values, monsoon: the same 0.49% is green (limits 0.55 / 0.9)", hot.status === "green" && hot.amber === 0.55 && hot.red === 0.9, JSON.stringify(hot));
+  const red = deathTargetFor(mk2("2026-07-05", 14, 10000), "A", "2026-07-20"); // 0.98%
+  ok("deaths: starting values, monsoon: 0.98% is red", red.status === "red");
+  const few = deathTargetFor(buildCtx(seasonInput("2026-07-05", 3, ["A"])), "A", "2026-07-07");
+  ok("deaths: 3 days of rows give no verdict", few.status === "none" && few.weekPct == null);
+}
+{
+  // learned usual: 2 deaths/day over 2000 birds = 0.7%/week usual; amber would be 1.5x = 1.05 but is capped at the starting red 0.9
+  // (a week above the starting red is always at least amber); red 2.5x = 1.75 (cap 2x0.9 = 1.8)
+  const i = seasonInput("2026-07-30", 40, ["A", "B", "C"], (r) => { r.mort = 2; r.pop = 2000; r.eggs = 1600; });
+  const c = buildCtx(i);
+  attachRealistic(c);
+  const d = c.realisticDeath!("A", "2026-08-25");
+  ok("deaths: usual level learned from the farm's own weeks (0.7%); amber capped at the starting red 0.9; red 1.75", d.source === "learned" && Math.abs(d.usual! - 0.7) < 0.03 && Math.abs(d.amber! - 0.9) < 1e-9 && Math.abs(d.red! - 1.75) < 0.1, JSON.stringify(d));
+  ok("deaths: a normal week is green against our usual (0.7%, above the starting amber 0.55 and far above the book)", d.status === "green" && d.bookPct != null && d.weekPct! > d.bookPct * 4 && d.weekPct! > 0.55, JSON.stringify(d));
+  // a bad week: 5 deaths a day over 2000 birds = 1.75%/week -> red; 3.5 a day = 1.2% -> amber... check the guard rail with a bad week in the same flock
+  const cBad = buildCtx(seasonInput("2026-07-30", 40, ["A", "B", "C"], (r) => { r.pop = 2000; r.eggs = 1600; r.mort = r.flockId === "A" && r.date >= "2026-08-20" && r.date <= "2026-08-26" ? 4 : 2; }));
+  attachRealistic(cBad);
+  const bad = cBad.realisticDeath!("A", "2026-08-26");
+  ok("deaths guard rail: a week of 1.4% (above the starting red 0.9) is at least amber even though 0.7% is usual", bad.status === "amber" && Math.abs(bad.weekPct! - 1.4) < 0.01, JSON.stringify(bad));
+  // the owner's override wins, and sets the usual directly (percent a week)
+  const m2 = learnRealistic(c, "2026-09-08", [{ group: "main", metric: "mortality", bandStart: 30, ratioPct: 0.4 }]);
+  const lim = deathLimits(m2, "main", 31, "2026-08-25");
+  ok("deaths: owner override of 0.4% a week wins (amber 0.6, red 1.0)", lim.source === "owner" && lim.usual === 0.4 && Math.abs(lim.amber - 0.6) < 1e-9 && Math.abs(lim.red - 1.0) < 1e-9, JSON.stringify(lim));
+}
 console.log(failed ? `\n${failed} FAILED` : "\nall passed");
 process.exit(failed ? 1 : 0);
