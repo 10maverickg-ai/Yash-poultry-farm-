@@ -16,7 +16,7 @@ const bookDeath = (age: number) => { const a = input.std.find((s) => s.age === a
 
 console.log(`# Farm reference report (read-only), data 2026-07-02 to ${asOf}\n`);
 console.log("Seasons present in the data: " + [...new Set(ctx.dates.map((d) => seasonOf(d)))].map((s) => `${s} (${ctx.dates.filter((d) => seasonOf(d) === s).length} days)`).join(", ") + ". Seasons with no records (HOT, COLD, SPRING) are not shown and nothing is invented for them.\n");
-console.log(`Starting death limits (percent of birds per week): cool/cold/spring amber ${C.deathStart.cool.amber}, red ${C.deathStart.cool.red}; monsoon/hot amber ${C.deathStart.hot.amber}, red ${C.deathStart.hot.red}. Learned limits = usual x ${C.deathAmberMultiple} (amber) and x ${C.deathRedMultiple} (red).\n`);
+console.log(`Starting death limits (percent of birds per week): cool/cold/spring amber ${C.deathStart.cool.amber}, red ${C.deathStart.cool.red}; monsoon/hot amber ${C.deathStart.hot.amber}, red ${C.deathStart.hot.red}. Learned limits = usual x ${C.deathAmberMultiple} (amber) and x ${C.deathRedMultiple} (red), but amber is never above the starting red limit and red never above ${C.deathRedCapMultiple}x the starting red. Weeks above the starting red are left out of what counts as usual.\n`);
 
 const present = SEASONS.filter((s) => ctx.dates.some((d) => seasonOf(d) === s));
 for (const g of ["main", "young"] as RGroup[]) {
@@ -32,7 +32,7 @@ for (const g of ["main", "young"] as RGroup[]) {
       const bk = bookHd(mid);
       const start = C.deathStart[C.deathClass[s === "all" ? "MONSOON" : (s as Season)]];
       const lim = d?.learnedRate != null;
-      console.log(`| ${b.fromWeek}–${b.toWeek} | ${b.healthyDays} | ${b.flocks} | ${b.learnedRatio != null ? (b.learnedRatio * 100).toFixed(1) + "%" : "not learned yet"} | ${b.learnedRatio != null && bk != null ? `${f1(bk * b.learnedRatio)} (${f1(bk)})` : "–"} | ${lim ? `${f1(d!.learnedRate, 2)} (${d!.healthyDays}, ${d!.flocks})` : `not learned yet${d ? ` (${d.healthyDays} days, ${d.flocks} flock${d.flocks === 1 ? "" : "s"})` : ""}`} | ${lim ? `${f1(d!.learnedRate! * C.deathAmberMultiple, 2)} / ${f1(d!.learnedRate! * C.deathRedMultiple, 2)}` : "–"} | ${s === "all" ? "(depends on season)" : `${start.amber} / ${start.red}`} | ${f1(bookDeath(mid), 2)} |`);
+      console.log(`| ${b.fromWeek}–${b.toWeek} | ${b.healthyDays} | ${b.flocks} | ${b.learnedRatio != null ? (b.learnedRatio * 100).toFixed(1) + "%" : "not learned yet"} | ${b.learnedRatio != null && bk != null ? `${f1(bk * b.learnedRatio)} (${f1(bk)})` : "–"} | ${lim ? `${f1(d!.learnedRate, 2)} (${d!.healthyDays}, ${d!.flocks})` : `not learned yet${d ? ` (${d.healthyDays} days, ${d.flocks} flock${d.flocks === 1 ? "" : "s"})` : ""}`} | ${lim ? `${f1(Math.min(d!.learnedRate! * C.deathAmberMultiple, start.red), 2)} / ${f1(Math.max(Math.min(d!.learnedRate! * C.deathRedMultiple, start.red * C.deathRedCapMultiple), Math.min(d!.learnedRate! * C.deathAmberMultiple, start.red) * 1.2), 2)}` : "–"} | ${s === "all" ? "(depends on season)" : `${start.amber} / ${start.red}`} | ${f1(bookDeath(mid), 2)} |`);
     }
   }
 }
