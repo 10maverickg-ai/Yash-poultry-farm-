@@ -860,3 +860,9 @@ main:focus { outline: none; }
 .md-checks-bad { border-color: #c77700; }
 .md-checks ul { margin: 0.3rem 0 0.4rem; }
 @media (max-width: 480px) { .md-checks { position: static; } }
+
+/* Settings (V12 N8) */
+.kv { margin: 0; display: grid; grid-template-columns: 1fr; gap: 0.1rem 1rem; }
+.kv dt { font-size: 0.85rem; font-weight: 600; color: var(--muted); }
+.kv dd { margin: 0 0 0.5rem; }
+@media (min-width: 560px) { .kv { grid-template-columns: 13rem 1fr; } .kv dd { margin: 0; } }
