@@ -2,6 +2,7 @@ import { pool } from "@/lib/db";
 import { ACTIVE_FARM } from "@/lib/farm";
 import { breedKey, type EngineInput } from "./engine";
 import { isNeverFlaggedProduction } from "@/lib/neverFlag";
+import { loadWeather } from "@/lib/weather/store";
 
 // Read-only. Pulls everything the analytics engine needs in one round of
 // queries; soft-deleted rows are excluded exactly like every other query in
@@ -11,7 +12,7 @@ import { isNeverFlaggedProduction } from "@/lib/neverFlag";
 const num = (x: unknown): number | null => (x == null ? null : Number(x));
 
 export async function loadEngineInput(): Promise<EngineInput> {
-  const [flocks, prod, mov, egg, box, junction, chick, std, moult, ff, kstd, overrides, segHist] = await Promise.all([
+  const [flocks, prod, mov, egg, box, junction, chick, std, moult, ff, kstd, overrides, segHist, weather] = await Promise.all([
     pool.query(
       `SELECT flock_internal_id, display_label, breed, placement_date, placement_date_confirmed, segment, placement_is_chick_date
          FROM flocks WHERE farm_code = $1`,
@@ -82,6 +83,7 @@ export async function loadEngineInput(): Promise<EngineInput> {
     ),
     pool.query(`SELECT grp, metric, band_start, ratio_pct, note FROM realistic_target_overrides WHERE farm_code = $1`, [ACTIVE_FARM]),
     pool.query(`SELECT h.flock_internal_id, h.segment, h.effective_from FROM flock_segment_history h JOIN flocks f USING (flock_internal_id) WHERE f.farm_code = $1`, [ACTIVE_FARM]),
+    loadWeather(), // never throws: [] when the table is missing or the database hiccups
   ]);
   const histBy = new Map<string, { from: string; segment: "main" | "young" | null }[]>();
   for (const h of segHist.rows) (histBy.get(h.flock_internal_id) ?? histBy.set(h.flock_internal_id, []).get(h.flock_internal_id)!).push({ from: String(h.effective_from).slice(0, 10), segment: h.segment === "main" || h.segment === "young" ? h.segment : null });
@@ -165,6 +167,7 @@ export async function loadEngineInput(): Promise<EngineInput> {
     })),
     chick: chick.rows.map((c) => ({ date: c.date, deaths: Number(c.deaths) })),
     std: std.rows.map((s) => ({ age: s.age_weeks, hdp: Number(s.std_hdp_percent), feedG: s.feed_per_day_g != null ? Number(s.feed_per_day_g) : null, cumDepl: s.cumulative_depletion_percent != null ? Number(s.cumulative_depletion_percent) : null })),
+    weather,
     realisticOverrides: overrides.rows.map((o) => ({ group: o.grp, metric: o.metric, bandStart: Number(o.band_start), ratioPct: Number(o.ratio_pct), note: o.note })),
     stdByBreed,
   };
