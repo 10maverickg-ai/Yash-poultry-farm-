@@ -871,3 +871,13 @@ main:focus { outline: none; }
 @media (max-width: 820px) {
   td > a { display: inline-flex; align-items: center; min-height: 44px; min-width: 44px; }
 }
+
+/* Login (V13) */
+.header-row { display: flex; align-items: center; gap: 0.25rem; flex-wrap: nowrap; }
+.logout-form { margin: 0 0 0 auto; }
+.logout-btn { min-height: 44px; min-width: 44px; padding: 0 0.9rem; border-radius: 999px; background: transparent; color: var(--accent-ink); border: 1px solid rgba(255, 255, 255, 0.6); font: inherit; font-size: 0.9rem; cursor: pointer; }
+.login-card { max-width: 26rem; margin: 1.5rem auto; }
+.login-pw { display: flex; gap: 0.4rem; align-items: stretch; }
+.login-input { flex: 1; min-width: 0; min-height: 52px; font-size: 1.15rem; }
+.login-eye { min-height: 52px; min-width: 64px; border-radius: 8px; background: transparent; color: var(--accent); border: 1px solid var(--line); font: inherit; cursor: pointer; }
+.login-go { min-height: 52px; font-size: 1.1rem; }

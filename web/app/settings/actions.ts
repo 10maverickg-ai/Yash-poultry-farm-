@@ -1,5 +1,6 @@
 "use server";
 
+import { requireOwner } from "@/lib/auth/guard";
 import { pool } from "@/lib/db";
 import { ACTIVE_FARM } from "@/lib/farm";
 import { refreshWeather } from "@/lib/weather/store";
@@ -9,6 +10,7 @@ export interface WeatherState { ok: boolean; message: string }
 
 /** The "Refresh weather now" button. Answers on the same screen (no redirect); the page refreshes itself when ok. */
 export async function refreshWeatherNow(): Promise<WeatherState> {
+  await requireOwner();
   try {
     // one press per minute: a second tap while the first is still running (or just after) would only hammer the free service
     const { rows } = await pool

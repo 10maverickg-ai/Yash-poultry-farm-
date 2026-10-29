@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { guardRoute } from "@/lib/auth/guard";
 import { DATASETS, validMonth, type DatasetKind } from "@/lib/export/data";
 import { periodDataset, validPeriod } from "@/lib/export/period";
 import { buildCsv, buildXlsx, XLSX_TYPE } from "@/lib/export/build";
@@ -9,6 +10,8 @@ export const dynamic = "force-dynamic";
 // Read-only. The file is sent as an attachment so iPhone Safari offers
 // Download / the share sheet.
 export async function GET(req: NextRequest) {
+  const denied = await guardRoute("owner");
+  if (denied) return denied;
   const q = req.nextUrl.searchParams;
   const kind = q.get("kind") as DatasetKind | "week" | "month" | "year";
   const month = q.get("month") ?? "";

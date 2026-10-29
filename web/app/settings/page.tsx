@@ -59,6 +59,12 @@ export default async function SettingsPage() {
         <WeatherRefresh action={refreshWeatherNow} />
       </section>
 
+      <h2>Your login</h2>
+      <section className="card stack">
+        <p style={{ margin: 0 }}>You are logged in. The login keeps this phone logged in for 30 days of use.</p>
+        <form action="/api/logout" method="post"><button type="submit" className="btn-secondary">Log out of this phone</button></form>
+      </section>
+
       <h2>Your records</h2>
       <section className="card stack">
         {data ? (
