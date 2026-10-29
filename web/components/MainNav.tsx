@@ -17,7 +17,7 @@ export const SECTIONS = [
   { key: "purchases", label: "Buy", icon: "🧾", href: "/purchases", match: ["/purchases", "/feed-stock", "/formulation"],
     subs: [["/purchases", "Purchases & costs"], ["/feed-stock", "Feed stock"], ["/formulation", "Formulation"]] },
   { key: "medicines", label: "Meds", icon: "💉", href: "/medicines", match: ["/medicines", "/knowledge"],
-    subs: [["/medicines", "Medicines & vaccines"], ["/knowledge", "Knowledge"]] },
+    subs: [["/medicines", "Medicines & vaccines"], ["/medicines/import", "Import lines"], ["/knowledge", "Knowledge"]] },
   { key: "flocks", label: "Flocks", icon: "🐔", href: "/flocks", match: ["/flocks", "/chick-batches", "/sheds"],
     subs: [["/flocks", "Flocks"], ["/flocks/batches", "Chick batches"], ["/flocks/moulting", "Moulting"], ["/chick-batches", "Chick log"], ["/sheds", "Sheds"]] },
   { key: "analytics", label: "Analytics", icon: "📊", href: "/analytics", match: ["/analytics", "/today", "/import"],

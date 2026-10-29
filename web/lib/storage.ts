@@ -33,7 +33,7 @@ const BUCKET = "register-photos";
  */
 export async function uploadRegisterPhoto(
   file: File,
-  registerType: "production" | "feed-stock" | "feed-bag-stock",
+  registerType: "production" | "feed-stock" | "feed-bag-stock" | "medicines",
   date: string
 ): Promise<string> {
   const ext = file.name.split(".").pop()?.toLowerCase() || "jpg";
