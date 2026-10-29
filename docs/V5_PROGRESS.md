@@ -536,7 +536,7 @@ Judged two ways: (A) the limits the app will use (our usual from the farm's own 
 - OPEN: owner overrides apply to every season of a band (the overrides table has no season column; adding one would change a unique constraint, which is not an additive migration).
 - OPEN: HOT, COLD and SPRING have no records; those months use all-season HD ratios and the starting death limits until a year of data or imported paper registers exist.
 - OPEN: the Mashaly 2004 figures and the Ontario 27 °C threshold on the reference page come from a web-search summary (the sites could not be opened here); the owner's brief figures are shown as "not checked against a source here". The ">10% for older conventional-cage farms" statement was not confirmed by what I found (one US trial reports 4.7% for conventional cages).
-- Death limits scale with flock size only through the weekly percentage; a tiny flock (BAB-7, about 1,700 birds) can cross amber on three deaths.
+- Death limits scale with flock size only through the weekly percentage; a small flock (BAB-7, about 1,700 birds now) crosses the cool amber limit with about six deaths in a week.
 
 ## V11 Needs owner
 1. Vet to confirm the starting death thresholds (0.35 / 0.6 cool, 0.55 / 0.9 hot), the multiples 1.5 / 2.5, and the season map.
