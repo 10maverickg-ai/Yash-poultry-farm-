@@ -1,5 +1,6 @@
+import { buildFarmCtx } from "@/lib/analytics/ctx";
 import Link from "next/link";
-import { buildCtx, watchList, lastDayOfData, SEGMENTS, SEGMENT_NAME, type AlertKind, type Ctx, type Segment } from "@/lib/analytics/engine";
+import { watchList, lastDayOfData, SEGMENTS, SEGMENT_NAME, type AlertKind, type Ctx, type Segment } from "@/lib/analytics/engine";
 import {
   compare,
   lastYearRange,
@@ -99,7 +100,7 @@ function FlockTable({ s }: { s: PeriodSummary }) {
     <div className="card an-scroll">
       <table className="an-table">
         <thead>
-          <tr><th>Flock</th><th className="num">Days</th><th className="num">Eggs</th><th className="num">Share of eggs</th><th className="num">Eggs per 100 birds</th><th className="num">Breeder&apos;s target</th><th className="num">Gap</th><th className="num">Deaths</th><th className="num">Deaths %</th><th className="num">Feed g/bird</th></tr>
+          <tr><th>Flock</th><th className="num">Days</th><th className="num">Eggs</th><th className="num">Share of eggs</th><th className="num">Eggs per 100 birds</th><th className="num">Breeder&apos;s target (book)</th><th className="num">Our realistic target</th><th className="num">Gap to book</th><th className="num">Deaths</th><th className="num">Deaths %</th><th className="num">Feed g/bird</th></tr>
         </thead>
         <tbody>
           {s.flocks.map((f) => (
@@ -114,6 +115,7 @@ function FlockTable({ s }: { s: PeriodSummary }) {
               <td className="num">{f.shareOfEggs != null ? `${n1(f.shareOfEggs)}%` : "–"}</td>
               <td className="num">{f.hd != null ? n1(f.hd) : "–"}</td>
               <td className="num">{f.stdHd != null ? n1(f.stdHd) : "–"}</td>
+              <td className="num">{f.realisticHd != null ? n1(f.realisticHd) : f.stdHd != null ? "not learned yet" : "–"}</td>
               <td className="num">{f.gap != null ? `${f.gap > 0 ? "−" : "+"}${n1(Math.abs(f.gap))}` : "–"}</td>
               <td className="num">{n0(f.deaths)}</td>
               <td className="num">{f.deathsPct != null ? f.deathsPct.toFixed(2) : "–"}</td>
@@ -470,7 +472,7 @@ export function PeriodView({
   kind: PeriodKind;
   p: string | undefined;
 }) {
-  const ctx = buildCtx(input);
+  const { ctx } = buildFarmCtx(input);
   const latestDay = lastDayOfData(ctx);
   const firstDay = ctx.dates[0];
   const latest = rangeOf(kind, latestDay);

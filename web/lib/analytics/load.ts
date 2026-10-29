@@ -11,9 +11,9 @@ import { isNeverFlaggedProduction } from "@/lib/neverFlag";
 const num = (x: unknown): number | null => (x == null ? null : Number(x));
 
 export async function loadEngineInput(): Promise<EngineInput> {
-  const [flocks, prod, mov, egg, box, junction, chick, std, moult, ff, kstd, segHist] = await Promise.all([
+  const [flocks, prod, mov, egg, box, junction, chick, std, moult, ff, kstd, overrides, segHist] = await Promise.all([
     pool.query(
-      `SELECT flock_internal_id, display_label, breed, placement_date, placement_date_confirmed, segment
+      `SELECT flock_internal_id, display_label, breed, placement_date, placement_date_confirmed, segment, placement_is_chick_date
          FROM flocks WHERE farm_code = $1`,
       [ACTIVE_FARM]
     ),
@@ -59,7 +59,7 @@ export async function loadEngineInput(): Promise<EngineInput> {
       [ACTIVE_FARM]
     ),
     pool.query(
-      `SELECT age_weeks, std_hdp_percent
+      `SELECT age_weeks, std_hdp_percent, feed_per_day_g, cumulative_depletion_percent
          FROM bv300_standard_laying WHERE guide_version = '2023'`
     ),
     pool.query(
@@ -80,6 +80,7 @@ export async function loadEngineInput(): Promise<EngineInput> {
          FROM knowledge_standards s JOIN knowledge_entries e ON e.id = s.entry_id
         WHERE s.metric = 'hen_day_percent' AND e.breed IS NOT NULL`
     ),
+    pool.query(`SELECT grp, metric, band_start, ratio_pct, note FROM realistic_target_overrides WHERE farm_code = $1`, [ACTIVE_FARM]),
     pool.query(`SELECT h.flock_internal_id, h.segment, h.effective_from FROM flock_segment_history h JOIN flocks f USING (flock_internal_id) WHERE f.farm_code = $1`, [ACTIVE_FARM]),
   ]);
   const histBy = new Map<string, { from: string; segment: "main" | "young" | null }[]>();
@@ -106,6 +107,7 @@ export async function loadEngineInput(): Promise<EngineInput> {
       placementConfirmed: f.placement_date_confirmed === true,
       segment: f.segment === "main" || f.segment === "young" ? f.segment : null,
       segmentHistory: histBy.get(f.flock_internal_id),
+      placementIsChickDate: f.placement_is_chick_date === true,
     })),
     prod: prod.rows.map((r) => ({
       id: Number(r.id),
@@ -162,7 +164,8 @@ export async function loadEngineInput(): Promise<EngineInput> {
       confirmed: m.confirmed_by_owner,
     })),
     chick: chick.rows.map((c) => ({ date: c.date, deaths: Number(c.deaths) })),
-    std: std.rows.map((s) => ({ age: s.age_weeks, hdp: Number(s.std_hdp_percent) })),
+    std: std.rows.map((s) => ({ age: s.age_weeks, hdp: Number(s.std_hdp_percent), feedG: s.feed_per_day_g != null ? Number(s.feed_per_day_g) : null, cumDepl: s.cumulative_depletion_percent != null ? Number(s.cumulative_depletion_percent) : null })),
+    realisticOverrides: overrides.rows.map((o) => ({ group: o.grp, metric: o.metric, bandStart: Number(o.band_start), ratioPct: Number(o.ratio_pct), note: o.note })),
     stdByBreed,
   };
 }

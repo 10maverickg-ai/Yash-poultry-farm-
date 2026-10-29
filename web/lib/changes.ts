@@ -9,6 +9,16 @@ export interface Change {
 export const CHANGES: Change[] = [
   {
     date: "2026-10-28",
+    title: "A realistic target, learned from our own records",
+    points: [
+      "Each flock now shows three lines: the breeder's target (the book), our realistic target (what our own flocks do on a good week at that age) and what the flock actually did. The colours compare it with our realistic target; the gap to the book is just a number.",
+      "Where the farm has too little history for an age, the flock is grey and says “realistic target not learned yet for this age”. Nothing is guessed.",
+      "New screen “How targets are learned” (under Analytics): which days are used and left out, the table for every age band, a small chart of how the level moved, and a place to set your own level for a band.",
+      "New screen “Import old registers”: upload older paper-register days (CSV or Excel). It checks every row first and never overwrites a day without asking. More history means more ages can be learned.",
+    ],
+  },
+  {
+    date: "2026-10-28",
     title: "Today now tells you what is right, what is wrong and what may go wrong",
     points: [
       "The Today screen has three parts: ✔ what is right, ✖ what is wrong now (with what to do) and ⚠ what may go wrong soon. Tap any line for the details.",

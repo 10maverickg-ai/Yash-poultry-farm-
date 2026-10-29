@@ -14,6 +14,8 @@
 //   - Nothing here invents a figure: where a reference or input is missing
 //     the result says so ("no reference loaded", null).
 
+import type { RealisticModel, RealisticOverride } from "./realisticTypes";
+
 // The two groups of the farm. MAIN = right page of the register (big eggs, mature flocks);
 // YOUNG = left page (small eggs, young flocks still climbing to peak). A flock whose segment
 // is not set belongs to neither: it shows up in the whole-farm total only, never guessed.
@@ -31,6 +33,7 @@ export interface FlockRef {
   placementDate: string | null;
   placementConfirmed: boolean; // false for the 2026-01-01 placeholders
   segment?: Segment | null;
+  placementIsChickDate?: boolean; // the placement date is the chick arrival date (age counts from day-old)
   // When a flock moved between segments: history keeps the old segment, the new one counts from `from`.
   segmentHistory?: { from: string; segment: Segment | null }[];
 }
@@ -94,6 +97,8 @@ export interface FeedBox {
 export interface StdRow {
   age: number;
   hdp: number;
+  feedG?: number | null; // book feed per bird per day (g), BV300 table
+  cumDepl?: number | null; // book cumulative depletion (%), BV300 table
 }
 
 export interface EngineInput {
@@ -109,6 +114,7 @@ export interface EngineInput {
   std: StdRow[]; // bv300_standard_laying (guide_version 2023)
   // hen-day standards for other breeds, from the knowledge library (breed key -> rows). Missing = "no reference loaded".
   stdByBreed?: Record<string, StdRow[]>;
+  realisticOverrides?: RealisticOverride[]; // owner-typed realistic levels (V10)
 }
 
 // ---- tunable rules (the owner's brief, plus the few choices it left open) --
@@ -191,6 +197,20 @@ export interface Ctx {
   boxByDate: Map<string, FeedBox[]>;
   stdByAge: Map<number, number>;
   stdByBreed: Map<string, Map<number, number>>;
+  realistic?: RealisticModel; // learned from the farm's own records; attached by attachRealistic (V10)
+  realisticHistory?: RealisticModel[]; // month-end computations, oldest first (trend chart and slip alert)
+  /** Realistic HD target for a flock on a date. Absent = judge against the book (old behaviour; unit tests). */
+  realisticHd?: (flockId: string, date: string) => RealisticHdTarget;
+}
+
+/** What realisticFor (realistic.ts) hands back; declared here so the engine does not import realistic.ts (no cycle). */
+export interface RealisticHdTarget {
+  value: number | null;
+  book: number | null;
+  ratio: number | null;
+  source: "learned" | "owner" | "none";
+  reason: string | null;
+  bandLabel: string | null; // e.g. "weeks 30-34"
 }
 
 export function buildCtx(input: EngineInput): Ctx {
@@ -490,7 +510,11 @@ export interface FlockCard {
   statusNote: string; // why this colour, with the numbers
   stdHd: number | null;
   hd7: number | null; // own average over the last 7 rows
-  gap: number | null; // stdHd - hd7
+  gap: number | null; // stdHd - hd7 (points below the BOOK; neutral, never coloured)
+  realisticHd: number | null; // our realistic target (learned or owner-set); null = not learned yet for this age
+  realisticSource: "learned" | "owner" | "none";
+  realisticReason: string | null; // plain words when realisticHd is null
+  realisticBand: string | null;
   birds: number | null;
   mort7: number | null; // deaths/day, last 7 rows
   feed7: number | null; // bags/day, last 7 rows
@@ -532,7 +556,7 @@ export function breedName(breed: string | null | undefined): string {
 }
 
 /** Why a flock has (or has no) age-based target: lets the screens say one clear thing instead of a generic chip. */
-export type RefReason = "ok" | "no_date" | "placeholder_date" | "beyond_table" | "before_table" | "no_breed_ref" | "no_age_row";
+export type RefReason = "ok" | "realistic_not_learned" | "no_date" | "placeholder_date" | "beyond_table" | "before_table" | "no_breed_ref" | "no_age_row";
 
 export function stdFor(ctx: Ctx, flock: FlockRef | undefined, asOf: string): { std: number | null; age: number | null; why: string; reason: RefReason } {
   if (!flock?.placementDate) return { std: null, age: null, why: "no age-based target yet: placement date missing", reason: "no_date" };
@@ -568,8 +592,10 @@ export function flockCards(ctx: Ctx, asOf: string): FlockCard[] {
     const win = lastRows(ctx, flockId, asOf, 7);
     const hds = win.map((r) => r.hd).filter((x): x is number => x != null);
     const hd7 = mean(hds);
-    const { std, age, why, reason } = stdFor(ctx, flock, asOf);
+    const { std, age, why, reason: baseReason } = stdFor(ctx, flock, asOf);
+    let refReason: RefReason = baseReason;
     const gap = std != null && hd7 != null ? std - hd7 : null;
+    const rt = std != null && ctx.realisticHd ? ctx.realisticHd(flockId, asOf) : null;
     const left = last.date < asOf;
     let status: CardStatus;
     let note: string;
@@ -582,7 +608,7 @@ export function flockCards(ctx: Ctx, asOf: string): FlockCard[] {
       status = "ramping";
       const prev7 = rowsBefore(ctx, flockId, win.length ? win[0].date : asOf, 7);
       const hdPrev = mean(prev7.map((r) => r.hd).filter((x): x is number => x != null));
-      note = `Ramping up: day ${ramp.day} of lay (first eggs ${ramp.since}); judged against the breeder's target only from day ${RAMP_DAYS + 1}${std != null ? ` (for information, the target at week ${age} is ${round(std)} eggs per 100 birds)` : ""}. ` +
+      note = `Ramping up: day ${ramp.day} of lay (first eggs ${ramp.since}); judged against a target only from day ${RAMP_DAYS + 1}${std != null ? ` (for information, the breeder's book at week ${age} is ${round(std)} eggs per 100 birds)` : ""}. ` +
         (hd7 != null ? `Last 7 days: ${round(hd7)} eggs per 100 birds` : "No eggs-per-100-birds figure in the last 7 days") +
         (hd7 != null && hdPrev != null ? `, against ${round(hdPrev)} the 7 days before (${hd7 - hdPrev >= 0 ? "up" : "down"} ${round(Math.abs(hd7 - hdPrev))}).` : ".");
     } else if (moult) {
@@ -595,15 +621,27 @@ export function flockCards(ctx: Ctx, asOf: string): FlockCard[] {
     } else if (gap == null) {
       status = "no_reference";
       note = "No eggs-per-100-birds figure in the last 7 days.";
+    } else if (rt && rt.value == null) {
+      // never silently judged against the book: grey, with the book line as reference
+      status = "no_reference";
+      refReason = "realistic_not_learned";
+      note = `Last 7 days: ${round(hd7!)} eggs per 100 birds. Breeder's target ${round(std)} (${round(gap)} points ${gap > 0 ? "below" : "above"} the book). Our realistic target is not learned yet for this age${rt.reason ? ` (${rt.reason})` : ""}, so there is no colour.`;
     } else {
-      const ratio = hd7! / std;
+      const target = rt ? rt.value! : std;
+      const ratio = hd7! / target;
       status = ratio >= RULES.greenMinRatio ? "green" : ratio >= RULES.amberMinRatio ? "amber" : "red";
-      note = `Last 7 days: ${round(hd7!)} eggs per 100 birds. The breeder's target (${breedName(flock?.breed)}, week ${age}) is ${round(std)}, so it is at ${round(ratio * 100, 0)}% of target (${round(Math.abs(gap))} ${gap > 0 ? "below" : "above"}).`;
+      note = rt
+        ? `Last 7 days: ${round(hd7!)} eggs per 100 birds. Our realistic target (${rt.source === "owner" ? "set by owner" : "learned from this farm"}, week ${age}) is ${round(target)}, so it is at ${round(ratio * 100, 0)}% of it. The breeder's book says ${round(std)}: ${round(Math.abs(gap))} points ${gap > 0 ? "below" : "above"} the book.`
+        : `Last 7 days: ${round(hd7!)} eggs per 100 birds. The breeder's target (${breedName(flock?.breed)}, week ${age}) is ${round(std)}, so it is at ${round(ratio * 100, 0)}% of target (${round(Math.abs(gap))} ${gap > 0 ? "below" : "above"}).`;
       const w = recentFeedWithdrawal(ctx, flockId, asOf);
       if (w) note += ` Feed was withdrawn ${w}, so this flock is recovering from a moult; the target assumes none.`;
     }
     cards.push({
-      refReason: reason,
+      refReason,
+      realisticHd: rt?.value ?? null,
+      realisticSource: rt?.source ?? "none",
+      realisticReason: rt?.reason ?? null,
+      realisticBand: rt?.bandLabel ?? null,
       segment: segmentOn(ctx, flockId, asOf),
       rampDay: ramp ? ramp.day : null,
       flockId,

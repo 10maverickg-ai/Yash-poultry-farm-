@@ -1,3 +1,6 @@
+import { slipItems } from "@/lib/analytics/realistic";
+import { TargetLines } from "@/components/TargetLines";
+import { buildFarmCtx } from "@/lib/analytics/ctx";
 import Link from "next/link";
 import { loadEngineInput } from "@/lib/analytics/load";
 import {
@@ -6,7 +9,6 @@ import {
   breedName,
   SEGMENTS,
   SEGMENT_NAME,
-  buildCtx,
   flockCards,
   lastDayOfData,
   monthView,
@@ -85,7 +87,8 @@ export default async function AnalyticsPage({
     loadPeriodExtras(),
     pool.query(`SELECT alert_key, verdict FROM alert_feedback WHERE farm_code = $1`, [ACTIVE_FARM]),
   ]);
-  const ctx = buildCtx(engineInput);
+  const { ctx } = buildFarmCtx(engineInput);
+  const slips = slipItems(ctx);
   const view = sp.view === "week" || sp.view === "month" || sp.view === "year" ? sp.view : "day";
 
   if (view !== "day" && ctx.dates.length > 0) {
@@ -151,7 +154,7 @@ export default async function AnalyticsPage({
       <h1>Analytics</h1>
       <DataStamp latest={latest} today={new Date().toISOString().slice(0, 10)} />
       <p className="muted an-sub">
-        HD % means <b>eggs per 100 birds</b>. The <b>breeder&apos;s target</b> is what the breeder says a flock of this age should lay. <Link href="/flagged">Review flags →</Link>
+        HD % means <b>eggs per 100 birds</b>. The <b>breeder&apos;s target</b> is the book (perfect conditions). <b>Our realistic target</b> is learned from this farm&apos;s own good weeks. <Link href="/analytics/targets">How is this learned? →</Link> <Link href="/flagged">Review flags →</Link>
       </p>
 
       <ViewSwitch view="day" anchor={asOf} />
@@ -236,8 +239,13 @@ export default async function AnalyticsPage({
           return (
             <div className="card" key={g}>
               <h3 style={{ marginTop: 0 }}>{SEGMENT_NAME[g]}</h3>
+              {slips.filter((x) => x.group === g).map((x) => (
+                <p key={x.id} className="an-note" style={{ borderLeft: "4px solid #b7791f", paddingLeft: "0.5rem" }}>
+                  <strong>⚠ {x.title}</strong> {x.detail} <Link href="/analytics/targets">See how it moved →</Link>
+                </p>
+              ))}
               {w.length === 0 ? (
-                <p className="muted" style={{ margin: 0 }}>{g === "young" ? "Nothing to watch: no mortality creep. Young flocks are not judged against the breeder&apos;s target while they ramp up." : "No flock is slipping below its target and no flock has rising deaths."}</p>
+                <p className="muted" style={{ margin: 0 }}>{g === "young" ? "Nothing to watch: no mortality creep. Young flocks are not judged against a target while they ramp up." : "No flock is slipping below its target and no flock has rising deaths."}</p>
               ) : (
                 <ul className="an-list">
                   {w.map((x, i) => (
@@ -261,9 +269,9 @@ export default async function AnalyticsPage({
 
       {/* ---- Flock cards ---- */}
       <section aria-labelledby="an-flocks-h">
-        <h2 id="an-flocks-h">Each flock against the breeder&apos;s target</h2>
+        <h2 id="an-flocks-h">Each flock against our realistic target</h2>
         <p className="muted an-sub">
-          ✔ On target: at least 90% of the breeder&apos;s target for the flock&apos;s age. ⚠ Below target: 80–90%. ✖ Well below: under 80%. A flock without a placement date or past the end of the target table says so instead of a colour. Tap a flock for its page.
+          ✔ On our target: at least 90% of our realistic target for the flock&apos;s age. ⚠ Below: 80–90%. ✖ Well below: under 80%. The breeder&apos;s book is shown beside it, with the gap as a plain number and no colour. Where our realistic target is not learned yet for an age, or a flock has no placement date, the card says so in grey instead of a colour. Tap a flock for its page.
         </p>
         {[...SEGMENTS, null].map((g) => {
           const list = live.filter((c) => c.segment === g);
@@ -433,10 +441,8 @@ function FlockCardView({ c }: { c: FlockCard }) {
             <span>
               <b>{c.hd7 != null ? n1(c.hd7) : "–"}</b> eggs per 100 birds (7 days)
             </span>
-            <span>
-              <b>{c.stdHd != null ? n1(c.stdHd) : "—"}</b> breeder&apos;s target
-            </span>
           </div>
+          <TargetLines c={c} />
           <div className="muted an-tiny">
             {c.birds != null ? `${n0(c.birds)} birds` : ""}
             {c.mort7 != null ? ` · ${n1(c.mort7)} deaths/day` : ""}

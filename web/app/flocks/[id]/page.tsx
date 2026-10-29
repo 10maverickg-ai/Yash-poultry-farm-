@@ -9,6 +9,11 @@ import Link from "next/link";
 import { weeksSince } from "@/lib/ageWeeks";
 import { getStageHistory, getFlockMovements, sameLabelFlocks } from "@/lib/flocklife/load";
 import { addStageEvent } from "../life-actions";
+import { loadEngineInput } from "@/lib/analytics/load";
+import { buildFarmCtx } from "@/lib/analytics/ctx";
+import { flockCards, lastDayOfData } from "@/lib/analytics/engine";
+import { chip } from "@/lib/analytics/chips";
+import { TargetLines } from "@/components/TargetLines";
 
 export const dynamic = "force-dynamic";
 
@@ -24,6 +29,13 @@ export default async function FlockDetailPage({
   const flock = await getFlock(id);
   if (!flock) notFound();
   const [history, sheds, stageEvents, movements, sameLabel] = await Promise.all([getLabelHistory(id), listSheds(), getStageHistory(id), getFlockMovements(id), sameLabelFlocks(id, flock.display_label)]);
+  let card: ReturnType<typeof flockCards>[number] | null = null;
+  try {
+    const { ctx } = buildFarmCtx(await loadEngineInput());
+    card = flockCards(ctx, lastDayOfData(ctx)).find((c) => c.flockId === id) ?? null;
+  } catch {
+    card = null; // the targets box is extra information; never block the flock page
+  }
   const placeholder = isPlaceholderDate(flock.placement_date, flock.placement_date_confirmed);
   const ageWeeks = flock.placement_date && !placeholder ? weeksSince(flock.placement_date) : null;
   const TYPE: Record<string, string> = { transfer_out: "moved out", transfer_in: "moved in", sale: "sold", cull: "culled", unexplained_out: "left (destination not known)", unexplained_in: "arrived (source not known)", count_adjustment: "count adjusted" };
@@ -47,6 +59,18 @@ export default async function FlockDetailPage({
           Age {ageWeeks} weeks{flock.placement_is_chick_date ? ` (placed as day-old chicks; lay starts about week 18)` : ""}.
           {flock.placement_date_confirmed !== true ? " Date not marked as confirmed." : ""}
         </p>
+      )}
+
+      {card && (
+        <section className="card" aria-labelledby="fl-targets-h">
+          <h2 id="fl-targets-h" style={{ marginTop: 0 }}>Laying against the targets</h2>
+          <p style={{ margin: "0 0 0.3rem" }}>
+            <span className={`an-pill an-pill-${chip(card).css}`}><span aria-hidden="true">{chip(card).icon}</span> {chip(card).label}</span>
+          </p>
+          <TargetLines c={card} />
+          <p className="muted an-tiny">{card.statusNote}</p>
+          <p className="an-tiny"><Link href="/analytics/targets">How is this learned? →</Link></p>
+        </section>
       )}
 
       <FlockEditForm

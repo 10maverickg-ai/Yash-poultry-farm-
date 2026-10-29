@@ -1,6 +1,8 @@
+import { TargetLines } from "@/components/TargetLines";
+import { buildFarmCtx } from "@/lib/analytics/ctx";
 import Link from "next/link";
 import { loadEngineInput } from "@/lib/analytics/load";
-import { addDays, buildCtx, flockCards, lastDayOfData, SEGMENTS, SEGMENT_NAME } from "@/lib/analytics/engine";
+import { addDays, flockCards, lastDayOfData, SEGMENTS, SEGMENT_NAME } from "@/lib/analytics/engine";
 import { loadPeriodExtras } from "@/lib/analytics/periodLoad";
 import { allSegmentPanels, farmCheck } from "@/lib/analytics/segments";
 import { buildToday, type TodayItem } from "@/lib/analytics/today";
@@ -56,7 +58,7 @@ export default async function TodayPage() {
     pool.query(`SELECT count(*)::int AS n FROM upload_queue WHERE farm_code = $1 AND entered_date = $2 AND status IN ('waiting','reading','saved','needs_review')`, [ACTIVE_FARM, realYesterday]),
     pool.query(`SELECT count(*)::int AS n FROM daily_egg_rates WHERE date = $1`, [realYesterday]),
   ]);
-  const ctx = buildCtx(input);
+  const { ctx } = buildFarmCtx(input);
   if (ctx.dates.length === 0)
     return (
       <>
@@ -87,7 +89,7 @@ export default async function TodayPage() {
       <DataStamp latest={latest} today={realToday} />
       <p className="muted an-sub">
         <Link href="/changes">What changed in the app →</Link><br />
-        HD % means <b>eggs per 100 birds</b>. The <b>breeder&apos;s target</b> is what the breeder says a flock of this age should lay.
+        HD % means <b>eggs per 100 birds</b>. The <b>breeder&apos;s target</b> is the book (perfect conditions). <b>Our realistic target</b> is what this farm&apos;s own good weeks show a flock of this age can lay. <Link href="/analytics/targets">How is this learned? →</Link>
       </p>
       <p className="actions-bar">
         <Link href="/analytics?view=week" className="btn btn-secondary">This week</Link>
@@ -125,8 +127,8 @@ export default async function TodayPage() {
                       <b>{c.label}</b>{" "}
                       <span className="muted">
                         {row ? `${n0(row.eggs ?? 0)} eggs · ${row.hd != null ? n1(row.hd) : "–"} per 100 birds` : "no row that day"}
-                        {c.stdHd != null ? ` · target ${n1(c.stdHd)}` : ""}
                       </span>
+                      <TargetLines c={c} compact />
                       <div className="muted an-tiny">{c.statusNote}</div>
                     </div>
                   </Link>
