@@ -9,6 +9,8 @@ export const dynamic = "force-dynamic";
 
 const inr = (n: number) => Math.round(n).toLocaleString("en-IN");
 
+export const metadata = { title: "Medicines and vaccines" };
+
 export default async function MedicinesPage({ searchParams }: { searchParams: Promise<{ saved?: string; error?: string }> }) {
   const sp = await searchParams;
   const today = new Date().toISOString().slice(0, 10);

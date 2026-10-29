@@ -22,6 +22,8 @@ function isAuthorized(key: string | undefined): boolean {
   return key === configured;
 }
 
+export const metadata = { title: "Reader benchmark" };
+
 export default async function ReaderBenchmarkPage({
   searchParams,
 }: {

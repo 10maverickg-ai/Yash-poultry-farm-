@@ -4,6 +4,8 @@ import { ChickBatchLogForm } from "@/components/ChickBatchLogForm";
 
 export const dynamic = "force-dynamic";
 
+export const metadata = { title: "Chick batch log" };
+
 export default async function ChickBatchesPage({
   searchParams,
 }: {

@@ -17,6 +17,9 @@ const TYPE_LABEL: Record<string, string> = {
   labour_month: "Labour per month",
   electricity_month: "Electricity for a month",
   packing_per_tray: "Packing per tray sold",
+  chick_cost_per_chick: "Chick price (average per chick)",
+  diesel_month: "Diesel for a month",
+  medicines_month: "Medicines for a month",
 };
 
 function Checklist({ month, items }: { month: string; items: ChecklistItem[] }) {
@@ -48,6 +51,8 @@ function Checklist({ month, items }: { month: string; items: ChecklistItem[] }) 
 const daysIn = (ym: string) => { const [y, mo] = ym.split("-").map(Number); return new Date(Date.UTC(y, mo, 0)).getUTCDate(); };
 
 const latestSetting = (settings: { type: string; value: number; effectiveFrom: string; month: string | null }[], type: string) => settings.filter((x) => x.type === type && !x.month).sort((a, b) => (a.effectiveFrom < b.effectiveFrom ? 1 : -1))[0]?.value ?? null;
+
+export const metadata = { title: "Purchases and costs" };
 
 export default async function PurchasesPage({ searchParams }: { searchParams: Promise<{ saved?: string; error?: string }> }) {
   const sp = await searchParams;
@@ -117,7 +122,7 @@ export default async function PurchasesPage({ searchParams }: { searchParams: Pr
           <tbody>
             {settings.rows.map((s, i) => (
               <tr key={i}>
-                <td>{TYPE_LABEL[s.cost_type] ?? s.cost_type}{s.month ? ` (${s.month})` : ""}</td>
+                <td>{TYPE_LABEL[s.cost_type] ?? String(s.cost_type).replaceAll("_", " ")}{s.month ? ` (${s.month})` : ""}</td>
                 <td>₹{Number(s.value).toLocaleString("en-IN")} {s.unit}</td>
                 <td>{String(s.effective_from).slice(0, 10)}</td>
                 <td className="muted">{s.note ?? ""}</td>

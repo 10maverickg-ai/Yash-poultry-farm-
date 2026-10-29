@@ -78,6 +78,8 @@ const SPARK_COLOR: Record<CardStatus, string> = {
 };
 
 
+export const metadata = { title: "Analytics" };
+
 export default async function AnalyticsPage({
   searchParams,
 }: {

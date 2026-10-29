@@ -3,6 +3,8 @@ import { FormulationForm } from "@/components/FormulationForm";
 
 export const dynamic = "force-dynamic";
 
+export const metadata = { title: "Feed formulation" };
+
 export default async function FormulationPage({
   searchParams,
 }: {

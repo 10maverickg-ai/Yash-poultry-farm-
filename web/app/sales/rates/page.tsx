@@ -6,6 +6,8 @@ import { ACTIVE_FARM } from "@/lib/farm";
 
 export const dynamic = "force-dynamic";
 
+export const metadata = { title: "Egg rates" };
+
 export default async function RatesPage() {
   const rates = await listRates(45);
   // Days that have ledger sale lines but no rate of their own.

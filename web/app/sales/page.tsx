@@ -49,6 +49,8 @@ function groupTotals(sales: SaleRow[]) {
   return { byDay, byMonth };
 }
 
+export const metadata = { title: "Sales" };
+
 export default async function SalesPage({
   searchParams,
 }: {

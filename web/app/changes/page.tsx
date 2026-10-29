@@ -1,6 +1,8 @@
 import { CHANGES } from "@/lib/changes";
 import { dmy } from "@/lib/format";
 
+export const metadata = { title: "What changed" };
+
 export default function ChangesPage() {
   return (
     <>

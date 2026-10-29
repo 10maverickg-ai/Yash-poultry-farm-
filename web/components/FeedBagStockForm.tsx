@@ -194,7 +194,7 @@ function GroupCardFields({
         <p className="muted" style={{ margin: 0 }}>{savedAutoCorrectionNote}</p>
       )}
       <label className="field">
-        <span>Group name</span>
+        <span>Which flocks eat this feed <span className="hint">(as written on the box)</span></span>
         <input
           name={`group_${index}`}
           list={datalistId}
@@ -210,7 +210,7 @@ function GroupCardFields({
       </label>
       <div className="grid4">
         <label className="field">
-          <span>Opening</span>
+          <span>Bags in stock this morning <span className="hint">(opening)</span></span>
           <input
             type="number"
             min="0"
@@ -220,7 +220,7 @@ function GroupCardFields({
           />
         </label>
         <label className="field">
-          <span>Produced</span>
+          <span>Bags made today <span className="hint">(produced at the mill)</span></span>
           <input
             type="number"
             min="0"
@@ -230,7 +230,7 @@ function GroupCardFields({
           />
         </label>
         <label className="field">
-          <span>Total</span>
+          <span>Total line <span className="hint">(opening + made)</span></span>
           <input
             type="number"
             min="0"
@@ -240,7 +240,7 @@ function GroupCardFields({
           />
         </label>
         <label className="field">
-          <span>Consumed</span>
+          <span>Bags fed today <span className="hint">(consumed)</span></span>
           <input
             type="number"
             min="0"
@@ -252,7 +252,7 @@ function GroupCardFields({
       </div>
       <div className="grid4">
         <label className="field">
-          <span>Mill (F)</span>
+          <span>Bags left at the mill <span className="hint">(F)</span></span>
           <input
             type="number"
             min="0"
@@ -262,7 +262,7 @@ function GroupCardFields({
           />
         </label>
         <label className="field">
-          <span>Shed (S)</span>
+          <span>Bags left in the shed <span className="hint">(S)</span></span>
           <input
             type="number"
             min="0"
@@ -272,7 +272,7 @@ function GroupCardFields({
           />
         </label>
         <label className="field">
-          <span>Closing</span>
+          <span>Bags left tonight <span className="hint">(closing = mill + shed)</span></span>
           <input
             type="number"
             min="0"

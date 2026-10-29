@@ -3,6 +3,8 @@ import { ImportForm } from "./ImportForm";
 
 export const dynamic = "force-dynamic";
 
+export const metadata = { title: "Import old registers" };
+
 export default function ImportPage() {
   return (
     <>

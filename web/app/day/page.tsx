@@ -19,6 +19,8 @@ const TYPE: Record<string, string> = {
   count_adjustment: "count adjusted",
 };
 
+export const metadata = { title: "Daily production (day view)" };
+
 export default async function DayPage({ searchParams }: { searchParams: Promise<{ date?: string }> }) {
   const sp = await searchParams;
   const dates = await listProductionDates();

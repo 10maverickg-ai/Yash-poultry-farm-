@@ -22,6 +22,8 @@ import { loadFlagReview } from "@/lib/flagReview";
 
 export const dynamic = "force-dynamic";
 
+export const metadata = { title: "Flagged records" };
+
 export default async function FlaggedPage({
   searchParams,
 }: {

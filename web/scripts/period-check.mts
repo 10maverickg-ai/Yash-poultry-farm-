@@ -50,10 +50,11 @@ ok("eggs sold in September = 13,54,350 (12,79,860 Farmfresh + 74,490 local after
 const sepSales = extras.sales.filter((x) => x.date.startsWith("2026-09"));
 const ffS = sepSales.filter((x) => x.channel === "farmfresh"), loS = sepSales.filter((x) => x.channel === "local");
 ok("J7 SQL: September Farmfresh 21 rows, 12,79,860 eggs, ₹68,75,181.60", ffS.length === 21 && ffS.reduce((t, x) => t + x.eggs, 0) === 1279860 && Math.abs(ffS.reduce((t, x) => t + (x.amount ?? 0), 0) - 6875181.6) < 0.05);
-ok("J7 SQL: September local 7 rows, 74,490 eggs, ₹3,92,438.70; 103 sales rows in all", loS.length === 7 && loS.reduce((t, x) => t + x.eggs, 0) === 74490 && Math.abs(loS.reduce((t, x) => t + (x.amount ?? 0), 0) - 392438.7) < 0.05 && extras.sales.length === 103);
+ok("J7 SQL: September local 7 rows, 74,490 eggs, ₹3,92,438.70 (September is closed, so these stay fixed); every sales row in the fixture is in the extras", loS.length === 7 && loS.reduce((t, x) => t + x.eggs, 0) === 74490 && Math.abs(loS.reduce((t, x) => t + (x.amount ?? 0), 0) - 392438.7) < 0.05 && extras.sales.length === (j("sales_full") as unknown[]).length);
 ok("J7: 15 Sep local lots are priced 5.26 and the 24 Sep lot 5.34 (rate + 0.01)", sf.filter((x) => x.date === "2026-09-15" && x.tt === "other").every((x) => x.p === 5.26) && sf.filter((x) => x.date === "2026-09-24" && x.tt === "other").every((x) => x.p === 5.34));
 near("September sales = ₹72,67,620.30 (Farmfresh 68,75,181.60 + local 3,92,438.70)", sep.money.revenue, 7267620.3, 0.05);
-const dp: any[] = j("dp").filter((r: any) => r.date.startsWith("2026-09"));
+const dpAll: any[] = j("dp");
+const dp: any[] = dpAll.filter((r: any) => r.date.startsWith("2026-09"));
 const eggsDp = dp.reduce((s, r) => s + (r.eggs_total ?? 0), 0);
 ok("eggs total = sum of the daily rows", sep.eggs.total === eggsDp, `${sep.eggs.total}`);
 const birdDays = dp.reduce((s, r) => s + (r.bird_population ?? 0), 0);
@@ -88,10 +89,13 @@ near("weeks add up to the month: revenue", weeks.reduce((s, x) => s + x.money.re
 const first7 = S({ kind: "week", from: "2026-09-01", to: "2026-09-07", days: 7, label: "1–7 Sep" });
 ok("1–7 Sep: 7 of 7 days", first7.daysWithData === 7);
 ok("1–7 Sep eggs = sum of those daily rows", first7.eggs.total === dp.filter((r) => r.date <= "2026-09-07").reduce((s, r) => s + (r.eggs_total ?? 0), 0));
-// partial week: Mon 28 Sep – Sun 4 Oct has only 3 days
-const part = S(rangeOf("week", "2026-10-26"));
-ok("partial week (Mon 26 Oct – Sun 1 Nov) says 1 of 7 days have data", part.daysWithData === 1 && part.partial && part.dataNote === "1 of 7 days have data", part.dataNote);
-near("partial-week average uses only days with data", part.eggs.perDay, part.eggs.total / 1, 1e-9);
+// partial week: the week that contains the LAST day of data (derived from the fixture, so it holds on any refresh date)
+const lastDate = [...new Set(dpAll.map((r) => r.date))].sort().pop()!;
+const lastWeekFrom = weekStart(lastDate);
+const lastWeekDays = new Set(dpAll.filter((r) => r.date >= lastWeekFrom && r.date <= new Date(Date.parse(lastWeekFrom + "T00:00:00Z") + 6 * 86400000).toISOString().slice(0, 10)).map((r) => r.date)).size;
+const part = S(rangeOf("week", lastDate));
+ok(`partial week (Mon ${lastWeekFrom} onward) says ${lastWeekDays} of 7 days have data`, part.daysWithData === lastWeekDays && part.partial === (lastWeekDays < 7) && part.dataNote === `${lastWeekDays} of 7 days have data`, part.dataNote);
+near("partial-week average uses only days with data", part.eggs.perDay, part.eggs.total / lastWeekDays, 1e-9);
 const empty = S(rangeOf("week", "2026-11-10"));
 ok("a week with no data says so and has no invented numbers", empty.daysWithData === 0 && empty.eggs.perDay == null && empty.eggs.hdPooled == null && empty.money.profit == null, empty.dataNote);
 
@@ -106,12 +110,21 @@ ok("no earlier data -> no comparison (same week last year)", compare(wk, S(lastY
 
 // ---- year and run rate
 const yr = S(rangeOf("year", "2026-06-01"));
-ok("year 2026 has 117 days of data (Jul 30 + Aug 31 + Sep 30 + Oct 26) and is partial", yr.daysWithData === 117 && yr.partial, yr.dataNote);
-// direct SQL sums on the live database (27 Oct), per month and group
-for (const [m, seg, days, eggs, bd, deaths, feed] of [["2026-07", "main", 30, 2135100, 2777658, 1618, 6203], ["2026-08", "main", 31, 1924920, 2757898, 1486, 5551], ["2026-09", "main", 30, 1442700, 2101456, 944, 4715], ["2026-10", "main", 26, 1426830, 1740898, 601, 3629], ["2026-10", "young", 23, 223800, 639023, 173, 127]] as const) {
+const days2026 = new Set(dpAll.filter((r) => r.date.startsWith("2026")).map((r) => r.date)).size;
+ok(`year 2026 has ${days2026} days of data (counted from the rows) and is partial`, yr.daysWithData === days2026 && yr.partial, yr.dataNote);
+// expected figures re-derived straight from the raw rows (no engine), per month and group, so the check holds on any refresh date
+const months4 = ["2026-07", "2026-08", "2026-09", "2026-10"];
+const rawFor = (m: string, seg: string) => dpAll.filter((r) => r.date.startsWith(m) && ctx.flockById.get(r.flock_internal_id)?.segment === seg);
+const sumOf = (rs: any[], k: string) => rs.reduce((t, r) => t + (r[k] ?? 0), 0);
+const expectRows: [string, "main" | "young", number, number, number, number, number][] = [];
+for (const m of months4) for (const seg of ["main", "young"] as const) {
+  const rs = rawFor(m, seg);
+  if (rs.length) expectRows.push([m, seg, new Set(rs.map((r) => r.date)).size, sumOf(rs, "eggs_total"), sumOf(rs, "bird_population"), sumOf(rs, "mortality"), sumOf(rs, "feed_bags")]);
+}
+for (const [m, seg, days, eggs, bd, deaths, feed] of expectRows) {
   const r = summarizePeriod(ctx, cost, extras, rangeOf("month", `${m}-01`), seg);
   const birddays = ctx.input.prod.filter((x) => x.date.startsWith(m) && ctx.flockById.get(x.flockId)?.segment === seg).reduce((t, x) => t + (x.pop ?? 0), 0);
-  ok(`SQL ${m} ${seg}: ${days} days, ${eggs} eggs, ${bd} bird-days, ${deaths} deaths, ${feed} bags`, r.daysWithData === days && r.eggs.total === eggs && birddays === bd && r.birds.deaths === deaths && r.feed.bags === feed, `${r.daysWithData}/${r.eggs.total}/${birddays}/${r.birds.deaths}/${r.feed.bags}`);
+  ok(`rows ${m} ${seg}: ${days} days, ${eggs} eggs, ${bd} bird-days, ${deaths} deaths, ${feed} bags`, r.daysWithData === days && r.eggs.total === eggs && birddays === bd && r.birds.deaths === deaths && r.feed.bags === feed, `${r.daysWithData}/${r.eggs.total}/${birddays}/${r.birds.deaths}/${r.feed.bags}`);
 }
 const months = monthsWithin(rangeOf("year", "2026-01-01")).map(S);
 ok("year months add up", months.reduce((s, m) => s + m.eggs.total, 0) === yr.eggs.total);

@@ -3,6 +3,8 @@ import { UploadForm } from "@/components/UploadForm";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
+export const metadata = { title: "Upload one photo" };
+
 export default function SingleUploadPage() {
   return (
     <>

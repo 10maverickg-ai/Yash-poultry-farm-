@@ -9,6 +9,8 @@ export const dynamic = "force-dynamic";
 const n0 = (x: number) => x.toLocaleString("en-IN");
 const STATUS: Record<string, string> = { in_chick_shed: "In the chick shed", moved_to_layer: "Moved to layer cages", to_anil_farm: "Went to Anil farm", mixed: "Split (Anil farm + top-up)" };
 
+export const metadata = { title: "Chick batches" };
+
 export default async function BatchesPage({ searchParams }: { searchParams: Promise<{ saved?: string; error?: string }> }) {
   const sp = await searchParams;
   const [batches, deaths, flocks] = await Promise.all([listBatches(), chickDeathsByRow(), listFlocks()]);

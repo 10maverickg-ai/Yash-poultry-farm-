@@ -3,6 +3,8 @@ import { FlockNewForm } from "@/components/FlockNewForm";
 
 export const dynamic = "force-dynamic";
 
+export const metadata = { title: "New flock" };
+
 export default async function NewFlockPage() {
   const sheds = await listSheds();
 

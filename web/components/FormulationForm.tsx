@@ -95,6 +95,7 @@ export function FormulationForm({ materials }: { materials: string[] }) {
                 step="0.001"
                 min="0"
                 name={`quantity_${i}`}
+                aria-label={`Quantity in kg for ingredient ${i + 1}`}
                 value={line.qty}
                 onChange={(e) => setLine(i, { qty: e.target.value })}
               />

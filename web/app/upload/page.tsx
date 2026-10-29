@@ -8,6 +8,8 @@ export const dynamic = "force-dynamic";
 // queue step room. Photos are read one per request.
 export const maxDuration = 300;
 
+export const metadata = { title: "Upload register photos" };
+
 export default async function UploadPage() {
   const items = await listQueue();
   const count = (s: string) => items.filter((i) => i.status === s).length;

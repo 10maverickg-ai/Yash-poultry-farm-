@@ -20,6 +20,8 @@ const SEASON_WHY: Record<string, string> = {
   SPRING: "warming up, mild",
 };
 
+export const metadata = { title: "Farm reference" };
+
 export default async function ReferencePage() {
   const input = await loadEngineInput();
   const { ctx, model } = buildFarmCtx(input);

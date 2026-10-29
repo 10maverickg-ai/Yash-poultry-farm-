@@ -24,7 +24,7 @@ export default function Home() {
         <Link href="/upload" className="card">
           <h3>Upload Photo</h3>
           <p className="muted">
-            Photograph a Daily Production page — extraction fills the form for you
+            Photograph the register page; the numbers are read and checked for you
           </p>
         </Link>
         <Link href="/flocks" className="card">
@@ -44,36 +44,36 @@ export default function Home() {
         <Link href="/production" className="card">
           <h3>Daily Production</h3>
           <p className="muted">
-            Per flock, per day: Mort / Feed / Total / Bal Bird / %
+            Per flock, per day: deaths, feed bags, eggs, birds left, HD %
           </p>
         </Link>
         <Link href="/egg-stock" className="card">
           <h3>Egg Stock Ledger</h3>
           <p className="muted">
-            Day total, grading, +/- ledger lines, closing balance
+            Eggs in stock: laid, sold, broken, closing stock
           </p>
         </Link>
         <Link href="/sales" className="card">
           <h3>Sales</h3>
           <p className="muted">
-            Generated from sale ledger lines; type, grade &amp; optional price
+            Every egg sale: who bought, how many, at what price
           </p>
         </Link>
         <Link href="/feed-stock" className="card">
           <h3>Feed Stock</h3>
           <p className="muted">
-            Mill-level per material: opening / purchase / consumed / closing
+            Raw materials at the mill: stock, bought, used
           </p>
         </Link>
         <Link href="/feed-bag-stock" className="card">
           <h3>Feed Bag Stock</h3>
           <p className="muted">
-            Bag counts by flock group: opening / produced / consumed / mill / shed
+            Feed bags: made, fed, left at the mill and in the shed
           </p>
         </Link>
         <Link href="/formulation" className="card">
           <h3>Feed Formulation</h3>
-          <p className="muted">Versioned recipes by flock group</p>
+          <p className="muted">Feed recipes by flock group</p>
         </Link>
         <Link href="/records" className="card">
           <h3>Records</h3>

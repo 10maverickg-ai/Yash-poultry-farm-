@@ -36,9 +36,20 @@ function runningBalances(totalLine: string, lines: Line[]): (number | null)[] {
   return out;
 }
 
+const CATEGORY_WORDS: Record<string, string> = {
+  sale: "Farmfresh or other big sale",
+  local_sale: "Local sale",
+  breakage: "Breakage",
+  labour_take: "Taken by labour",
+  gift: "Gift",
+  cross_farm_adjustment: "Moved to or from another farm (Anil farm)",
+  production_addition: "Late eggs of our own flocks",
+  other: "Something else",
+};
+
 const SECTION_TITLE: Record<EggStockSection, string> = {
-  big: "Big ledger — main flocks (right page, BAB-1..BAB-8)",
-  small: "Small ledger — young flocks (left page, BAB-9..BAB-11)",
+  big: "Big eggs — main flocks (right page, BAB-1 to BAB-8)",
+  small: "Small eggs — young flocks (left page, BAB-9 to BAB-11)",
 };
 
 // Two fixed section cards (owner request, 2026-10-19 — the register always
@@ -130,20 +141,20 @@ function SectionCard({
 
       <div className="grid4">
         <label className="field">
-          <span>Opening balance</span>
+          <span>Eggs in stock this morning <span className="hint">(opening)</span></span>
           <input type="number" min="0" name={p("opening_balance_eggs")} defaultValue={seed("opening_balance_eggs", day.summary?.opening_balance_eggs)} />
         </label>
         <label className="field">
           <span>
-            Production (+){" "}
+            Eggs laid today (+){" "}
             <span className="hint">
-              {day.linkedProductionSum !== null ? `(linked flocks: ${day.linkedProductionSum.toLocaleString("en-IN")})` : ""}
+              {day.linkedProductionSum !== null ? `(flocks added up: ${day.linkedProductionSum.toLocaleString("en-IN")})` : ""}
             </span>
           </span>
           <input type="number" min="0" name={p("total_eggs_produced")} defaultValue={seed("total_eggs_produced", day.summary?.total_eggs_produced)} />
         </label>
         <label className="field">
-          <span>Total line</span>
+          <span>Total line <span className="hint">(morning stock + laid, as written)</span></span>
           <input
             type="number" min="0" name={p("total_line_eggs")}
             value={totalLine}
@@ -152,10 +163,10 @@ function SectionCard({
         </label>
         <label className="field">
           <span>
-            Closing balance{" "}
+            Eggs left in stock tonight <span className="hint">(closing)</span>{" "}
             <span className="hint">
               {runningAfter.length > 0 && runningAfter[runningAfter.length - 1] !== null
-                ? `(calculated: ${runningAfter[runningAfter.length - 1]!.toLocaleString("en-IN")})`
+                ? `(worked out: ${runningAfter[runningAfter.length - 1]!.toLocaleString("en-IN")})`
                 : ""}
             </span>
           </span>
@@ -164,56 +175,57 @@ function SectionCard({
       </div>
       {day.previousClosing !== null && (
         <p className="muted" style={{ margin: 0 }}>
-          Previous day&apos;s closing for this ledger: {day.previousClosing.toLocaleString("en-IN")}
+          Yesterday evening this ledger closed at: {day.previousClosing.toLocaleString("en-IN")}
         </p>
       )}
 
       <div className="row2">
         <label className="field">
-          <span>Grade 13</span>
+          <span>Egg size: grade 13 <span className="hint">(eggs, if written)</span></span>
           <input type="number" min="0" name={p("grade_13_eggs")} defaultValue={seed("grade_13_eggs", day.summary?.grade_13_eggs)} />
         </label>
         <label className="field">
-          <span>Grade 14</span>
+          <span>Egg size: grade 14</span>
           <input type="number" min="0" name={p("grade_14_eggs")} defaultValue={seed("grade_14_eggs", day.summary?.grade_14_eggs)} />
         </label>
       </div>
       <div className="row2">
         <label className="field">
-          <span>Grade 15</span>
+          <span>Egg size: grade 15</span>
           <input type="number" min="0" name={p("grade_15_eggs")} defaultValue={seed("grade_15_eggs", day.summary?.grade_15_eggs)} />
         </label>
         <label className="field">
-          <span>Grade 15+</span>
+          <span>Egg size: grade 15 and bigger</span>
           <input type="number" min="0" name={p("grade_15plus_eggs")} defaultValue={seed("grade_15plus_eggs", day.summary?.grade_15plus_eggs)} />
         </label>
       </div>
 
-      <h3 style={{ margin: "0.5rem 0 0" }}>Deduction lines</h3>
+      <h3 style={{ margin: "0.5rem 0 0" }}>What left or came in during the day</h3>
+      <p className="muted an-tiny" style={{ margin: 0 }}>One line for each sale, breakage, gift or addition, exactly as the register shows it. Example: “Sale to Farmfresh”, −181440 (minus when eggs leave, plus when eggs are added).</p>
       {lines.map((line, i) => (
         <div key={i} className="ledger-line">
           <div className="row2">
             <label className="field">
-              <span>Label (as written)</span>
+              <span>What the register says <span className="hint">(e.g. Sale to Farmfresh)</span></span>
               <input name={p(`label_${i}`)} value={line.label} onChange={(e) => setLine(i, { label: e.target.value })} />
             </label>
             <label className="field">
-              <span>Category</span>
+              <span>What it was</span>
               <select name={p(`category_${i}`)} value={line.category} onChange={(e) => setLine(i, { category: e.target.value })}>
                 {ENTRY_CATEGORIES.map((c) => (
-                  <option key={c} value={c}>{c.replaceAll("_", " ")}</option>
+                  <option key={c} value={c}>{CATEGORY_WORDS[c] ?? c.replaceAll("_", " ")}</option>
                 ))}
               </select>
             </label>
           </div>
           <div className="row2" style={{ alignItems: "end" }}>
             <label className="field">
-              <span>Amount <span className="hint">(+/− as written)</span></span>
+              <span>Eggs <span className="hint">(minus = left, plus = added)</span></span>
               <input type="number" name={p(`amount_${i}`)} value={line.amount} onChange={(e) => setLine(i, { amount: e.target.value })} />
             </label>
             <div className="field">
               <span className="muted">
-                {runningAfter[i] !== null ? `balance after: ${runningAfter[i]!.toLocaleString("en-IN")}` : ""}
+                {runningAfter[i] !== null ? `stock after this line: ${runningAfter[i]!.toLocaleString("en-IN")}` : ""}
               </span>
               <button type="button" className="btn-secondary" onClick={() => setLines((ls) => ls.filter((_, j) => j !== i))}>
                 Remove line
@@ -223,14 +235,14 @@ function SectionCard({
         </div>
       ))}
       <button type="button" className="btn-secondary" onClick={() => setLines((ls) => [...ls, { label: "", category: "sale", amount: "" }])}>
-        + Add line
+        + Add another line
       </button>
 
       <div className="field">
         <span>
-          Flocks in this ledger{" "}
+          Which flocks lay into this ledger{" "}
           <span className="hint">
-            (drives the production-vs-Daily-Production cross-check{linkedSum !== null && linkedFlockIds.length > 0 ? ` — linked total: ${linkedSum}` : ""})
+            (used to check “eggs laid” against the flock figures{linkedSum !== null && linkedFlockIds.length > 0 ? ` — flocks added up: ${linkedSum}` : ""})
           </span>
         </span>
         <div className="flock-checklist">
@@ -257,7 +269,7 @@ function SectionCard({
 
       {day.summary?.closing_balance_trays && (
         <p className="muted" style={{ margin: 0 }}>
-          Saved closing balance ≈ {day.summary.closing_balance_trays} trays
+          Saved closing stock ≈ {day.summary.closing_balance_trays} trays (30 eggs each)
         </p>
       )}
     </div>
