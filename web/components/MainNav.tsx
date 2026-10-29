@@ -8,8 +8,8 @@ import { usePathname, useSearchParams } from "next/navigation";
 // lists the pages inside the active section, so every older page stays
 // reachable without a long menu.
 export const SECTIONS = [
-  { key: "upload", label: "Upload", icon: "📷", href: "/upload", match: ["/upload", "/flagged"],
-    subs: [["/upload", "Upload photos"], ["/flagged", "Review flags"]] },
+  { key: "upload", label: "Upload", icon: "📷", href: "/upload", match: ["/upload", "/flagged", "/day/enter"],
+    subs: [["/upload", "Upload photos"], ["/day/enter", "Enter a day by hand"], ["/flagged", "Review flags"]] },
   { key: "day", label: "Day", icon: "🥚", href: "/day", match: ["/day", "/production", "/egg-stock", "/feed-bag-stock", "/records", "/export"],
     subs: [["/day", "Day view"], ["/production", "Correct a day"], ["/egg-stock", "Egg ledger"], ["/feed-bag-stock", "Feed bags"], ["/records", "Records"], ["/export", "Excel / backup"]] },
   { key: "sales", label: "Sales", icon: "₹", href: "/sales", match: ["/sales"],
@@ -17,11 +17,11 @@ export const SECTIONS = [
   { key: "purchases", label: "Buy", icon: "🧾", href: "/purchases", match: ["/purchases", "/feed-stock", "/formulation"],
     subs: [["/purchases", "Purchases & costs"], ["/feed-stock", "Feed stock"], ["/formulation", "Formulation"]] },
   { key: "medicines", label: "Meds", icon: "💉", href: "/medicines", match: ["/medicines", "/knowledge"],
-    subs: [["/medicines", "Medicines & vaccines"], ["/knowledge", "Knowledge"]] },
+    subs: [["/medicines", "Medicines & vaccines"], ["/medicines/import", "Import lines"], ["/knowledge", "Knowledge"]] },
   { key: "flocks", label: "Flocks", icon: "🐔", href: "/flocks", match: ["/flocks", "/chick-batches", "/sheds"],
     subs: [["/flocks", "Flocks"], ["/flocks/batches", "Chick batches"], ["/flocks/moulting", "Moulting"], ["/chick-batches", "Chick log"], ["/sheds", "Sheds"]] },
-  { key: "analytics", label: "Analytics", icon: "📊", href: "/analytics", match: ["/analytics", "/today", "/import"],
-    subs: [["/today", "Today"], ["/analytics", "Analytics"], ["/analytics/targets", "How targets are learned"], ["/analytics/reference", "Farm reference"], ["/import", "Import old registers"]] },
+  { key: "analytics", label: "Analytics", icon: "📊", href: "/analytics", match: ["/analytics", "/today", "/import", "/settings"],
+    subs: [["/today", "Today"], ["/analytics", "Analytics"], ["/analytics/targets", "How targets are learned"], ["/analytics/reference", "Farm reference"], ["/import", "Import old registers"], ["/settings", "Settings"]] },
 ] as const;
 
 function active(path: string, match: readonly string[]) {

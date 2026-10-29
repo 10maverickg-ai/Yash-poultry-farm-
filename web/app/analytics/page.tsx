@@ -45,6 +45,7 @@ const KIND_LABEL: Record<AlertKind, string> = {
   bird_count_anomaly: "Bird-count change",
   feed_anomaly: "Feed anomaly",
   missing_day: "Missing data",
+  flock_health: "Flock may be sick",
 };
 
 
@@ -77,6 +78,8 @@ const SPARK_COLOR: Record<CardStatus, string> = {
   left: "var(--muted)",
 };
 
+
+export const metadata = { title: "Analytics" };
 
 export default async function AnalyticsPage({
   searchParams,

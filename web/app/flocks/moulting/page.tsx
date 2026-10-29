@@ -7,6 +7,8 @@ export const dynamic = "force-dynamic";
 
 const n1 = (x: number) => (Math.round(x * 10) / 10).toLocaleString("en-IN");
 
+export const metadata = { title: "Moulting" };
+
 export default async function MoultingPage({ searchParams }: { searchParams: Promise<{ saved?: string; error?: string }> }) {
   const sp = await searchParams;
   const [periods, flocks] = await Promise.all([listMoulting(), listFlocks()]);

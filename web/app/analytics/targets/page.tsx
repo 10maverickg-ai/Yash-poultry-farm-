@@ -13,6 +13,8 @@ const METRIC_NAME: Record<RMetric, string> = { hd: "Eggs per 100 birds (HD)", fe
 const seasonName = (s: string) => (s === "all" ? "All seasons" : SEASON_NAME[s as keyof typeof SEASON_NAME]);
 const pctTxt = (r: number | null) => (r == null ? "–" : `${(r * 100).toFixed(1)}%`);
 
+export const metadata = { title: "How targets are learned" };
+
 export default async function TargetsPage({ searchParams }: { searchParams: Promise<{ saved?: string; error?: string }> }) {
   const sp = await searchParams;
   const input = await loadEngineInput();

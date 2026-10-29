@@ -122,7 +122,7 @@ export async function getEggStockDay(date: string): Promise<EggStockDay> {
 export async function listSales(limit = 60): Promise<SaleRow[]> {
   const { rows } = await pool.query(
     `SELECT id, date, transaction_type, buyer_or_recipient, grade,
-            eggs_quantity, trays_quantity, price_per_unit, amount
+            eggs_quantity, trays_quantity, price_per_unit, amount, recipient
        FROM sales
       WHERE farm_code = $1
       ORDER BY date DESC, id DESC
@@ -135,7 +135,7 @@ export async function listSales(limit = 60): Promise<SaleRow[]> {
 export async function getSale(id: number): Promise<SaleRow | null> {
   const { rows } = await pool.query(
     `SELECT id, date, transaction_type, buyer_or_recipient, grade,
-            eggs_quantity, trays_quantity, price_per_unit, amount
+            eggs_quantity, trays_quantity, price_per_unit, amount, recipient
        FROM sales
       WHERE id = $1 AND farm_code = $2`,
     [id, ACTIVE_FARM]

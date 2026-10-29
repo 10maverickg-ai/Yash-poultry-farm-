@@ -94,7 +94,7 @@ function MaterialRow({
       <input type="hidden" name={`material_${index}`} value={slot.material_name} />
       <div className="grid4">
         <label className="field">
-          <span>Opening (qtl)</span>
+          <span>Opening (quintals, 1 qtl = 100 kg)</span>
           <input
             type="number"
             step="0.01"
@@ -105,7 +105,7 @@ function MaterialRow({
           />
         </label>
         <label className="field">
-          <span>Purchase (qtl)</span>
+          <span>Bought (quintals)</span>
           <input
             type="number"
             step="0.01"
@@ -127,7 +127,7 @@ function MaterialRow({
           />
         </label>
         <label className="field">
-          <span>Closing (qtl)</span>
+          <span>Closing (quintals)</span>
           <input
             type="number"
             step="0.01"

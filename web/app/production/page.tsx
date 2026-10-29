@@ -30,6 +30,8 @@ function dayTotals(slots: ProductionSlot[]) {
   return { eggs, birds, mortality, feedBags, flocksSaved, hd };
 }
 
+export const metadata = { title: "Correct a day" };
+
 export default async function ProductionPage({
   searchParams,
 }: {

@@ -30,6 +30,8 @@ function FlagCell({
   );
 }
 
+export const metadata = { title: "Records" };
+
 export default async function RecordsPage({
   searchParams,
 }: {

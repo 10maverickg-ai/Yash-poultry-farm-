@@ -45,6 +45,7 @@ export function RenumberForm({ rows }: { rows: RenumberRow[] }) {
                 <td>
                   <input
                     name={`label_${r.flockId}`}
+                    aria-label={`New label for ${r.label}`}
                     defaultValue={v[`label_${r.flockId}`] ?? r.label}
                     required
                   />

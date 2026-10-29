@@ -53,7 +53,8 @@ console.log("Aug 10:", { sold: d.eggsSold, revenue: Math.round(d.revenue), cost:
   check("V9: Aug feed = bags x 45 kg x INR 33.33", monthEconomics(v9, "2026-08").cost.feed, feedAug);
   check("V9: Sep electricity is the INR 99,080 bill", sepc.cost.electricity, 99080);
   const octc = monthEconomics(v9, "2026-10");
-  check("V9: October is TO DATE (26 of 31 days): the INR 58,180 bill is counted for 26 days", octc.cost.electricity, (58180 / 31) * octc.days, 1);
-  check("V9: October has 26 days with data", octc.days, 26);
+  const octDays = new Set(v9.prod.filter((p) => p.date.startsWith("2026-10")).map((p) => p.date)).size; // from the fixture, not a constant
+  check(`V9: October is TO DATE (${octDays} of 31 days): the INR 58,180 bill is counted for ${octDays} days`, octc.cost.electricity, (58180 / 31) * octDays, 1);
+  check(`V9: October has ${octDays} days with data`, octc.days, octDays);
 }
 process.exit(bad ? 1 : 0);

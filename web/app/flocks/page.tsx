@@ -8,6 +8,8 @@ import { dmy } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
+export const metadata = { title: "Flocks" };
+
 export default async function FlocksPage() {
   const flocks = await listFlocks();
   const active = flocks.filter((f) => f.status === "active").sort((a, b) => compareLabels(a.display_label, b.display_label));

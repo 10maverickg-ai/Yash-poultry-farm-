@@ -10,6 +10,8 @@ import {
   type AlertKind,
   type Ctx,
   type FlockCard,
+  type FlockHealth,
+  flockHealth,
   type Segment,
 } from "./engine";
 import { allSegmentPanels } from "./segments";
@@ -39,6 +41,7 @@ const ACTION: Record<AlertKind, string> = {
   bird_count_anomaly: "Check the bird count and whether a sale or move was not written down.",
   feed_anomaly: "Check the feed figure written for this day.",
   missing_day: "Enter the missing figures for that day.",
+  flock_health: "Call the vet today. Walk the shed: look at the dead birds, drinkers and water, feed and shed temperature, and separate any sick birds.",
 };
 const KIND_TITLE: Record<AlertKind, string> = {
   production_drop: "is laying fewer eggs than usual",
@@ -48,6 +51,7 @@ const KIND_TITLE: Record<AlertKind, string> = {
   bird_count_anomaly: "Bird count changed with no record",
   feed_anomaly: "Feed figure looks wrong",
   missing_day: "Figures are missing",
+  flock_health: "may be sick: more deaths than usual and fewer eggs",
 };
 
 const flockHref = (c: Pick<FlockCard, "flockId">) => `/flocks/${c.flockId}`;
@@ -101,7 +105,24 @@ export function buildToday(
     if (g === "main" && p.feed.daysLeft != null && p.feed.daysLeft >= 1) right.push({ id: "feed-ok", title: `Feed stock is ${n1(p.feed.daysLeft)} days.`, detail: "The mill delivers every day, so about 1 day in stock is normal.", href: "/feed-bag-stock", group: g });
 
     // ---- wrong now
+    // flock health (V12): deaths above usual 2 days running AND eggs falling more than 5% in a week. Shown while it lasts (one item per
+    // flock; three or more flocks are grouped into one), and instead of the separate "more deaths" lines for the same flock.
+    const sick = mine.map((c) => ({ c, h: flockHealth(ctx, c.flockId, asOf) })).filter((x): x is { c: FlockCard; h: FlockHealth } => x.h != null);
+    if (sick.length >= 3) {
+      wrong.push({
+        id: `health-${g}`,
+        title: `${sick.length} ${g === "main" ? "main" : "young"} flocks have more deaths than usual and fewer eggs: ${sick.map((x) => x.c.label).join(", ")}.`,
+        detail: sick.map((x) => x.h.text).join(" "),
+        action: sick[0].h.action,
+        href: "/analytics#flocks",
+        group: g,
+      });
+    } else {
+      for (const x of sick) wrong.push({ id: `health-${x.c.flockId}`, title: `${x.c.label} may be sick: more deaths than usual and fewer eggs.`, detail: x.h.text, action: x.h.action, href: flockHref(x.c), group: g });
+    }
+    const sickIds = new Set(sick.map((x) => x.c.flockId));
     for (const a of p.alerts) {
+      if (a.kind === "flock_health") continue; // shown above from today's state, not once per episode
       const flock = a.flockLabel;
       wrong.push({
         id: a.key,
@@ -136,7 +157,7 @@ export function buildToday(
     // deaths this week, judged against OUR usual level (V11); the heat sentence explains, it never changes the colour
     for (const c of mine) {
       const d = c.death;
-      if (!d || d.weekPct == null || (d.status !== "red" && d.status !== "amber")) continue;
+      if (!d || d.weekPct == null || (d.status !== "red" && d.status !== "amber") || sickIds.has(c.flockId)) continue;
       const item: TodayItem = {
         id: `deaths-${d.status}-${c.flockId}`,
         title: `${c.label}: ${d.status === "red" ? "many more birds are dying than usual" : "a few more birds are dying than usual"} (${n2(d.weekPct)}% this week).`,

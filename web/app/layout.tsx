@@ -3,10 +3,11 @@ import Link from "next/link";
 import { ACTIVE_FARM, ACTIVE_FARM_NAME } from "@/lib/farm";
 import { Suspense } from "react";
 import { MainNav } from "@/components/MainNav";
+import { StackTables } from "@/components/StackTables";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: ACTIVE_FARM_NAME,
+  title: { default: ACTIVE_FARM_NAME, template: `%s — ${ACTIVE_FARM_NAME}` },
   description: "Register entry and records for Yash Poultry Farm",
 };
 
@@ -25,6 +26,7 @@ export default function RootLayout({
           <Suspense fallback={null}><MainNav position="top" /></Suspense>
         </header>
         <main id="main" tabIndex={-1}>{children}</main>
+        <StackTables />
         <Suspense fallback={null}><MainNav position="bottom" /></Suspense>
       </body>
     </html>

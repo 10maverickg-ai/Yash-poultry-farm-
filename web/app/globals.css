@@ -795,7 +795,7 @@ main:focus { outline: none; }
 .tl-compact { font-size: 0.78rem; max-width: 24rem; }
 .tl-trend svg { width: 100%; height: auto; display: block; }
 .tl-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
-.tl-table th, .tl-table td { padding: 0.3rem 0.4rem; border-bottom: 1px solid var(--border, #ddd); text-align: left; white-space: normal; }
+.tl-table th, .tl-table td { padding: 0.3rem 0.4rem; border-bottom: 1px solid var(--line); text-align: left; white-space: normal; }
 .tl-table .num { text-align: right; white-space: nowrap; }
 .tl-scroll { overflow-x: auto; }
 .btn-small { padding: 0.25rem 0.6rem; font-size: 0.8rem; min-height: 2rem; }
@@ -809,3 +809,65 @@ main:focus { outline: none; }
 .dl-pill { display: inline-block; border-radius: 999px; padding: 0 0.5rem; font-size: 0.75rem; font-weight: 600; border: 1px solid currentColor; }
 .dl-green { color: #166534; } .dl-amber { color: #b45309; } .dl-red { color: #b91c1c; } .dl-none { color: #6b7280; }
 .heat-note { font-size: 0.82rem; color: #9a3412; margin: 0.25rem 0; }
+
+/* V12 audit A1/A2: phone tables become stacked cards; small controls get 44 px */
+.btn-small, .tl-ov input, .tl-ov button { min-height: 44px; min-width: 44px; }
+.an-tiny > a, .muted > a { display: inline-flex; align-items: center; min-height: 44px; }
+@media (max-width: 600px) {
+  table[data-stacked] { display: block; width: 100%; min-width: 0; border: 0; }
+  table[data-stacked] thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  table[data-stacked] tbody, table[data-stacked] tfoot { display: block; }
+  table[data-stacked] tr { display: block; margin: 0.55rem 0; padding: 0.3rem 0.7rem; background: var(--card); border: 1px solid var(--line); border-radius: 10px; }
+  table[data-stacked] tr[data-wide] { padding: 0.5rem 0.7rem; }
+  table[data-stacked] td, table[data-stacked] th { display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; padding: 0.3rem 0; border: 0; border-bottom: 1px dashed var(--line); text-align: right; white-space: normal; }
+  table[data-stacked] tr > :last-child { border-bottom: 0; }
+  table[data-stacked] td::before { content: attr(data-label); flex: 0 0 42%; max-width: 42%; text-align: left; font-size: 0.78rem; font-weight: 600; color: var(--muted); text-transform: none; }
+  table[data-stacked] td:first-child { display: block; font-weight: 700; font-size: 1rem; text-align: left; border-bottom: 1px solid var(--line); padding-bottom: 0.4rem; }
+  table[data-stacked] td:first-child .muted, table[data-stacked] td:first-child .an-tiny { font-weight: 400; display: block; }
+  table[data-stacked] td:first-child::before { display: none; }
+  table[data-stacked] td.num { white-space: normal; }
+  .an-scroll:has(> table[data-stacked]), .table-wrap:has(> table[data-stacked]), .tl-scroll:has(> table[data-stacked]) { overflow-x: visible; padding: 0; border: 0; background: transparent; box-shadow: none; }
+}
+@media (min-width: 601px) and (max-width: 1000px) {
+  table[data-heavy] { display: block; width: 100%; min-width: 0; border: 0; }
+  table[data-heavy] thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  table[data-heavy] tbody, table[data-heavy] tfoot { display: block; }
+  table[data-heavy] tr { display: block; margin: 0.55rem 0; padding: 0.3rem 0.7rem; background: var(--card); border: 1px solid var(--line); border-radius: 10px; }
+  table[data-heavy] tr[data-wide] { padding: 0.5rem 0.7rem; }
+  table[data-heavy] td, table[data-heavy] th { display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; padding: 0.3rem 0; border: 0; border-bottom: 1px dashed var(--line); text-align: right; white-space: normal; }
+  table[data-heavy] tr > :last-child { border-bottom: 0; }
+  table[data-heavy] td::before { content: attr(data-label); flex: 0 0 42%; max-width: 42%; text-align: left; font-size: 0.78rem; font-weight: 600; color: var(--muted); text-transform: none; }
+  table[data-heavy] td:first-child { display: block; font-weight: 700; font-size: 1rem; text-align: left; border-bottom: 1px solid var(--line); padding-bottom: 0.4rem; }
+  table[data-heavy] td:first-child .muted, table[data-heavy] td:first-child .an-tiny { font-weight: 400; display: block; }
+  table[data-heavy] td:first-child::before { display: none; }
+  table[data-heavy] td.num { white-space: normal; }
+  .an-scroll:has(> table[data-heavy]), .table-wrap:has(> table[data-heavy]), .tl-scroll:has(> table[data-heavy]) { overflow-x: visible; padding: 0; border: 0; background: transparent; box-shadow: none; }
+}
+.table-wrap td, .table-wrap th { white-space: normal; }
+
+/* "Enter a day by hand" (V12 N4) */
+.md-flock { display: grid; gap: 0.4rem; }
+.md-flock-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0.2rem 0.6rem; align-items: baseline; }
+.md-flag { border-color: #c77700; }
+.md-note { margin: 0; font-size: 0.85rem; color: #8a5200; }
+.md-calc { display: inline-flex; align-items: center; min-height: 44px; font-size: 1.1rem; font-variant-numeric: tabular-nums; }
+.md-line { display: grid; gap: 0.5rem; padding: 0.6rem 0; border-top: 1px solid var(--line); }
+.md-dir, .md-chips { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.md-dir button, .md-chip { min-height: 44px; padding: 0.4rem 0.8rem; border-radius: 999px; border: 1px solid var(--line); background: transparent; color: inherit; font: inherit; cursor: pointer; }
+.md-dir button.md-on, .md-chip.md-on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.md-checks { position: sticky; top: 0.25rem; z-index: 5; }
+.md-checks-ok { border-color: var(--accent); }
+.md-checks-bad { border-color: #c77700; }
+.md-checks ul { margin: 0.3rem 0 0.4rem; }
+@media (max-width: 480px) { .md-checks { position: static; } }
+
+/* Settings (V12 N8) */
+.kv { margin: 0; display: grid; grid-template-columns: 1fr; gap: 0.1rem 1rem; }
+.kv dt { font-size: 0.85rem; font-weight: 600; color: var(--muted); }
+.kv dd { margin: 0 0 0.5rem; }
+@media (min-width: 560px) { .kv { grid-template-columns: 13rem 1fr; } .kv dd { margin: 0; } }
+
+/* links inside table cells (Edit, change, topic names) must be easy to hit with a thumb */
+@media (max-width: 820px) {
+  td > a { display: inline-flex; align-items: center; min-height: 44px; min-width: 44px; }
+}

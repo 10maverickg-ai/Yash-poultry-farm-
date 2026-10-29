@@ -3,6 +3,8 @@ import { pool } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
+export const metadata = { title: "Knowledge library" };
+
 export default async function KnowledgePage({ searchParams }: { searchParams: Promise<{ q?: string; topic?: string }> }) {
   const sp = await searchParams;
   const q = (sp.q ?? "").trim().slice(0, 80);

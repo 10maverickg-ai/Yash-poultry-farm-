@@ -3,6 +3,8 @@ import { RenumberForm } from "@/components/RenumberForm";
 
 export const dynamic = "force-dynamic";
 
+export const metadata = { title: "Renumber flocks" };
+
 export default async function RenumberPage() {
   const active = (await listFlocks()).filter((f) => f.status === "active");
 

@@ -3,6 +3,7 @@
 import { useActionState } from "react";
 import { updateSale } from "@/app/sales/actions";
 import type { SaleRow } from "@/lib/eggstock-types";
+import { RECIPIENTS } from "@/lib/sales/recipients";
 
 const TRANSACTION_TYPES = [
   "sale_farmfresh",
@@ -12,6 +13,15 @@ const TRANSACTION_TYPES = [
   "staff_allocation",
   "other",
 ] as const;
+
+const TYPE_WORDS: Record<string, string> = {
+  sale_farmfresh: "Farmfresh sale (rate − 0.03)",
+  sale_wholesaler: "Wholesaler",
+  local: "Local sale (rate + 0.01)",
+  gift: "Gift",
+  staff_allocation: "Given to staff",
+  other: "Local sale (stored as other)",
+};
 
 export function SaleEditForm({ sale }: { sale: SaleRow }) {
   const [state, formAction, pending] = useActionState(
@@ -29,16 +39,25 @@ export function SaleEditForm({ sale }: { sale: SaleRow }) {
         {sale.trays_quantity && ` (${sale.trays_quantity} trays)`} — derived
         from the ledger line; edit those figures on the Egg Stock page.
       </p>
+      <label className="field">
+        <span>Who got the eggs <span className="hint">(does not change the price)</span></span>
+        <select name="recipient" defaultValue={v ? v.recipient : sale.recipient ?? ""}>
+          <option value="" disabled>Choose…</option>
+          {RECIPIENTS.map((r) => (
+            <option key={r.key} value={r.key}>{r.label}</option>
+          ))}
+        </select>
+      </label>
       <div className="row2">
         <label className="field">
-          <span>Transaction type</span>
+          <span>Kind of sale</span>
           <select
             name="transaction_type"
             defaultValue={v ? v.transaction_type : sale.transaction_type ?? ""}
           >
             {TRANSACTION_TYPES.map((t) => (
               <option key={t} value={t}>
-                {t.replaceAll("_", " ")}
+                {TYPE_WORDS[t] ?? t.replaceAll("_", " ")}
               </option>
             ))}
           </select>

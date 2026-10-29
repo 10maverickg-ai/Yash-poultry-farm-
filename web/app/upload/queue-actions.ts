@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { uploadRegisterPhoto } from "@/lib/storage";
+import { uploadRegisterPhoto, photoProblem } from "@/lib/storage";
 import { pickReader } from "@/lib/reader/pick";
 import { claimNext, enqueue, finish, parkAsDuplicate, savedDaySummary, setStatus } from "@/lib/uploadQueue/store";
 
@@ -22,6 +22,8 @@ export async function enqueuePhoto(formData: FormData): Promise<EnqueueResult> {
     const date = formData.get("date");
     if (!(file instanceof File) || file.size === 0) return { ok: false, error: "No photo received.", status: null };
     if (typeof date !== "string" || !iso.test(date)) return { ok: false, error: "Choose the date shown on the page.", status: null };
+    const problem = photoProblem(file);
+    if (problem) return { ok: false, error: problem, status: null };
     const url = await uploadRegisterPhoto(file, "production", date);
     const r = await enqueue(url, file.name || null, date);
     revalidatePath("/upload");

@@ -48,6 +48,8 @@ function Part({ tone, title, icon, intro, items, show }: { tone: "right" | "wron
   );
 }
 
+export const metadata = { title: "Today" };
+
 export default async function TodayPage() {
   const realToday = new Date().toISOString().slice(0, 10);
   const realYesterday = addDays(realToday, -1);

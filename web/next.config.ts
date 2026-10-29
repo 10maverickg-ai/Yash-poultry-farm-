@@ -27,6 +27,20 @@ const nextConfig: NextConfig = {
   // the matching runtime fallback — this app must never 500 an upload
   // just because sharp failed to load in a given deployment.
   serverExternalPackages: ["sharp"],
+  // Basic browser-side safety (V12 N9): no content-type guessing, no sending the full address to other sites, and the app cannot be
+  // shown inside another site's frame.
+  async headers() {
+    return [
+      {
+        source: "/:path*",
+        headers: [
+          { key: "X-Content-Type-Options", value: "nosniff" },
+          { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+          { key: "X-Frame-Options", value: "SAMEORIGIN" },
+        ],
+      },
+    ];
+  },
   outputFileTracingIncludes: {
     "/*": [
       "node_modules/@img/sharp-linux-x64/**",

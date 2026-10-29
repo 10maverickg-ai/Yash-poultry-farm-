@@ -11,6 +11,8 @@ const SHEETS = [
   { kind: "costs", title: "Costs and profit", text: "Per day: revenue, each cost, total, estimated profit (estimate — labelled)." },
 ] as const;
 
+export const metadata = { title: "Download to Excel" };
+
 export default async function ExportPage({ searchParams }: { searchParams: Promise<{ month?: string }> }) {
   const sp = await searchParams;
   const { rows } = await pool.query(

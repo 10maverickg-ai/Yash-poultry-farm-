@@ -17,6 +17,9 @@ const TYPE_LABEL: Record<string, string> = {
   labour_month: "Labour per month",
   electricity_month: "Electricity for a month",
   packing_per_tray: "Packing per tray sold",
+  chick_cost_per_chick: "Chick price (average per chick)",
+  diesel_month: "Diesel for a month",
+  medicines_month: "Medicines for a month",
 };
 
 function Checklist({ month, items }: { month: string; items: ChecklistItem[] }) {
@@ -33,7 +36,7 @@ function Checklist({ month, items }: { month: string; items: ChecklistItem[] }) 
             <form action={completeMonthInput.bind(null, month, i.key)} className="check-form">
               {i.key === "electricity" && (<><input type="number" name="value" step="0.01" min="0" inputMode="decimal" placeholder="Bill ₹" aria-label="Electricity bill in rupees" /><button type="submit">Save</button></>)}
               {i.key === "diesel" && (<><input type="number" name="litres" step="0.1" min="0" inputMode="decimal" placeholder="Litres" aria-label="Litres" /><input type="number" name="amount_inr" step="0.01" min="0" inputMode="decimal" placeholder="₹" aria-label="Amount in rupees" /><input type="date" name="date" defaultValue={`${month}-01`} min={`${month}-01`} aria-label="Date" /><button type="submit">Save</button><button type="submit" name="none" value="1" className="btn-secondary">None this month</button></>)}
-              {i.key === "medicines" && (<><input type="text" name="item" placeholder="What" aria-label="What was bought" /><input type="number" name="amount_inr" step="0.01" min="0" inputMode="decimal" placeholder="₹" aria-label="Amount in rupees" /><input type="date" name="date" defaultValue={`${month}-01`} min={`${month}-01`} aria-label="Date" /><button type="submit">Save</button><button type="submit" name="none" value="1" className="btn-secondary">None this month</button></>)}
+              {i.key === "medicines" && (<><Link href={`/medicines?month=${month}#enter`} className="btn">Enter on the Medicines screen</Link><button type="submit" name="none" value="1" className="btn-secondary">None this month</button></>)}
               {i.key === "other" && (<><input type="text" name="item" placeholder="What" aria-label="What it was" /><input type="number" name="amount_inr" step="0.01" min="0" inputMode="decimal" placeholder="₹" aria-label="Amount in rupees" /><input type="date" name="date" defaultValue={`${month}-01`} min={`${month}-01`} aria-label="Date" /><button type="submit">Save</button><button type="submit" name="none" value="1" className="btn-secondary">None this month</button></>)}
               {i.key === "labour" && (<><input type="number" name="value" step="0.01" min="0" inputMode="decimal" defaultValue={i.standing} aria-label="Labour total for the month in rupees" /><button type="submit">Confirm this month</button></>)}
               {i.key === "packing" && (<><input type="number" name="value" step="0.01" min="0" inputMode="decimal" defaultValue={i.standing} aria-label="Packing cost per tray in rupees" /><button type="submit">Confirm</button></>)}
@@ -48,6 +51,8 @@ function Checklist({ month, items }: { month: string; items: ChecklistItem[] }) 
 const daysIn = (ym: string) => { const [y, mo] = ym.split("-").map(Number); return new Date(Date.UTC(y, mo, 0)).getUTCDate(); };
 
 const latestSetting = (settings: { type: string; value: number; effectiveFrom: string; month: string | null }[], type: string) => settings.filter((x) => x.type === type && !x.month).sort((a, b) => (a.effectiveFrom < b.effectiveFrom ? 1 : -1))[0]?.value ?? null;
+
+export const metadata = { title: "Purchases and costs" };
 
 export default async function PurchasesPage({ searchParams }: { searchParams: Promise<{ saved?: string; error?: string }> }) {
   const sp = await searchParams;
@@ -117,7 +122,7 @@ export default async function PurchasesPage({ searchParams }: { searchParams: Pr
           <tbody>
             {settings.rows.map((s, i) => (
               <tr key={i}>
-                <td>{TYPE_LABEL[s.cost_type] ?? s.cost_type}{s.month ? ` (${s.month})` : ""}</td>
+                <td>{TYPE_LABEL[s.cost_type] ?? String(s.cost_type).replaceAll("_", " ")}{s.month ? ` (${s.month})` : ""}</td>
                 <td>₹{Number(s.value).toLocaleString("en-IN")} {s.unit}</td>
                 <td>{String(s.effective_from).slice(0, 10)}</td>
                 <td className="muted">{s.note ?? ""}</td>

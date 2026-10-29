@@ -172,7 +172,8 @@ export type AlertKind =
   | "egg_buildup"
   | "bird_count_anomaly"
   | "feed_anomaly"
-  | "missing_day";
+  | "missing_day"
+  | "flock_health"; // V12: deaths above its usual two days running AND eggs falling more than 5% in a week
 
 export interface Alert {
   segment: Segment | null; // which group the alert is about (null = flock without a segment, or farm-wide)
@@ -841,6 +842,97 @@ function hdDrop(ctx: Ctx, flockId: string, date: string): { drop: number; avg: n
 /** Rows dated before this are the cleared August register: never flagged for data-quality reasons. */
 export const NEVER_FLAG_BEFORE = "2026-09-01";
 
+// ---- flock health (V12 N5): the BAB-2 case --------------------------------------------------------------------------------
+/** A flock with deaths above its own usual for 2 days running AND eggs falling more than 5% in a week is "something may be wrong". */
+export const HEALTH_RULE = {
+  days: 2, // days in a row with deaths above usual
+  deathMultiple: 1.5, // a day is above usual when deaths > usual x this ...
+  minExtraDeaths: 3, // ... and at least this many more than usual (a flock of 1,700 birds is not alarmed by one extra death)
+  eggFallPct: 5, // the 7-day HD fell by more than this share against the 7 days before
+  minRowsPerWeek: 5, // rows needed in each of the two weeks
+  quietDays: 6, // after an alert for a flock, no repeat for this many days (alert events); Today still shows it while it lasts
+};
+
+export interface FlockHealth {
+  flockId: string;
+  label: string;
+  date: string;
+  deathDays: { date: string; deaths: number }[];
+  usualPerDay: number;
+  usualFrom: "farm's own learned level" | "its own last 4 weeks";
+  hdNow: number;
+  hdPrev: number;
+  fallPct: number;
+  text: string; // plain sentence with the numbers and "call the vet"
+  action: string;
+}
+
+/** The usual deaths per day for a flock on a date. */
+function usualDeathsPerDay(ctx: Ctx, flockId: string, date: string, pop: number): { v: number; from: FlockHealth["usualFrom"] } {
+  const d = ctx.realisticDeath?.(flockId, date);
+  if (d && d.usual != null && d.source !== "starting") return { v: (d.usual / 100 / 7) * pop, from: "farm's own learned level" };
+  const prior = priorRowsBefore(ctx, flockId, addDays(date, -(HEALTH_RULE.days - 1)), 28).map((r) => r.mort).filter((x): x is number => x != null).sort((a, b) => a - b);
+  const med = prior.length ? (prior.length % 2 ? prior[(prior.length - 1) / 2] : (prior[prior.length / 2 - 1] + prior[prior.length / 2]) / 2) : 1;
+  return { v: Math.max(med, 0.5), from: "its own last 4 weeks" };
+}
+
+export function flockHealth(ctx: Ctx, flockId: string, date: string): FlockHealth | null {
+  const rs = ctx.byFlock.get(flockId) ?? [];
+  const today = rs.find((r) => r.date === date);
+  if (!today || today.pop == null || today.pop < 500) return null;
+  if (moultOn(ctx, flockId, date) || rampingUp(ctx, flockId, date)) return null;
+  const days: { date: string; deaths: number }[] = [];
+  let usual = usualDeathsPerDay(ctx, flockId, date, today.pop);
+  for (let k = 0; k < HEALTH_RULE.days; k++) {
+    const d = addDays(date, -k);
+    const r = rs.find((x) => x.date === d);
+    if (!r || r.mort == null || r.pop == null) return null;
+    const u = k === 0 ? usual : usualDeathsPerDay(ctx, flockId, d, r.pop);
+    if (r.mort <= Math.max(u.v * HEALTH_RULE.deathMultiple, u.v + HEALTH_RULE.minExtraDeaths)) return null;
+    days.unshift({ date: d, deaths: r.mort });
+  }
+  usual = usualDeathsPerDay(ctx, flockId, date, today.pop);
+  const upto = rs.filter((r) => r.date <= date);
+  const now7 = upto.slice(-7).filter((r) => r.hd != null);
+  const prev7 = upto.slice(-14, -7).filter((r) => r.hd != null);
+  if (now7.length < HEALTH_RULE.minRowsPerWeek || prev7.length < HEALTH_RULE.minRowsPerWeek) return null;
+  const hdNow = mean(now7.map((r) => r.hd!))!;
+  const hdPrev = mean(prev7.map((r) => r.hd!))!;
+  const fallPct = ((hdPrev - hdNow) / hdPrev) * 100;
+  if (!(fallPct > HEALTH_RULE.eggFallPct)) return null;
+  const label = flockName(ctx, flockId, today.label);
+  const dn = days.map((x) => x.deaths);
+  const text =
+    `${label}: deaths have been above usual for ${days.length} days running (${dn.length === 2 ? `${dn[0]} and ${dn[1]}` : dn.join(", ")}; usual is about ${round(usual.v, 0)} a day) ` +
+    `and eggs fell ${round(fallPct, 0)}% in a week (${round(hdPrev)} to ${round(hdNow)} per 100 birds). Something may be wrong in this flock — call the vet.`;
+  return {
+    flockId, label, date, deathDays: days, usualPerDay: usual.v, usualFrom: usual.from, hdNow, hdPrev, fallPct, text,
+    action: "Call the vet today. Walk the shed: look at the dead birds, drinkers and water, feed and shed temperature, and separate any sick birds. Note what you see for the vet.",
+  };
+}
+
+// Alert EVENTS (for the week / month counts): the first day of an episode, then quiet for HEALTH_RULE.quietDays days, so a
+// long problem is one alert, not ten. Today uses flockHealth() directly and keeps showing the flock while it lasts.
+const healthFired = new WeakMap<Ctx, Map<string, Set<string>>>();
+function healthFiredOn(ctx: Ctx, flockId: string): Set<string> {
+  let m = healthFired.get(ctx);
+  if (!m) healthFired.set(ctx, (m = new Map()));
+  let set = m.get(flockId);
+  if (!set) {
+    set = new Set();
+    let last: string | null = null;
+    for (const r of ctx.byFlock.get(flockId) ?? []) {
+      if (last && diffDays(r.date, last) <= HEALTH_RULE.quietDays) continue;
+      if (flockHealth(ctx, flockId, r.date)) {
+        set.add(r.date);
+        last = r.date;
+      }
+    }
+    m.set(flockId, set);
+  }
+  return set;
+}
+
 export function alertKey(a: { kind: AlertKind; date: string; flockId: string | null; segment?: Segment | null }, n = 0): string {
   // farm-wide alerts of the main segment keep the old "farm" key (saved verdicts stay valid); young adds a suffix
   const who = a.flockId ?? (a.segment === "young" ? "farm-young" : "farm");
@@ -914,6 +1006,12 @@ function alertsForRaw(ctx: Ctx, date: string, opts: { includeCleared?: boolean }
           reason: `${r.mort} deaths today; its usual is ${round(avg)} a day (${round(r.mort / Math.max(avg, 0.01), 1)} times that), and ${round((r.mort / flockSize) * 100, 2)}% of its ${fmt(flockSize)} birds.`,
         });
       }
+    }
+
+    // flock health (V12): deaths above usual 2 days running AND eggs down > 5% in a week; one alert per episode
+    if (date >= NEVER_FLAG_BEFORE && healthFiredOn(ctx, r.flockId).has(date)) {
+      const h = flockHealth(ctx, r.flockId, date);
+      if (h) out.push({ ...base, kind: "flock_health", reason: h.text });
     }
 
     // feed anomaly (a): zero feed with live birds, not moulting

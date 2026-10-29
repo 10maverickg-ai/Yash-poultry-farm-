@@ -1,10 +1,10 @@
 "use server";
 
-import ExcelJS from "exceljs";
 import { revalidatePath } from "next/cache";
 import { pool, withTransaction } from "@/lib/db";
 import { ACTIVE_FARM } from "@/lib/farm";
-import { IMPORT_SOURCE_TAG, parseCsv, readTable, validateRows, type ImportReport } from "@/lib/import/paperHistory";
+import { IMPORT_SOURCE_TAG, readTable, validateRows, type ImportReport } from "@/lib/import/paperHistory";
+import { tableFromFile } from "@/lib/import/file";
 
 export interface ImportState {
   mode: "preview" | "imported" | "error";
@@ -12,28 +12,6 @@ export interface ImportState {
   report?: ImportReport;
   written?: number;
   skipped?: number;
-}
-
-async function tableFromFile(file: File): Promise<string[][]> {
-  const name = file.name.toLowerCase();
-  if (name.endsWith(".xlsx")) {
-    const wb = new ExcelJS.Workbook();
-    await wb.xlsx.load((await file.arrayBuffer()) as unknown as ArrayBuffer);
-    const ws = wb.worksheets[0];
-    if (!ws) return [];
-    const out: string[][] = [];
-    ws.eachRow({ includeEmpty: false }, (row) => {
-      const cells: string[] = [];
-      for (let c = 1; c <= row.cellCount; c++) {
-        const v = row.getCell(c).value;
-        cells.push(v instanceof Date ? v.toISOString().slice(0, 10) : v == null ? "" : typeof v === "object" && "result" in v ? String((v as { result: unknown }).result ?? "") : String(v));
-      }
-      out.push(cells);
-    });
-    return out;
-  }
-  if (name.endsWith(".xls")) throw new Error("Old .xls files are not supported. In Excel choose Save As → CSV or .xlsx.");
-  return parseCsv(await file.text());
 }
 
 // Preview / dry run (default) or import. Never overwrites a day that already exists unless "replace" is ticked on the

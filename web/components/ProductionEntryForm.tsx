@@ -82,7 +82,7 @@ function FlockCard({
           />
         </label>
         <label className="field">
-          <span>Mortality</span>
+          <span>Deaths today</span>
           <input
             type="number"
             min="0"
@@ -104,7 +104,7 @@ function FlockCard({
           />
         </label>
         <label className="field">
-          <span>Eggs total</span>
+          <span>Eggs laid today</span>
           <input
             type="number"
             min="0"
@@ -116,7 +116,7 @@ function FlockCard({
       </div>
       <div className="row2">
         <label className="field">
-          <span>Bal Bird</span>
+          <span>Birds left today <span className="hint">(Bal Bird)</span></span>
           <input
             type="number"
             min="0"
@@ -132,7 +132,7 @@ function FlockCard({
       </div>
       <label className="field hd-written">
         <span>
-          Written % <span className="hint">(optional, as on paper)</span>
+          Percent written on the page <span className="hint">(optional)</span>
         </span>
         <input
           type="number"

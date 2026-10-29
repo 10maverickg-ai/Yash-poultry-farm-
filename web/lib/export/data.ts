@@ -1,3 +1,4 @@
+import { recipientLabel } from "@/lib/sales/recipients";
 import { pool } from "@/lib/db";
 import { ACTIVE_FARM } from "@/lib/farm";
 import { compareLabels } from "@/lib/naturalSort";
@@ -89,7 +90,7 @@ export async function ledgerDataset(month: string): Promise<Dataset> {
 export async function salesDataset(month: string): Promise<Dataset> {
   const { from, to } = bounds(month);
   const { rows } = await pool.query(
-    `SELECT date, buyer_or_recipient AS buyer, grade, CASE transaction_type::text WHEN 'sale_farmfresh' THEN 'Farmfresh' WHEN 'other' THEN 'Local' WHEN 'local' THEN 'Local' ELSE transaction_type::text END AS type, eggs_quantity AS eggs, price_per_unit AS price, amount
+    `SELECT date, buyer_or_recipient AS buyer, grade, CASE transaction_type::text WHEN 'sale_farmfresh' THEN 'Farmfresh' WHEN 'other' THEN 'Local' WHEN 'local' THEN 'Local' ELSE transaction_type::text END AS type, eggs_quantity AS eggs, price_per_unit AS price, amount, recipient
        FROM sales WHERE farm_code = $1 AND date BETWEEN $2 AND $3 ORDER BY date, id`,
     [ACTIVE_FARM, from, to]
   );
@@ -104,8 +105,9 @@ export async function salesDataset(month: string): Promise<Dataset> {
       { key: "eggs", header: "Eggs", type: "int", width: 11, total: true },
       { key: "price", header: "Price per egg (₹)", type: "num", width: 16 },
       { key: "amount", header: "Amount (₹)", type: "num", width: 14, total: true },
+      { key: "recipient", header: "Who got the eggs", type: "text", width: 26 },
     ],
-    rows: rows.map((r) => ({ date: String(r.date).slice(0, 10), buyer: r.buyer, grade: r.grade, type: r.type, eggs: r.eggs, price: r.price != null ? Number(r.price) : null, amount: r.amount != null ? Number(r.amount) : null })),
+    rows: rows.map((r) => ({ date: String(r.date).slice(0, 10), buyer: r.buyer, grade: r.grade, type: r.type, eggs: r.eggs, price: r.price != null ? Number(r.price) : null, amount: r.amount != null ? Number(r.amount) : null, recipient: recipientLabel(r.recipient) })),
     notes: ["Farmfresh (big or small) is paid the BAFTA rate − ₹0.03 per egg; local sales the rate + ₹0.01.", "A row with no price had no BAFTA rate entered for its day."],
     formulas: { amount: (row) => `IF(F${row}="","",ROUND(E${row}*F${row},2))` },
   };

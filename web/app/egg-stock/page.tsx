@@ -9,6 +9,8 @@ function todayISO() {
   return new Date().toISOString().slice(0, 10);
 }
 
+export const metadata = { title: "Egg stock ledger" };
+
 export default async function EggStockPage({
   searchParams,
 }: {

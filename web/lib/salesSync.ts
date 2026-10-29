@@ -3,6 +3,7 @@ import type { EntryCategory, EggStockSection } from "./eggstock-types";
 import { ACTIVE_FARM } from "./farm";
 import { rateFor } from "./rates/lookup";
 import { classifySale, salePrice, type SaleKind } from "./rates/parse";
+import { recipientFor } from "./sales/recipients";
 
 // Shared between the manual Egg Stock entry screen (app/egg-stock/actions.ts)
 // and the photo-upload pipeline (lib/extraction/writeLedgerFeed.ts) — owner
@@ -67,8 +68,8 @@ export async function syncSaleForEntry(
       // have set them): only the quantity/date/grade follow the ledger line, and
       // the amount follows the quantity at the row's own price.
       await client.query(
-        `UPDATE sales SET date = $2, eggs_quantity = $3, grade = $4,
-                amount = CASE WHEN price_per_unit IS NOT NULL THEN round($3::numeric * price_per_unit, 2) ELSE amount END
+        `UPDATE sales SET date = $2, eggs_quantity = $3::integer, grade = $4,
+                amount = CASE WHEN price_per_unit IS NOT NULL THEN round($3::integer::numeric * price_per_unit, 2) ELSE amount END
           WHERE id = $1`,
         [entry.linkedSaleId, date, qty, section]
       );
@@ -80,9 +81,9 @@ export async function syncSaleForEntry(
       const rate = await rateFor(client, date);
       const price = rate ? salePrice(rate.rate, kind) : null;
       const { rows } = await client.query(
-        `INSERT INTO sales (date, farm_code, source_ledger_entry_id, transaction_type, buyer_or_recipient, eggs_quantity, grade, price_per_unit, amount)
-         VALUES ($1,$2,$3,$4::sales_transaction_type,$5,$6,$7,$8,$9) RETURNING id`,
-        [date, farmCode, entry.id, transactionTypeFor(kind), buyerFor(kind, entry.labelAsWritten), qty, section, price, price != null ? Math.round(qty * price * 100) / 100 : null]
+        `INSERT INTO sales (date, farm_code, source_ledger_entry_id, transaction_type, buyer_or_recipient, eggs_quantity, grade, price_per_unit, amount, recipient)
+         VALUES ($1,$2,$3,$4::sales_transaction_type,$5,$6,$7,$8,$9,$10) RETURNING id`,
+        [date, farmCode, entry.id, transactionTypeFor(kind), buyerFor(kind, entry.labelAsWritten), qty, section, price, price != null ? Math.round(qty * price * 100) / 100 : null, recipientFor(kind, entry.labelAsWritten)]
       );
       await client.query(`UPDATE daily_egg_stock_entries SET linked_sale_id = $2 WHERE id = $1`, [entry.id, rows[0].id]);
     }
@@ -114,9 +115,9 @@ export async function createSaleForEntryAs(
   const rate = await rateFor(client, date);
   const price = rate ? salePrice(rate.rate, kind) : null;
   const { rows } = await client.query(
-    `INSERT INTO sales (date, farm_code, source_ledger_entry_id, transaction_type, buyer_or_recipient, eggs_quantity, grade, price_per_unit, amount)
-     VALUES ($1,$2,$3,$4::sales_transaction_type,$5,$6,$7,$8,$9) RETURNING id`,
-    [date, farmCode, entry.id, transactionTypeFor(kind), buyerFor(kind, entry.labelAsWritten), qty, section, price, price != null ? Math.round(qty * price * 100) / 100 : null]
+    `INSERT INTO sales (date, farm_code, source_ledger_entry_id, transaction_type, buyer_or_recipient, eggs_quantity, grade, price_per_unit, amount, recipient)
+     VALUES ($1,$2,$3,$4::sales_transaction_type,$5,$6,$7,$8,$9,$10) RETURNING id`,
+    [date, farmCode, entry.id, transactionTypeFor(kind), buyerFor(kind, entry.labelAsWritten), qty, section, price, price != null ? Math.round(qty * price * 100) / 100 : null, recipientFor(kind, entry.labelAsWritten)]
   );
   await client.query(`UPDATE daily_egg_stock_entries SET linked_sale_id = $2 WHERE id = $1`, [entry.id, rows[0].id]);
   return { saleId: Number(rows[0].id), price, rateDate: rate ? rate.rateDate : null };

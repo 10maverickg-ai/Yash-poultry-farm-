@@ -552,3 +552,55 @@ Judged two ways: (A) the limits the app will use (our usual from the farm's own 
 - Weather on screen was seen with synthetic rows in the local copy only; the live table `weather_daily` is empty.
 - Daily photo upload and the reader (no Anthropic credit); Vercel preview logs; real iPhone / Android (Chromium at 360, 390, 820 px).
 - Migration 0043 was applied to live through the connector; the app was not run against the live database.
+
+# V12 — finish the app: medicines, hand entry, health alert, sales recipient, settings, audit (29 Oct 2026)
+
+Branch `claude/v12` from main after V11 (PR #22). Reports: `docs/AUDIT_V12.md` (written before any fix), `docs/INTEGRITY_V12.md`, `docs/SECURITY_V12.md`. Migrations 0044–0047 (all additive, no RLS change) are applied to the live Supabase project and to the local copy.
+
+| Item | Status | What / how checked |
+|---|---|---|
+| N1 audit first | done | `docs/AUDIT_V12.md`: 38 routes × 360/390/820 px = 114 loads then 232 links (0 errors, 0 broken, 0 sideways scroll) and 17 findings A1–A17, written before any fix; numbers for 28 Oct checked against SQL. Status table added at the end. |
+| N2a plain words | built | Egg stock, Feed bags, Production, Feed stock, Purchases settings and Home use plain words and units; page title per section; unnamed inputs have labels. |
+| N2b phone tables | built | `StackTables` + CSS: under 600 px tables become cards with a label beside each value; 44 px controls; links inside table cells 44 px. Final sweep: 138 loads, 0 sideways page scroll. |
+| N2c tests | built | `costs-check` and `period-check` derive expectations from the data; `scripts/dump-fixtures.mts`; `scripts/run-all.mts` prints a pass/fail table (**30 of 30 pass**). |
+| N2d What changed | built | V12 entry in plain words (V9–V11 entries were already there). |
+| N3 Medicines | built, photos NOT tried | Migration 0045 `medicine_lines`. `/medicines`: fast entry with "Save and add next", month list with totals per month, flock and shed, "None this month" (monthly_input_status), edit and delete with a confirmation, vaccination schedule done / due soon / overdue / later from the knowledge library, CSV/Excel import with template and dry run, priced lines flow to Costs as medicine / vaccine (checked: Aug ₹850, Sep "none" = ₹0, Oct "not entered"), register photo stored in the `register-photos` bucket. `medicines-check` 21 pass; browser tests at 360/390/820. **Photo upload to storage not tried here (no storage keys in the sandbox).** |
+| N4 Enter a day by hand | built | Migration 0046 (`source_tag` on the two ledger tables). `/day/enter`: all 11 flocks, feed box, both egg ledgers with one-tap answers, chick rows, live checks; saves with the SAME writers as the reader (source "manual entry"); anything that does not tie is saved flagged; replacing a saved day needs a tick. `manualday-check` 20 pass; browser test entering a full day at 360, 390 and 820 px (11 flock rows, feed box 198+120−137 = 181, ledgers, 3 sales created at the day's rate, replace flow, digit-by-digit typing). Test day removed afterwards. |
+| N5 health alert | built | Deaths above usual two days in a row AND eggs down more than 5% in a week → "What is wrong now" with "call the vet", one event per episode, grouped if 3 or more flocks. On the live data only BAB-2 (27/28 Oct) fires; no storm. `health-check` 11 pass. |
+| N6 sales recipient and re-price | built | Migration 0044 `sales.recipient` (backfilled: Farmfresh 79, Local 25, Yash P.F. farms 2); editable on the sale without touching prices; "Re-price the sales of this day" after a rate edit shows before / after totals and changes nothing until confirmed. `reprice-check` 11 pass. |
+| N7 integrity sweep | done | `scripts/integrity-v12.sql` (19 read-only checks) → `docs/INTEGRITY_V12.md`: every structural rule passes; 11 register-level questions are owner questions; no code bug. |
+| N8 performance, reliability, Settings | built | `/settings`: weather last fetched, last attempt (migration 0047 `weather_fetch_log`), plain-word errors, "Refresh weather now" (one press a minute). Cold first visit on slow 4G (1.6 Mbps, 150 ms) with 0 / 40 / 100 ms database delay per query: every page 1.16–1.41 s (goal 3 s); no index needed. Empty `weather_daily`: 20 pages fine. Database switched off: every page shows the plain "could not load" card and recovers. `weather-check` 24 pass. |
+| N9 security / safety | reviewed, 2 owner decisions | `docs/SECURITY_V12.md`: Next 16.2.10 → 16.4.3 (critical advisory) in its own commit; picture-only uploads with a safe extension; response headers; weather route cannot be hammered; client bundle has no secret. **RLS is off on all 45 tables with `anon` rights, and there is no login: owner decisions, not changed.** `safety-check` 7 pass. |
+| N10 final checks | done | See below. |
+
+## V12 Checks run
+- `npx tsc --noEmit`, `npx eslint app components lib scripts`, `npx next build` (Next 16.4.3): clean.
+- `npx tsx scripts/run-all.mts`: 30 of 30 scripts pass (analytics, costs, period, segment, realistic, import, weather, heat, health, medicines, manualday, reprice, safety, friendly, plain, std-for, rates and the 13 regression scripts).
+- Browser (production build, local copy of the live data at 28 Oct): `final12.cjs` sweep of 46 routes at 360, 390 and 820 px = 138 loads and 242 links: all 200, 0 console errors, 0 broken links, 0 sideways page scroll, 0 unlabelled inputs, one `h1` each, 0 error words, slowest 1.1 s. Tap targets under 44 px found there (Edit, change, topic links) were fixed and re-measured.
+- Forms re-tested in a browser after the Next upgrade: hand-entered day (save, flags, replace), Purchases, How targets are learned, Production entry, Settings button.
+- Live database: counts read-only (equal to the local copy); permissions read-only (S1).
+
+## V12 Known bugs / findings
+- FOUND AND FIXED: saving a ledger day again failed when a sale line already had its sale row (type error in `salesSync.ts`); would also have stopped a reader re-read of such a day.
+- FOUND AND FIXED: first hand-entry form lost keyboard focus after each digit (components defined inside the component); caught by ESLint.
+- OPEN: the "Show the board as of" list on Analytics is one long drop-down of 119 days (a date box would be better).
+- OPEN: the hand-entry screen asks for numbers for the 11 flocks one card at a time; there is no "copy yesterday" shortcut yet.
+- OPEN: owner overrides still apply to every season of a band (needs a non-additive migration).
+- OPEN: `exceljs` → `uuid` advisory (moderate); the only offered fix is an old exceljs that would break the Excel export.
+- The 28 Oct rate may still change (subsidy): after editing it, use "Re-price the sales of this day".
+
+## V12 Needs owner
+1. **Medicine and vaccine register photos for the past four months** (the Medicines screen is ready; also the import file template).
+2. **Row-level security decision** (RLS is off on all 45 tables and the `anon` role can read and write them), and **Vercel Deployment Protection / a password** (the app has no login), and **`CRON_SECRET`** on Vercel. See `docs/SECURITY_V12.md` S1–S3.
+3. August and September diesel (October is entered: ₹29,000); other costs: repairs, transport, vet, rent, interest.
+4. BAB-3 moult start day.
+5. Open ledger and chick-row questions: 29/30 Jul +300 small eggs; 21 Jul feed box 173 vs 70; the other ledger and feed-box breaks listed in `docs/INTEGRITY_V12.md` (D1–D10); 1 July page; 2 Oct and 20 Oct chick rows; 19/20/21 Oct feed boxes; 27/28 Oct pages; BAB-2 health on 27/28 Oct (12 and 14 deaths, HD 67%): call the vet.
+6. Confirm how sales to the Yash P.F. 12 / 13 / 14 farms should be priced (today they are saved at the Farmfresh price with the recipient "Yash P.F. farms").
+7. Vercel access approval (so logs of the Next 16.4.3 preview can be read); Anthropic credits (photo reading).
+
+## V12 Could not test
+- The photo reader and photo upload through the queue (no Anthropic credit; the manual entry screen covers the same tables).
+- Upload of a medicine register photo to Supabase storage (no storage keys in the sandbox).
+- A live weather fetch from here (Open-Meteo hosts are blocked); the live `weather_daily` already has 122 days from the deployed cron. "Refresh weather now" was tested to the point of the service being unreachable (plain-word message, log row) and with mocked answers.
+- The Vercel build of the Next 16.4.3 upgrade and the Vercel runtime logs (connector not approved). Revert commit "V12 N9: security update" to go back to 16.2.10.
+- A real iPhone Safari and Android Chrome (Chromium at 360, 390, 820 px with touch emulation was used); real database round-trip times (simulated with 40 and 100 ms of delay per query).

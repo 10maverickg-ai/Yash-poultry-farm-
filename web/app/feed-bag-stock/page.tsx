@@ -7,6 +7,8 @@ function todayISO() {
   return new Date().toISOString().slice(0, 10);
 }
 
+export const metadata = { title: "Feed bag stock" };
+
 export default async function FeedBagStockPage({
   searchParams,
 }: {

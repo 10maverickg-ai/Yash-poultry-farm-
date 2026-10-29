@@ -5,9 +5,11 @@ import type { CostInput } from "./engine";
 const num = (x: unknown) => (x == null ? null : Number(x));
 
 export async function loadCostInput(): Promise<CostInput> {
-  const [settings, purchases, diesel, prod, sales, birds, batches, statuses] = await Promise.all([
+  const [settings, purchases, medLines, diesel, prod, sales, birds, batches, statuses] = await Promise.all([
     pool.query(`SELECT cost_type, value, effective_from, month FROM cost_settings WHERE farm_code = $1`, [ACTIVE_FARM]),
     pool.query(`SELECT date, category, amount_inr FROM purchases WHERE farm_code = $1`, [ACTIVE_FARM]),
+    // V12: medicine and vaccine register lines WITH a cost count as medicine / vaccine cost; a line with no cost is "not entered", never zero
+    pool.query(`SELECT date, kind AS category, amount_inr FROM medicine_lines WHERE farm_code = $1 AND amount_inr IS NOT NULL`, [ACTIVE_FARM]),
     pool.query(`SELECT date, amount_inr FROM diesel_purchases WHERE farm_code = $1`, [ACTIVE_FARM]),
     pool.query(
       `SELECT date, flock_internal_id, eggs_total, feed_bags, bird_population
@@ -30,7 +32,7 @@ export async function loadCostInput(): Promise<CostInput> {
       effectiveFrom: String(r.effective_from).slice(0, 10),
       month: r.month,
     })),
-    purchases: purchases.rows.map((r) => ({ date: r.date, category: r.category, amount: Number(r.amount_inr) })),
+    purchases: [...purchases.rows, ...medLines.rows].map((r) => ({ date: r.date, category: r.category, amount: Number(r.amount_inr) })),
     diesel: diesel.rows.map((r) => ({ date: r.date, amount: Number(r.amount_inr) })),
     prod: prod.rows.map((r) => ({
       date: r.date,

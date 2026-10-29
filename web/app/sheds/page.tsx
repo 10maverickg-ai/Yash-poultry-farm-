@@ -3,6 +3,8 @@ import { AddShedForm, EditShedForm } from "@/components/ShedForms";
 
 export const dynamic = "force-dynamic";
 
+export const metadata = { title: "Sheds" };
+
 export default async function ShedsPage({
   searchParams,
 }: {

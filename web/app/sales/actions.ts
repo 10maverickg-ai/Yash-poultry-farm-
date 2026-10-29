@@ -11,6 +11,7 @@ import {
   optNum,
   optStr,
 } from "@/lib/forms";
+import { isRecipient } from "@/lib/sales/recipients";
 
 const TRANSACTION_TYPES = [
   "sale_farmfresh",
@@ -34,9 +35,11 @@ export async function updateSale(
     if (ttype && !TRANSACTION_TYPES.includes(ttype))
       throw new Error("Invalid transaction type");
 
+    const recipient = optStr(formData, "recipient");
+    if (recipient && !isRecipient(recipient)) throw new Error("Choose who got the eggs from the list.");
     const res = await pool.query(
       `UPDATE sales
-          SET transaction_type = $2, grade = $3, price_per_unit = $4, amount = $5
+          SET transaction_type = $2, grade = $3, price_per_unit = $4, amount = $5, recipient = COALESCE($7, recipient)
         WHERE id = $1 AND farm_code = $6`,
       [
         saleId,
@@ -45,6 +48,7 @@ export async function updateSale(
         optNum(formData, "price_per_unit"),
         optNum(formData, "amount"),
         ACTIVE_FARM,
+        recipient,
       ]
     );
     if (res.rowCount === 0) throw new Error("Sale not found");
@@ -66,4 +70,13 @@ export async function setBirdSaleBuyer(id: number, formData: FormData) {
   );
   revalidatePath("/sales");
   redirect("/sales");
+}
+
+// Quick change of who got the eggs, straight from the Sales list. Never touches the price or the amount.
+export async function setSaleRecipient(saleId: number, formData: FormData) {
+  const recipient = String(formData.get("recipient") ?? "");
+  if (!isRecipient(recipient)) redirect("/sales?error=" + encodeURIComponent("Choose who got the eggs from the list."));
+  await pool.query(`UPDATE sales SET recipient = $2 WHERE id = $1 AND farm_code = $3`, [saleId, recipient, ACTIVE_FARM]);
+  revalidatePath("/sales");
+  redirect("/sales?saved=1");
 }

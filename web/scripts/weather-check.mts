@@ -1,6 +1,7 @@
 // Tests the weather fetch/parse/refresh with MOCKED responses (the sandbox cannot reach Open-Meteo).  npx tsx scripts/weather-check.mts
 import { parseDaily, fetchWeather, archiveUrl, forecastUrl, todayIST, addDaysISO, FARM_LAT, FARM_LON } from "../lib/weather/openMeteo.ts";
-import { refreshWeather, loadWeather } from "../lib/weather/store.ts";
+import { refreshWeather, loadWeather, loadWeatherStatus } from "../lib/weather/store.ts";
+import { plainWeatherError } from "../lib/weather/plain.ts";
 
 let failed = 0;
 const ok = (n: string, c: boolean, x = "") => { if (!c) failed++; console.log(`${c ? "PASS" : "FAIL"}  ${n}${c ? "" : "  " + x}`); };
@@ -59,5 +60,26 @@ ok("refresh with the service DOWN: status unavailable, nothing written, no excep
 const r5 = await refreshWeather({ fetchFn: good, query: async () => { throw new Error("database offline"); }, now });
 ok("refresh with the DATABASE down: unavailable, no exception", r5.status === "unavailable");
 ok("load with a missing table: empty list, no exception", (await loadWeather(async () => { throw new Error('relation "weather_daily" does not exist'); })).length === 0);
+
+// Settings page helpers (V12 N8)
+ok("plain words: timeout / 429 / 503 / network / missing table / unknown each get a sentence without technical words",
+  [["weather service did not answer in time", /did not answer in time/], ["weather service answered 429", /too many requests/], ["weather service answered 503", /trouble on its side/], ["archive: fetch failed", /could not reach/], ['relation "weather_fetch_log" does not exist', /tables are missing/], ["zzz", /could not be updated/]]
+    .every(([raw, re]) => (re as RegExp).test(plainWeatherError(raw as string)) && !/archive|forecast|HTTP|undefined/.test(plainWeatherError(raw as string))) && plainWeatherError("") === "");
+const logged: unknown[][] = [];
+const q2 = async (sql: string, params?: unknown[]) => {
+  if (/INSERT INTO weather_fetch_log/.test(sql)) { logged.push(params as unknown[]); return { rows: [] }; }
+  if (/count\(\*\)/.test(sql) && /min\(date\)/.test(sql)) return { rows: [{ n: 122, first: "2026-07-02", last: "2026-10-31", at: "2026-10-29T00:30:00Z" }] };
+  if (/ORDER BY attempted_at DESC/.test(sql)) return { rows: [{ attempted_at: "2026-10-29T00:30:00Z", trigger: "daily job", outcome: "failed", rows_written: 0, message: "weather service answered 503" }] };
+  if (/max\(attempted_at\)/.test(sql)) return { rows: [{ at: "2026-10-28T00:30:00Z" }] };
+  if (/count\(\*\)::int AS n, max\(fetched_at\)/.test(sql)) return { rows: [{ n: 122, last: "2026-10-28T00:30:00Z" }] };
+  return { rows: [] };
+};
+const st = await loadWeatherStatus(q2);
+ok("status: counts, range, newest fetch, last attempt and last good attempt", st.available && st.rows === 122 && st.firstDate === "2026-07-02" && st.lastDate === "2026-10-31" && st.fetchedAt === "2026-10-29T00:30:00.000Z" && st.lastAttempt?.outcome === "failed" && st.lastGood === "2026-10-28T00:30:00.000Z", JSON.stringify(st));
+ok("status: database down -> available false, no exception", (await loadWeatherStatus(async () => { throw new Error("db down"); })).available === false);
+ok("status: log table missing -> still shows the weather, no last attempt", await (async () => { const s = await loadWeatherStatus(async (sql: string) => { if (/weather_fetch_log/.test(sql)) throw new Error("relation does not exist"); return { rows: [{ n: 3, first: "2026-07-02", last: "2026-07-04", at: "2026-10-29T00:00:00Z" }] }; }); return s.available && s.rows === 3 && s.lastAttempt === null; })());
+const rf = await refreshWeather({ fetchFn: boom, query: async (s: string, p?: unknown[]) => (/count/.test(s) ? { rows: [{ n: 0, last: null }] } : q2(s, p)), now, force: true, trigger: "button" });
+ok("refresh by button with the service down: logged as failed with the button as the trigger", rf.status === "unavailable" && logged.some((p) => p[1] === "button" && p[2] === "failed"), JSON.stringify(logged));
+ok("refresh: a log table that is missing never breaks the refresh", (await refreshWeather({ fetchFn: good, now, force: true, query: async (s: string, p?: unknown[]) => { if (/weather_fetch_log/.test(s)) throw new Error("no table"); return query(s, p); } })).status === "refreshed");
 console.log(failed ? `\n${failed} FAILED` : "\nall passed");
 process.exit(failed ? 1 : 0);

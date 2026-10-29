@@ -3,11 +3,15 @@ import { listRates } from "@/lib/rates/store";
 import { RatesForm } from "@/components/RatesForm";
 import { pool } from "@/lib/db";
 import { ACTIVE_FARM } from "@/lib/farm";
+import { datesNeedingReprice } from "@/lib/rates/repriceStore";
+import { dmy } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
+export const metadata = { title: "Egg rates" };
+
 export default async function RatesPage() {
-  const rates = await listRates(45);
+  const [rates, mismatched] = await Promise.all([listRates(45), datesNeedingReprice(10)]);
   // Days that have ledger sale lines but no rate of their own.
   const { rows: missing } = await pool.query(
     `SELECT s.date, count(*)::int AS lines
@@ -26,6 +30,13 @@ export default async function RatesPage() {
         local sales go at the rate + ₹0.01 (a person&apos;s name, “local”, or any lot up to about 150 eggs). A day without its own rate reuses the previous day&apos;s for up to 3 days and says “rate not updated”.
       </p>
       <RatesForm />
+
+      {mismatched.length > 0 && (
+        <div className="flag-banner">
+          <b>Some saved sales are not at the day&apos;s rate</b> (for example after a rate was corrected): {mismatched.map((d) => dmy(d.date)).join(", ")}. Saving a rate never changes old sales by itself.{" "}
+          <Link href={`/sales/reprice?date=${mismatched[0].date}`}>Look at them and re-price →</Link>
+        </div>
+      )}
 
       {missing.length > 0 && (
         <>
