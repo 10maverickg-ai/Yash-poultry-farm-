@@ -2,6 +2,9 @@ import Link from "next/link";
 import { QueueUploader } from "@/components/QueueUploader";
 import { QueueList } from "@/components/QueueList";
 import { listQueue } from "@/lib/uploadQueue/store";
+import { StaffUpload } from "@/components/StaffUpload";
+import { currentSession } from "@/lib/auth/guard";
+import { redirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
 // Reading one register photo takes a while (several vision calls); give each
@@ -11,6 +14,18 @@ export const maxDuration = 300;
 export const metadata = { title: "Upload register photos" };
 
 export default async function UploadPage() {
+  const session = await currentSession();
+  if (!session) redirect("/login?e=expired");
+  // A staff phone gets a bare photo picker: no queue, no saved days, no flock names, nothing read from the registers.
+  if (session.role === "staff") {
+    return (
+      <>
+        <h1>Upload register photos</h1>
+        <p className="muted">Take a clear photo of each register page, with the whole page in view. Choose the date written on the page.</p>
+        <StaffUpload />
+      </>
+    );
+  }
   const items = await listQueue();
   const count = (s: string) => items.filter((i) => i.status === s).length;
   return (

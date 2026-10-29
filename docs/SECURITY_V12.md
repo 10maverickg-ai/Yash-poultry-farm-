@@ -48,3 +48,15 @@ Scope: what the app exposes, what it keeps secret, and what a stranger or a mist
 1. Decide on **S1**: row-level security and the `anon`/`authenticated` rights on the live database.
 2. Switch on **Deployment Protection** (or a password) for the web address (**S2**), and set **`CRON_SECRET`** on Vercel (**S3**).
 3. Approve the Vercel link so the next session can read the build and runtime logs of the preview with the Next 16.4.3 upgrade (**S5**).
+
+
+## Status after V13 (29 Oct 2026)
+
+| # | V12 finding | Now |
+|---|---|---|
+| S1 | RLS off on all 45 tables and `anon` may read and write them | **Analysed, not changed.** Nothing in the app uses the public interface. A tested fix and rollback are in `db/proposed/` (not applied); the owner's decision is requested in `docs/SECURITY_V13.md`. The two login tables added in V13 (migration 0048) follow the same open pattern until that is applied. |
+| S2 | No login | **Fixed in the app** (`docs/AUTH.md`): shared owner password, staff PIN limited to uploading photos, lock-outs, recent logins. The owner sets `APP_PASSWORD_HASH`, `APP_STAFF_PIN_HASH`, `SESSION_SECRET`, `CRON_SECRET` privately in Vercel and redeploys; until then every page says "Login is not set up yet". Vercel Deployment Protection is not needed. |
+| S3 | `CRON_SECRET` | **Now required** for the weather job (it is closed without it); set it with the other three. |
+| S4 | Public `register-photos` bucket | Unchanged (photos can be opened by anyone who has the long address; the pages that list them are behind the login). |
+| S5 | Next 16.2.10 advisories | Stays on 16.4.3. |
+| S6 to S8 | Upload type checks, headers, weather route | Unchanged; the weather route is now stricter (see S3). |

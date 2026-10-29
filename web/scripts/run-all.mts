@@ -24,7 +24,7 @@ if (!fx) {
 const needsFixture = ["analytics-check", "costs-check", "period-check", "segment-check", "health-check"];
 const checks = [
   "analytics-check", "costs-check", "period-check", "segment-check", "std-for-check", "rates-check", "friendly-check", "plain-check",
-  "realistic-check", "import-check", "weather-check", "heat-check", "health-check", "medicines-check", "manualday-check", "reprice-check", "safety-check",
+  "realistic-check", "import-check", "weather-check", "heat-check", "health-check", "medicines-check", "manualday-check", "reprice-check", "safety-check", "auth-check", "pwa-check",
 ].filter((n) => readdirSync("scripts").includes(`${n}.mts`));
 const regressions = readdirSync("scripts").filter((f) => /^regression-.*\.ts$/.test(f)).sort();
 

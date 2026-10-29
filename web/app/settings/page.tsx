@@ -4,7 +4,12 @@ import { ACTIVE_FARM } from "@/lib/farm";
 import { loadWeatherStatus } from "@/lib/weather/store";
 import { plainWeatherError, agoText, weatherIsStale } from "@/lib/weather/plain";
 import { WeatherRefresh } from "@/components/WeatherRefresh";
-import { refreshWeatherNow } from "./actions";
+import { refreshWeatherNow, logOutStaffPhones } from "./actions";
+import { StaffLogoutButton } from "@/components/StaffLogoutButton";
+import { InstallSteps } from "@/components/InstallSteps";
+import { requireOwner } from "@/lib/auth/guard";
+import { getStore } from "@/lib/auth/attempts";
+import { staffEnabled } from "@/lib/auth/session";
 import { dmy } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -13,8 +18,13 @@ export const metadata = { title: "Settings" };
 
 const stamp = (iso: string | null) => (iso ? new Date(iso).toLocaleString("en-IN", { timeZone: "Asia/Kolkata", day: "numeric", month: "short", year: "numeric", hour: "numeric", minute: "2-digit", hour12: true }) + " (India time)" : "never");
 
+const WHEN = (ms: number) => new Date(ms).toLocaleString("en-IN", { timeZone: "Asia/Kolkata", day: "numeric", month: "short", hour: "numeric", minute: "2-digit", hour12: true });
+
 export default async function SettingsPage() {
-  const [w, data] = await Promise.all([
+  await requireOwner();
+  const store = getStore();
+  const [recent, w, data] = await Promise.all([
+    store.recent(30),
     loadWeatherStatus(),
     pool
       .query(
@@ -58,6 +68,53 @@ export default async function SettingsPage() {
         </p>
         <WeatherRefresh action={refreshWeatherNow} />
       </section>
+
+      <h2>Your login</h2>
+      <section className="card stack">
+        <p style={{ margin: 0 }}>You are logged in. The login keeps this phone logged in for 30 days of use.</p>
+        <form action="/api/logout" method="post"><button type="submit" className="btn-secondary">Log out of this phone</button></form>
+      </section>
+
+      <h2>Staff PIN</h2>
+      <section className="card stack">
+        <p style={{ margin: 0 }}>
+          Staff PIN: <b>{staffEnabled(process.env) ? "set" : "not set"}</b>.{" "}
+          {staffEnabled(process.env) ? "A phone that logs in with the PIN can only upload register photos." : "Until it is set, nobody can log in as staff."}
+        </p>
+        <p className="muted an-tiny" style={{ margin: 0 }}>
+          The PIN is changed in Vercel, not here (so it is never typed into this app): run <code>npx tsx scripts/make-password-hash.mts</code>, type <b>staff</b>, choose 4 to 6 digits, paste the line it prints as <code>APP_STAFF_PIN_HASH</code> in Vercel (Project Settings, Environment Variables) and redeploy. Changing it logs every staff phone out. The steps are in docs/AUTH.md.
+        </p>
+        <StaffLogoutButton action={logOutStaffPhones} />
+      </section>
+
+      <h2>Recent logins</h2>
+      <section className="card stack">
+        {recent.length === 0 ? (
+          <p className="muted" style={{ margin: 0 }}>No logins recorded yet.</p>
+        ) : (
+          <div className="table-wrap">
+            <table>
+              <thead><tr><th>When (India time)</th><th>Tried</th><th>Result</th><th>Phone / address</th></tr></thead>
+              <tbody>
+                {recent.map((a) => (
+                  <tr key={a.ref}>
+                    <td>{WHEN(a.at)}</td>
+                    <td>{a.role === "staff" ? "Staff PIN" : "Owner password"}</td>
+                    <td>{a.ok ? "Logged in" : a.blocked ? "Refused (too many tries)" : "Wrong"}</td>
+                    <td className="muted">{a.ip.slice(0, 6)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        <p className="muted an-tiny" style={{ margin: 0 }}>
+          Wrong tries are counted in {store.kind() === "database" ? "the database (table login_attempts)" : "memory on this server only (the table login_attempts is not reachable, so the counts reset when the server restarts)"}. The last column is a short code for the address, not the address itself: the same code means the same phone or network. Five wrong tries in 15 minutes lock that address and that phone for 15 minutes; 20 wrong PINs in an hour pause the PIN for an hour (the owner password keeps working).
+        </p>
+      </section>
+
+      <h2>How to install</h2>
+      <InstallSteps />
 
       <h2>Your records</h2>
       <section className="card stack">

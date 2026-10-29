@@ -1,5 +1,6 @@
 "use server";
 
+import { requireOwner } from "@/lib/auth/guard";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { pool, withTransaction } from "@/lib/db";
@@ -31,6 +32,7 @@ const TABLES: Record<FlaggedSource, string> = {
 // clears the flag itself. Editing a record's data resets reviewed_by_owner,
 // so a changed record re-enters the queue if it still violates a rule.
 export async function markReviewed(source: FlaggedSource, id: number) {
+  await requireOwner();
   const table = TABLES[source];
   if (!table) throw new Error("Unknown record type");
   await pool.query(
@@ -46,6 +48,7 @@ export async function markReviewed(source: FlaggedSource, id: number) {
 // through the parent summary row. Same acknowledge-only semantics as
 // markReviewed above.
 export async function markEggEntryReviewed(id: number) {
+  await requireOwner();
   await pool.query(
     `UPDATE daily_egg_stock_entries SET reviewed_by_owner = true
       WHERE id = $1
@@ -62,6 +65,7 @@ export async function markEggEntryReviewed(id: number) {
 // (daily_production_page_issues, migration 0015) so a page issue can be
 // acknowledged or dismissed independently of any flock's own flag.
 export async function markPageIssueReviewed(id: number) {
+  await requireOwner();
   await pool.query(
     `UPDATE daily_production_page_issues SET reviewed_by_owner = true WHERE id = $1 AND farm_code = $2`,
     [id, ACTIVE_FARM]
@@ -71,6 +75,7 @@ export async function markPageIssueReviewed(id: number) {
 }
 
 export async function deletePageIssue(id: number) {
+  await requireOwner();
   await pool.query(
     `UPDATE daily_production_page_issues SET deleted_at = now() WHERE id = $1 AND farm_code = $2 AND deleted_at IS NULL`,
     [id, ACTIVE_FARM]
@@ -84,6 +89,7 @@ export async function deletePageIssue(id: number) {
 // small table so a failed ledger/feed read can be acknowledged or dismissed
 // independently of any Daily Production flag.
 export async function markLedgerIssueReviewed(id: number) {
+  await requireOwner();
   await pool.query(
     `UPDATE ledger_extraction_issues SET reviewed_by_owner = true WHERE id = $1 AND farm_code = $2`,
     [id, ACTIVE_FARM]
@@ -93,6 +99,7 @@ export async function markLedgerIssueReviewed(id: number) {
 }
 
 export async function deleteLedgerIssue(id: number) {
+  await requireOwner();
   await pool.query(
     `UPDATE ledger_extraction_issues SET deleted_at = now() WHERE id = $1 AND farm_code = $2 AND deleted_at IS NULL`,
     [id, ACTIVE_FARM]
@@ -107,6 +114,7 @@ export async function deleteLedgerIssue(id: number) {
 // daily_production row from the raw numbers already saved — the owner never
 // has to re-read the photo or re-type anything, just pick the right flock.
 export async function resolveExtraction(unresolvedId: number, formData: FormData) {
+  await requireOwner();
   const flockInternalId = formData.get("flockInternalId");
   if (typeof flockInternalId !== "string" || !flockInternalId) {
     throw new Error("Choose a flock");
@@ -164,6 +172,7 @@ export async function deleteFlaggedRecords(input: {
   productionIds?: number[];
   unresolvedIds?: number[];
 }) {
+  await requireOwner();
   const productionIds = input.productionIds ?? [];
   const unresolvedIds = input.unresolvedIds ?? [];
   if (productionIds.length === 0 && unresolvedIds.length === 0) return;
@@ -199,6 +208,7 @@ export async function deleteFlaggedRecords(input: {
 // this file at this same level of simplicity.
 
 export async function resolveMovementAsTransfer(id: number, formData: FormData) {
+  await requireOwner();
   const counterpartFlockId = formData.get("counterpartFlockId");
   if (typeof counterpartFlockId !== "string" || !counterpartFlockId) {
     throw new Error("Choose a flock");
@@ -209,12 +219,14 @@ export async function resolveMovementAsTransfer(id: number, formData: FormData) 
 }
 
 export async function resolveMovementAsAnilFarm(id: number) {
+  await requireOwner();
   await resolveFlockMovementAsAnilFarm(id);
   revalidatePath("/flagged");
   redirect("/flagged");
 }
 
 export async function resolveMovementAsSale(id: number, formData: FormData) {
+  await requireOwner();
   const priceRaw = formData.get("pricePerBird");
   const price = typeof priceRaw === "string" && priceRaw.trim() !== "" ? Number(priceRaw) : null;
   if (price !== null && (!Number.isFinite(price) || price <= 0)) {
@@ -226,18 +238,21 @@ export async function resolveMovementAsSale(id: number, formData: FormData) {
 }
 
 export async function resolveMovementAsPurchased(id: number) {
+  await requireOwner();
   await resolveFlockMovementAsPurchased(id);
   revalidatePath("/flagged");
   redirect("/flagged");
 }
 
 export async function resolveMovementAsCull(id: number) {
+  await requireOwner();
   await resolveFlockMovementAsCull(id);
   revalidatePath("/flagged");
   redirect("/flagged");
 }
 
 export async function resolveMovementAsCountAdjustment(id: number) {
+  await requireOwner();
   await resolveFlockMovementAsCountAdjustment(id);
   revalidatePath("/flagged");
   redirect("/flagged");
@@ -258,6 +273,7 @@ const EGG_ANSWERS = {
 export type EggAnswer = keyof typeof EGG_ANSWERS;
 
 export async function answerEggEntry(id: number, answer: string) {
+  await requireOwner();
   const a = EGG_ANSWERS[answer as EggAnswer];
   if (!a) throw new Error("Unknown answer");
   await withTransaction(async (client) => {

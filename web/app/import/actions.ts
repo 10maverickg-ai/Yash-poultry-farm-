@@ -1,5 +1,6 @@
 "use server";
 
+import { requireOwner } from "@/lib/auth/guard";
 import { revalidatePath } from "next/cache";
 import { pool, withTransaction } from "@/lib/db";
 import { ACTIVE_FARM } from "@/lib/farm";
@@ -17,6 +18,7 @@ export interface ImportState {
 // Preview / dry run (default) or import. Never overwrites a day that already exists unless "replace" is ticked on the
 // import step. Never calls the reader / Anthropic. Rows are stored like hand-entered days, tagged "paper history import".
 export async function paperHistoryAction(_prev: ImportState | null, formData: FormData): Promise<ImportState> {
+  await requireOwner();
   try {
     const file = formData.get("file");
     if (!(file instanceof File) || file.size === 0) return { mode: "error", message: "Choose a CSV or Excel file first." };

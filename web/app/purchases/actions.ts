@@ -1,5 +1,6 @@
 "use server";
 
+import { requireOwner } from "@/lib/auth/guard";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { pool } from "@/lib/db";
@@ -23,6 +24,7 @@ const positive = (v: FormDataEntryValue | null) => {
 };
 
 export async function addCostSetting(formData: FormData) {
+  await requireOwner();
   const type = String(formData.get("type") ?? "");
   const value = positive(formData.get("value"));
   const from = String(formData.get("effective_from") ?? "");
@@ -41,6 +43,7 @@ export async function addCostSetting(formData: FormData) {
 }
 
 export async function addPurchase(formData: FormData) {
+  await requireOwner();
   const category = String(formData.get("category") ?? "");
   const date = String(formData.get("date") ?? "");
   const item = String(formData.get("item") ?? "").trim();
@@ -61,6 +64,7 @@ export async function addPurchase(formData: FormData) {
 }
 
 export async function addDiesel(formData: FormData) {
+  await requireOwner();
   const date = String(formData.get("date") ?? "");
   const litres = positive(formData.get("litres"));
   const amount = positive(formData.get("amount_inr"));
@@ -87,6 +91,7 @@ async function setStatus(month: string, key: string, status: "none" | "confirmed
 }
 
 export async function completeMonthInput(month: string, key: string, formData: FormData) {
+  await requireOwner();
   if (!/^\d{4}-\d{2}$/.test(month) || !(MONTH_INPUTS as readonly string[]).includes(key)) back("Unknown month or item.");
   const first = `${month}-01`;
   const num = (name: string) => positive(formData.get(name));

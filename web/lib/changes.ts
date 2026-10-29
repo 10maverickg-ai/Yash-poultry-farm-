@@ -9,6 +9,17 @@ export interface Change {
 export const CHANGES: Change[] = [
   {
     date: "2026-10-29",
+    title: "A login for the app, a staff PIN for photo uploads, and the app on your home screen",
+    points: [
+      "The app now asks for a password before it shows anything. Type the owner password to see everything. Staff type a 4 to 6 digit PIN into the same box and can only upload register photos: they never see Today, Analytics, sales, costs or any record.",
+      "Wrong tries are slowed down and counted: five wrong tries in 15 minutes lock that phone for 15 minutes, and 20 wrong PINs in an hour pause the PIN for an hour (your password keeps working). Settings shows Recent logins, whether a staff PIN is set, and a button “Log out all staff phones”.",
+      "A phone stays logged in for 30 days of use. “Log out” is in the top bar and in Settings. If the login is not set up yet, every page just says “Login is not set up yet” and shows nothing else.",
+      "You can put the app on your phone's home screen (Settings, How to install): on an iPhone tap Share, then Add to Home Screen; on Android tap Install. It opens like an app, with its own egg-and-leaf icon. If there is no signal it says so and offers Retry; it never keeps farm figures on the phone.",
+      "Behind the scenes: the database's public door is written up with a ready, untested-on-live fix (docs/SECURITY_V13.md). Nothing was changed there; it needs your decision.",
+    ],
+  },
+  {
+    date: "2026-10-29",
     title: "Medicines ready for the register photos, enter a day by hand, health alert, who got the eggs",
     points: [
       "Medicines and vaccines: type a line quickly and tap “Save and add next”, see each month with totals per flock, tap “None this month” when nothing was given, edit or delete a line (it asks first), and import a CSV or Excel file (a template and a dry run that changes nothing come first). A priced line goes into Costs as medicines or vaccines. The vaccination list now says done, due soon, overdue or later.",

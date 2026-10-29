@@ -1,5 +1,6 @@
 "use server";
 
+import { requireOwner } from "@/lib/auth/guard";
 import { revalidatePath } from "next/cache";
 import { pool, withTransaction } from "@/lib/db";
 import { ACTIVE_FARM } from "@/lib/farm";
@@ -11,6 +12,7 @@ const SEGMENTS = ["main", "young"] as const;
 // "not set" just sets it (it counts for all dates). It can also be cleared back to "not set" (from today on; its
 // past stays in the group it was in).
 export async function setFlockSegment(flockId: string, formData: FormData): Promise<void> {
+  await requireOwner();
   const raw = String(formData.get("segment") ?? "");
   const clear = raw === "none";
   if (!clear && !(SEGMENTS as readonly string[]).includes(raw)) return;

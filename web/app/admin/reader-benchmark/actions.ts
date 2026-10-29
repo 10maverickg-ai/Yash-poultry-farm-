@@ -1,5 +1,6 @@
 "use server";
 
+import { requireOwner } from "@/lib/auth/guard";
 import { revalidatePath } from "next/cache";
 import { pool } from "@/lib/db";
 import { ACTIVE_FARM } from "@/lib/farm";
@@ -22,6 +23,7 @@ export async function uploadBenchmarkPhotoAction(
   _prev: UploadBenchmarkPhotoOutcome | null,
   formData: FormData
 ): Promise<UploadBenchmarkPhotoOutcome> {
+  await requireOwner();
   const key = formData.get("key");
   const configured = process.env.READER_BENCHMARK_KEY;
   if (!configured || typeof key !== "string" || key !== configured) {
