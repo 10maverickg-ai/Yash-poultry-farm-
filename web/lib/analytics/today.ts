@@ -1,6 +1,8 @@
 // The Today screen in three plain parts (V9 J8): what is right, what is wrong now, what may go wrong soon.
 // Every item says one plain sentence, the numbers behind it, what to do (for the wrong ones) and where to tap.
 import { slipItems } from "./realistic";
+import { forecastAlerts } from "./heat";
+import { todayIST } from "@/lib/weather/openMeteo";
 import {
   flockCards,
   SEGMENT_NAME,
@@ -56,7 +58,8 @@ export function buildToday(
   extras: PeriodExtras,
   cost: CostInput,
   asOf: string,
-  missing: { text: string; href: string; cta: string }[]
+  missing: { text: string; href: string; cta: string }[],
+  todayDate: string = todayIST()
 ): TodaySummary {
   const right: TodayItem[] = [];
   const wrong: TodayItem[] = [];
@@ -130,6 +133,20 @@ export function buildToday(
         group: g,
       });
     }
+    // deaths this week, judged against OUR usual level (V11); the heat sentence explains, it never changes the colour
+    for (const c of mine) {
+      const d = c.death;
+      if (!d || d.weekPct == null || (d.status !== "red" && d.status !== "amber")) continue;
+      const item: TodayItem = {
+        id: `deaths-${d.status}-${c.flockId}`,
+        title: `${c.label}: ${d.status === "red" ? "many more birds are dying than usual" : "a few more birds are dying than usual"} (${n2(d.weekPct)}% this week).`,
+        detail: `${d.usual != null ? `Our usual is ${n2(d.usual)}% a week (${d.seasonLabel}); ` : `Our usual is not learned yet, so the starting limits apply (amber ${n2(d.amber)}%, red ${n2(d.red)}%); `}the breeder's book says ${d.bookPct != null ? n2(d.bookPct) + "%" : "–"}.${c.heatNote ? ` ${c.heatNote[0].toUpperCase()}${c.heatNote.slice(1)}.` : ""}`,
+        href: flockHref(c),
+        group: g,
+      };
+      if (d.status === "red") wrong.push({ ...item, action: "Look at the dead birds, water, feed and shed temperature today; call the vet if it continues." });
+      else soon.push(item);
+    }
     for (const sl of slipItems(ctx).filter((x) => x.group === g)) soon.push({ id: sl.id, title: sl.title, detail: sl.detail, href: "/analytics/targets", group: g });
     for (const c of mine.filter((x) => x.status === "amber")) {
       soon.push({ id: `amber-${c.flockId}`, title: `${c.label} is a little below our realistic target.`, detail: c.statusNote, href: flockHref(c), group: g });
@@ -156,6 +173,8 @@ export function buildToday(
       group: "farm",
     });
   }
+  // 3-day weather forecast (V11): very hot or very cold days coming
+  for (const f of forecastAlerts(ctx.input.weather ?? [], todayDate)) soon.unshift({ id: f.id, title: f.title, detail: f.detail, href: "/analytics/reference", group: "farm" });
   if (money.missing.length === 0 && money.revenue > 0) right.push({ id: "cash", title: `Cash for the day: ${inr(money.revenue)} from eggs sold; estimated cost ${inr(money.cost.total)}.`, href: "/purchases", group: "farm" });
   if (extras.sales.length && money.unpricedEggsSold === 0) right.push({ id: "priced", title: "Every egg sold is priced.", href: "/sales", group: "farm" });
   return { right, wrong, soon };

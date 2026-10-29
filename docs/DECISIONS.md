@@ -2575,3 +2575,12 @@ change is NOT reflected here.
 - An owner override per band wins over the learned value (it is still capped at the book) and is marked "set by owner"; one button returns to the learned value.
 - A 3-point fall of a band's learned HD ratio between two consecutive month-end computations raises an amber "our realistic level is slipping" alert. Sudden-drop alerts (a flock against itself) are unchanged.
 - Open for the owner: 70th percentile versus median (`REALISTIC_CONFIG.percentile`).
+
+
+## V11 — seasons, deaths, weather (29 Oct 2026)
+- **Deaths are judged on the farm's own learned rate per season, not against the breeder's book.** The book assumes a modern controlled-environment house; this is a 25-year-old cage-battery farm in Mohali / Dandrala, Punjab. The weekly death rate (deaths in 7 days ÷ the week's average birds × 100) is learned per group, 5-week age band and season; "our usual" is its 70th percentile; amber above usual × 1.5, red above × 2.5. Guard rails: a week above the starting red is always at least amber, the learned red is never above 2× the starting red, and weeks above the starting red are not counted as "usual".
+- **Starting values** (until a band has ≥ 28 healthy flock-days from ≥ 2 flocks): cool/cold/spring 0.35 amber, 0.6 red; monsoon/hot 0.55 amber, 0.9 red (% of birds per week). They come from the farm's own 2026 data and are labelled "starting values from farm's 2026 data, confirm with vet".
+- **70th percentile kept** as the meaning of "a reasonable good week" (owner, 29 Oct).
+- **Seasons** (one map in `REALISTIC_CONFIG.seasonByMonth`): HOT Apr–Jun, MONSOON Jul–Sep, COOL Oct–Nov, COLD Dec–Feb, SPRING Mar. A band is learned per season when the season alone has enough data, else the all-season value is used and labelled.
+- **Weather from Open-Meteo** (free, no key) for Mohali (30.70, 76.72), cached in `weather_daily`, refreshed once a day by a cron and quietly after page loads, never blocking a page. Heat sentences explain a low HD or high deaths on a hot day (> 35 °C, or > 30 °C with humidity > 70%); they never change a colour. Forecast alerts: ≥ 38 °C or < 4 °C within 3 days.
+- **The reference is not a published standard.** No published benchmark for Indian cage farms by Punjab climate was found; the Farm reference page says so and asks for the vet's confirmation.

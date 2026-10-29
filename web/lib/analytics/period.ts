@@ -147,6 +147,7 @@ export interface PeriodSummary {
   partial: boolean; // fewer days with data than days in the period
   dataNote: string; // "7 of 7 days have data" / "so far, 3 days" etc.
   series: DayPoint[];
+  maxTemps: Record<string, number>; // max temperature (°C) per day of the period that has weather; {} = weather not available
   eggs: {
     total: number;
     trays: number;
@@ -218,6 +219,8 @@ export function summarizePeriod(ctx: Ctx, cost: CostInput, extras: PeriodExtras,
     const t = dayTotals(ctx, d, seg)!;
     return { date: d, eggs: t.eggs, hd: t.hd, deaths: t.mort, feedBags: t.feed, birds: t.birds };
   });
+  const maxTemps: Record<string, number> = {};
+  for (const [d, w] of ctx.weatherByDate) if (d >= from && d <= to && w.tempMax != null) maxTemps[d] = w.tempMax;
   const inScope = (r: { flockId: string; date: string }) => seg === "all" || segmentOn(ctx, r.flockId, r.date) === seg;
   const rows = ctx.input.prod.filter((r) => r.date >= from && r.date <= to && inScope(r));
   const feedRows = rows.filter((r) => r.feed != null);
@@ -412,6 +415,7 @@ export function summarizePeriod(ctx: Ctx, cost: CostInput, extras: PeriodExtras,
     partial: n < range.days,
     dataNote,
     series,
+    maxTemps,
     eggs: {
       total: eggsTotal,
       trays: eggsTotal / 30,

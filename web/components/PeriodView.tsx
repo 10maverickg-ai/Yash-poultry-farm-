@@ -289,17 +289,19 @@ function SeriesBlock({ s, every }: { s: PeriodSummary; every?: number }) {
   for (let d = s.range.from; d <= s.range.to && days.length < 40; d = new Date(Date.parse(d + "T00:00:00Z") + 86400000).toISOString().slice(0, 10)) days.push(d);
   const by = new Map(s.series.map((p) => [p.date, p]));
   const pts = (f: (p: (typeof s.series)[number]) => number | null) => days.map((d) => ({ label: lab(d), value: by.has(d) ? f(by.get(d)!) : null }));
+  // max temperature as a thin line on the HD and deaths charts (V11); nothing is drawn when the weather is not available
+  const temp = Object.keys(s.maxTemps).length ? { name: "max temperature", unit: "°C", values: days.map((d) => s.maxTemps[d] ?? null) } : undefined;
   return (
     <section className="card" aria-label="Daily charts">
       <SeriesChart title="Eggs per day" unit="eggs" kind="bar" points={pts((p) => p.eggs)} labelEvery={every} />
-      <SeriesChart title="Hen-day %" unit="% of birds" kind="line" points={pts((p) => p.hd)} labelEvery={every} />
+      <SeriesChart title="Hen-day %" unit="% of birds" kind="line" points={pts((p) => p.hd)} labelEvery={every} overlay={temp} />
       {s.range.kind === "month" && (
         <>
-          <SeriesChart title="Deaths per day" unit="birds" kind="bar" points={pts((p) => p.deaths)} labelEvery={every} />
+          <SeriesChart title="Deaths per day" unit="birds" kind="bar" points={pts((p) => p.deaths)} labelEvery={every} overlay={temp} />
           <SeriesChart title="Feed per day" unit="bags" kind="bar" points={pts((p) => p.feedBags)} labelEvery={every} />
         </>
       )}
-      <p className="muted an-foot">A blank day means no data was entered for it.</p>
+      <p className="muted an-foot">A blank day means no data was entered for it.{temp ? "" : " Weather is not available yet, so no temperature line is drawn."}</p>
     </section>
   );
 }

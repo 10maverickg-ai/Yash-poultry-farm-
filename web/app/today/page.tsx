@@ -1,4 +1,6 @@
 import { TargetLines } from "@/components/TargetLines";
+import { after } from "next/server";
+import { refreshWeatherQuietly } from "@/lib/weather/store";
 import { buildFarmCtx } from "@/lib/analytics/ctx";
 import Link from "next/link";
 import { loadEngineInput } from "@/lib/analytics/load";
@@ -59,6 +61,7 @@ export default async function TodayPage() {
     pool.query(`SELECT count(*)::int AS n FROM daily_egg_rates WHERE date = $1`, [realYesterday]),
   ]);
   const { ctx } = buildFarmCtx(input);
+  after(() => refreshWeatherQuietly()); // after the page is sent: the page never waits for the weather service
   if (ctx.dates.length === 0)
     return (
       <>

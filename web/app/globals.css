@@ -800,3 +800,12 @@ main:focus { outline: none; }
 .tl-scroll { overflow-x: auto; }
 .btn-small { padding: 0.25rem 0.6rem; font-size: 0.8rem; min-height: 2rem; }
 .tl-ov { display: flex; gap: 0.3rem; margin-bottom: 0.25rem; }
+
+/* V11: thin max-temperature line on the HD and deaths charts */
+.pc-temp { stroke: #c2410c; stroke-width: 1.2; stroke-linejoin: round; stroke-dasharray: 3 2; }
+.pc-temp-tick { fill: #c2410c; }
+.pc-temp-key { color: #c2410c; font-size: 0.8em; font-weight: 400; }
+.dl { display: flex; flex-wrap: wrap; gap: 0.25rem 0.5rem; align-items: baseline; font-size: 0.85rem; margin: 0.25rem 0; }
+.dl-pill { display: inline-block; border-radius: 999px; padding: 0 0.5rem; font-size: 0.75rem; font-weight: 600; border: 1px solid currentColor; }
+.dl-green { color: #166534; } .dl-amber { color: #b45309; } .dl-red { color: #b91c1c; } .dl-none { color: #6b7280; }
+.heat-note { font-size: 0.82rem; color: #9a3412; margin: 0.25rem 0; }
