@@ -1,4 +1,8 @@
+import { after } from "next/server";
 import { slipItems } from "@/lib/analytics/realistic";
+import { forecastAlerts } from "@/lib/analytics/heat";
+import { refreshWeatherQuietly } from "@/lib/weather/store";
+import { todayIST } from "@/lib/weather/openMeteo";
 import { TargetLines } from "@/components/TargetLines";
 import { buildFarmCtx } from "@/lib/analytics/ctx";
 import Link from "next/link";
@@ -89,6 +93,8 @@ export default async function AnalyticsPage({
   ]);
   const { ctx } = buildFarmCtx(engineInput);
   const slips = slipItems(ctx);
+  const forecast = forecastAlerts(engineInput.weather ?? [], todayIST());
+  after(() => refreshWeatherQuietly()); // after the page is sent: the page never waits for the weather service
   const view = sp.view === "week" || sp.view === "month" || sp.view === "year" ? sp.view : "day";
 
   if (view !== "day" && ctx.dates.length > 0) {
@@ -259,6 +265,19 @@ export default async function AnalyticsPage({
             </div>
           );
         })}
+        {forecast.length > 0 && (
+          <div className="card">
+            <h3 style={{ marginTop: 0 }}>Weather coming</h3>
+            <ul className="an-list">
+              {forecast.map((f) => (
+                <li key={f.id}>
+                  <strong>⚠ {f.title}</strong> {f.detail}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {ctx.weatherByDate.size === 0 && <p className="muted an-tiny">Weather is not available yet, so there are no heat or cold warnings. It fills in by itself once the daily weather job has run.</p>}
         {watchFarm.length > 0 && (
           <div className="card">
             <h3 style={{ marginTop: 0 }}>Whole farm</h3>

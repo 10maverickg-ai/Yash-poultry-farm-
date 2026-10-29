@@ -35,12 +35,12 @@ const f4 = await fetchWeather(() => new Promise(() => {}), "2026-07-02", "2026-1
 ok("failure: a hanging service times out instead of hanging the app", f4.days.length === 0 && /in time/i.test(f4.error ?? ""), JSON.stringify(f4));
 
 // store with a fake database
-const db: { rows: any[]; sql: string[] } = { rows: [], sql: [] };
+const db: { rows: unknown[][]; sql: string[] } = { rows: [], sql: [] };
 const query = async (sql: string, params?: unknown[]) => {
   db.sql.push(sql);
   if (/count\(\*\)/.test(sql)) return { rows: [{ n: db.rows.length, last: db.rows.length ? new Date(Date.UTC(2026, 9, 29, 0, 0)).toISOString() : null }] };
-  if (/INSERT INTO weather_daily/.test(sql)) { db.rows.push(params); return { rows: [] }; }
-  if (/FROM weather_daily/.test(sql)) return { rows: db.rows.map((p: any) => ({ date: p[1], temp_max_c: p[2], temp_min_c: p[3], humidity_mean: p[4], rain_mm: p[5], source: p[6] })) };
+  if (/INSERT INTO weather_daily/.test(sql)) { db.rows.push(params as unknown[]); return { rows: [] }; }
+  if (/FROM weather_daily/.test(sql)) return { rows: db.rows.map((p) => ({ date: p[1], temp_max_c: p[2], temp_min_c: p[3], humidity_mean: p[4], rain_mm: p[5], source: p[6] })) };
   return { rows: [] };
 };
 const now = Date.UTC(2026, 9, 29, 6, 0); // 29 Oct 11:30 IST

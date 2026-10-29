@@ -2,9 +2,9 @@
 // and the starting death limits — and every flock-week that crosses amber or red under the new death rules.
 //   npx tsx scripts/farm-reference-report.mts <fixture-dir>
 import { loadInput } from "./fixtureInput.mts";
-import { buildCtx, lastDayOfData, segmentOn, addDays, diffDays } from "../lib/analytics/engine.ts";
+import { buildCtx, lastDayOfData, segmentOn, addDays } from "../lib/analytics/engine.ts";
 import { learnRealistic, deathLimits, weeklyDeathRate, bandAgeWeeks, seasonOf, seasonLabel, SEASONS, REALISTIC_CONFIG as C } from "../lib/analytics/realistic.ts";
-import type { RealisticBand, Season, RGroup } from "../lib/analytics/realisticTypes.ts";
+import type { Season, RGroup } from "../lib/analytics/realisticTypes.ts";
 
 const input = loadInput(process.argv[2]);
 const ctx = buildCtx(input);

@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { loadEngineInput } from "@/lib/analytics/load";
 import { buildFarmCtx } from "@/lib/analytics/ctx";
-import { REALISTIC_CONFIG as C, findSlips } from "@/lib/analytics/realistic";
+import { REALISTIC_CONFIG as C, findSlips, SEASON_NAME } from "@/lib/analytics/realistic";
 import { lastDayOfData, SEGMENT_NAME } from "@/lib/analytics/engine";
 import type { RealisticBand, RGroup, RMetric } from "@/lib/analytics/realisticTypes";
 import { n0, n1, dmy } from "@/lib/format";
@@ -10,6 +10,7 @@ import { clearOverride, setOverride } from "./actions";
 export const dynamic = "force-dynamic";
 
 const METRIC_NAME: Record<RMetric, string> = { hd: "Eggs per 100 birds (HD)", feed: "Feed per bird per day (g)", mortality: "Deaths per week (% of birds)" };
+const seasonName = (s: string) => (s === "all" ? "All seasons" : SEASON_NAME[s as keyof typeof SEASON_NAME]);
 const pctTxt = (r: number | null) => (r == null ? "–" : `${(r * 100).toFixed(1)}%`);
 
 export default async function TargetsPage({ searchParams }: { searchParams: Promise<{ saved?: string; error?: string }> }) {
@@ -27,7 +28,7 @@ export default async function TargetsPage({ searchParams }: { searchParams: Prom
   const slips = findSlips(history);
   const groups: RGroup[] = ["main", "young"];
   const mainHd = history.map((h) => {
-    const bs = h.bands.filter((b) => b.group === "main" && b.metric === "hd" && b.learnedRatio != null);
+    const bs = h.bands.filter((b) => b.group === "main" && b.metric === "hd" && b.season === "all" && b.learnedRatio != null);
     return { asOf: h.asOf, mean: bs.length ? (bs.reduce((s, b) => s + b.learnedRatio!, 0) / bs.length) * 100 : null, n: bs.length };
   });
   const pts = mainHd.filter((p) => p.mean != null);
@@ -35,32 +36,49 @@ export default async function TargetsPage({ searchParams }: { searchParams: Prom
   const Row = ({ b }: { b: RealisticBand }) => {
     const mid = b.fromWeek + 2;
     const bk = book(b.metric, mid);
-    const unit = b.metric === "mortality" ? "%" : "";
+    const isD = b.metric === "mortality";
+    const start = C.deathStart[C.deathClass[b.season === "all" ? "MONSOON" : b.season]];
+    const amber = b.rate != null ? Math.min(b.rate * C.deathAmberMultiple, start.red) : null;
+    const red = b.rate != null ? Math.max(Math.min(b.rate * C.deathRedMultiple, start.red * C.deathRedCapMultiple), (amber ?? 0) * 1.2) : null;
+    const learned = isD ? b.learnedRate : b.learnedRatio;
     return (
       <tr>
         <td>{b.fromWeek}–{b.toWeek}</td>
+        <td>{seasonName(b.season)}</td>
         <td className="num">{n0(b.healthyDays)} <span className="muted">of {n0(b.daysSeen)}</span></td>
         <td className="num">{b.flocks}</td>
         <td>{b.dateFrom ? `${dmy(b.dateFrom)} – ${dmy(b.dateTo!)}` : "–"}</td>
-        <td className="num">{b.learnedRatio != null ? pctTxt(b.learnedRatio) : <span className="muted">not learned yet</span>}{b.learnedRatio == null && b.notLearnedReason ? <div className="muted an-tiny">{b.notLearnedReason}</div> : null}</td>
-        <td className="num">{bk != null ? (b.metric === "mortality" ? bk.toFixed(2) : n1(bk)) + unit : "–"}</td>
-        <td className="num">{b.ratio != null && bk != null ? <b>{(b.metric === "mortality" ? (bk * b.ratio).toFixed(2) : n1(bk * b.ratio)) + unit}</b> : "–"}{b.source === "owner" && <div className="an-tiny"><span className="badge badge-flagged">set by owner</span> {pctTxt(b.override)}</div>}</td>
+        <td className="num">
+          {learned != null ? (isD ? `${learned.toFixed(2)}% a week` : pctTxt(learned)) : <span className="muted">not learned yet</span>}
+          {learned == null && b.notLearnedReason ? <div className="muted an-tiny">{b.notLearnedReason}</div> : null}
+        </td>
+        <td className="num">{bk != null ? (isD ? `${bk.toFixed(2)}%` : n1(bk)) : "–"}</td>
+        <td className="num">
+          {isD ? (
+            b.rate != null ? <><b>{b.rate.toFixed(2)}%</b><div className="muted an-tiny">amber above {amber!.toFixed(2)}, red above {red!.toFixed(2)}</div></> : <span className="muted">starting limits: amber {start.amber}, red {start.red}</span>
+          ) : b.ratio != null && bk != null ? <b>{n1(bk * b.ratio)}</b> : "–"}
+          {b.source === "owner" && <div className="an-tiny"><span className="badge badge-flagged">set by owner</span> {isD ? `${b.overrideRate}%` : pctTxt(b.override)}</div>}
+        </td>
         <td>
-          <form action={setOverride} className="tl-ov">
-            <input type="hidden" name="grp" value={b.group} />
-            <input type="hidden" name="metric" value={b.metric} />
-            <input type="hidden" name="band_start" value={b.fromWeek} />
-            <input name="ratio_pct" inputMode="decimal" aria-label={`Owner level for weeks ${b.fromWeek} to ${b.toWeek}, percent of book`} placeholder="% of book" size={6} defaultValue={b.override != null ? (b.override * 100).toFixed(1) : ""} />
-            <button type="submit" className="btn-small">Set</button>
-          </form>
-          {b.source === "owner" && (
-            <form action={clearOverride}>
-              <input type="hidden" name="grp" value={b.group} />
-              <input type="hidden" name="metric" value={b.metric} />
-              <input type="hidden" name="band_start" value={b.fromWeek} />
-              <button type="submit" className="btn-small">Go back to learned</button>
-            </form>
-          )}
+          {b.season === "all" ? (
+            <>
+              <form action={setOverride} className="tl-ov">
+                <input type="hidden" name="grp" value={b.group} />
+                <input type="hidden" name="metric" value={b.metric} />
+                <input type="hidden" name="band_start" value={b.fromWeek} />
+                <input name="ratio_pct" inputMode="decimal" aria-label={`Owner level for weeks ${b.fromWeek} to ${b.toWeek}, ${isD ? "percent of birds per week" : "percent of book"}`} placeholder={isD ? "% a week" : "% of book"} size={7} defaultValue={isD ? (b.overrideRate ?? "") : b.override != null ? (b.override * 100).toFixed(1) : ""} />
+                <button type="submit" className="btn-small">Set</button>
+              </form>
+              {b.source === "owner" && (
+                <form action={clearOverride}>
+                  <input type="hidden" name="grp" value={b.group} />
+                  <input type="hidden" name="metric" value={b.metric} />
+                  <input type="hidden" name="band_start" value={b.fromWeek} />
+                  <button type="submit" className="btn-small">Go back to learned</button>
+                </form>
+              )}
+            </>
+          ) : <span className="muted an-tiny">use the “All seasons” row</span>}
         </td>
       </tr>
     );
@@ -87,7 +105,9 @@ export default async function TargetsPage({ searchParams }: { searchParams: Prom
       <section className="card">
         <h2 style={{ marginTop: 0 }}>In plain words</h2>
         <p>The breeder&apos;s book describes a flock in perfect conditions. A farm like ours rarely reaches it, so beside the book we show <b>our realistic target</b>: what <i>our own</i> flocks actually do on a good week at that age. The traffic lights compare a flock with our realistic target. The book stays on the screen as a plain reference, and the gap to it is shown as a number without a colour. Our target is never above the book.</p>
-        <p><b>How:</b> for every day and every flock we divide what it laid by what the book says for its age. That ratio is averaged over 7 days at a time. In each 5-week age band (counted from the placement date; for flocks placed as day-old chicks, from laying age = age − {C.chickToLayingWeeks} weeks) we take the <b>{C.percentile}th percentile</b> of those 7-day ratios, which means &quot;a good week for us&quot;, not the best day and not the average. Our realistic target = the book for the flock&apos;s age × that ratio. Feed per bird and deaths per week are learned the same way. The main and young groups are learned separately and never borrow from each other.</p>
+        <p><b>How:</b> for every day and every flock we divide what it laid by what the book says for its age. That ratio is averaged over 7 days at a time. In each 5-week age band (counted from the placement date; for flocks placed as day-old chicks, from laying age = age − {C.chickToLayingWeeks} weeks) we take the <b>{C.percentile}th percentile</b> of those 7-day ratios, which means &quot;a reasonable good week for us&quot;, not the best day and not the average. Our realistic target = the book for the flock&apos;s age × that ratio. Feed per bird is learned the same way. The main and young groups are learned separately and never borrow from each other.</p>
+        <p><b>Seasons:</b> every band is learned separately for each Punjab season (hot Apr–Jun, monsoon Jul–Sep, cool Oct–Nov, cold Dec–Feb, spring Mar), because heat and humidity change what a flock can do. A season that has at least {C.minHealthyDays} healthy flock-days from {C.minFlocks} flocks in that band is used on its own. Otherwise the all-seasons value is used and the screen says &quot;all seasons&quot;.</p>
+        <p><b>Deaths</b> are <i>not</i> compared with the book (the book assumes a modern controlled-environment house; this is an old cage-battery farm). We learn the farm&apos;s own weekly death rate (deaths in 7 days ÷ the week&apos;s average birds × 100) the same way: the {C.deathPercentile}th percentile of its own weeks is &quot;our usual&quot;. A week is amber above our usual × {C.deathAmberMultiple} and red above × {C.deathRedMultiple}, with two guard rails: a week above the starting red limit is always at least amber, and weeks above the starting red are not counted as &quot;usual&quot;. Until a band has enough data, starting limits apply: cool, cold and spring months amber {C.deathStart.cool.amber}%, red {C.deathStart.cool.red}%; monsoon and hot months amber {C.deathStart.hot.amber}%, red {C.deathStart.hot.red}% — starting values from the farm&apos;s 2026 data, confirm with the vet. See the <Link href="/analytics/reference">Farm reference</Link>.</p>
         <p><b>Days we use:</b> only healthy days. <b>Days we leave out, and why:</b></p>
         <ul className="an-list">
           <li>days flagged as a data problem and not accepted by the owner (the numbers may be wrong);</li>
@@ -115,7 +135,8 @@ export default async function TargetsPage({ searchParams }: { searchParams: Prom
         <section key={g}>
           <h2>{SEGMENT_NAME[g]}</h2>
           {(["hd", "feed", "mortality"] as RMetric[]).map((m) => {
-            const rows = model.bands.filter((b) => b.group === g && b.metric === m);
+            // an empty season (no records in it) is not listed; "All seasons" is always the first row of a band
+            const rows = model.bands.filter((b) => b.group === g && b.metric === m && (b.season === "all" || b.healthyDays > 0 || b.daysSeen > 0));
             if (m === "feed" && g === "young") return <p key={m} className="muted">Feed per bird: the young group has no feed column in the register, so nothing is learned.</p>;
             return (
               <div key={m} className="card">
@@ -126,9 +147,9 @@ export default async function TargetsPage({ searchParams }: { searchParams: Prom
                   <div className="tl-scroll">
                     <table className="tl-table">
                       <thead>
-                        <tr><th>Age (weeks)</th><th className="num">Healthy days</th><th className="num">Flocks</th><th>Dates used</th><th className="num">Learned, % of book</th><th className="num">Book (mid-band)</th><th className="num">Our realistic target</th><th>Owner level</th></tr>
+                        <tr><th>Age (weeks)</th><th>Season</th><th className="num">Healthy days</th><th className="num">Flocks</th><th>Dates used</th><th className="num">{m === "mortality" ? "Learned (70th percentile)" : "Learned, % of book"}</th><th className="num">Book (mid-band)</th><th className="num">{m === "mortality" ? "Our usual" : "Our realistic target"}</th><th>Owner level (all seasons)</th></tr>
                       </thead>
-                      <tbody>{rows.map((b) => <Row key={b.band} b={b} />)}</tbody>
+                      <tbody>{rows.map((b) => <Row key={`${b.band}-${b.season}`} b={b} />)}</tbody>
                     </table>
                   </div>
                 )}

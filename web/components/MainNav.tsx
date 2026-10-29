@@ -21,7 +21,7 @@ export const SECTIONS = [
   { key: "flocks", label: "Flocks", icon: "🐔", href: "/flocks", match: ["/flocks", "/chick-batches", "/sheds"],
     subs: [["/flocks", "Flocks"], ["/flocks/batches", "Chick batches"], ["/flocks/moulting", "Moulting"], ["/chick-batches", "Chick log"], ["/sheds", "Sheds"]] },
   { key: "analytics", label: "Analytics", icon: "📊", href: "/analytics", match: ["/analytics", "/today", "/import"],
-    subs: [["/today", "Today"], ["/analytics", "Analytics"], ["/analytics/targets", "How targets are learned"], ["/import", "Import old registers"]] },
+    subs: [["/today", "Today"], ["/analytics", "Analytics"], ["/analytics/targets", "How targets are learned"], ["/analytics/reference", "Farm reference"], ["/import", "Import old registers"]] },
 ] as const;
 
 function active(path: string, match: readonly string[]) {

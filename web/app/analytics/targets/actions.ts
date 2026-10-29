@@ -12,16 +12,17 @@ const back = (msg: string, ok = false): never => {
 const GROUPS = ["main", "young"];
 const METRICS = ["hd", "feed", "mortality"];
 
-// Owner override for one age band: "our realistic level = X % of the breeder's book". Wins over the learned value.
+// Owner override for one age band, every season: HD and feed "our realistic level = X % of the breeder's book"; deaths (V11)
+// "our usual deaths = X % of birds per week". Wins over the learned value.
 export async function setOverride(formData: FormData) {
   const grp = String(formData.get("grp") ?? "");
   const metric = String(formData.get("metric") ?? "");
   const band = Number(formData.get("band_start"));
   const pct = Number(String(formData.get("ratio_pct") ?? "").replace(",", "."));
   if (!GROUPS.includes(grp) || !METRICS.includes(metric) || !Number.isInteger(band) || band < 0) back("Unknown band.");
-  if (!Number.isFinite(pct) || pct <= 0) back("Type the level as a percentage of the book, for example 85.");
+  if (!Number.isFinite(pct) || pct <= 0) back(metric === "mortality" ? "Type our usual deaths as percent of birds per week, for example 0.35." : "Type the level as a percentage of the book, for example 85.");
   if (metric !== "mortality" && pct > 100) back("The realistic level can never be above the breeder's book (100%). Type 100 or less.");
-  if (metric === "mortality" && pct < 100) back("Deaths can never be better than the book (100%). Type 100 or more.");
+  if (metric === "mortality" && pct > 5) back("Our usual deaths are percent of birds per week; 5 would be a disaster. Type something like 0.35.");
   await pool.query(
     `INSERT INTO realistic_target_overrides (farm_code, grp, metric, band_start, ratio_pct, note)
      VALUES ($1,$2,$3,$4,$5,$6)
