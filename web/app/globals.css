@@ -866,3 +866,8 @@ main:focus { outline: none; }
 .kv dt { font-size: 0.85rem; font-weight: 600; color: var(--muted); }
 .kv dd { margin: 0 0 0.5rem; }
 @media (min-width: 560px) { .kv { grid-template-columns: 13rem 1fr; } .kv dd { margin: 0; } }
+
+/* links inside table cells (Edit, change, topic names) must be easy to hit with a thumb */
+@media (max-width: 820px) {
+  td > a { display: inline-flex; align-items: center; min-height: 44px; min-width: 44px; }
+}
