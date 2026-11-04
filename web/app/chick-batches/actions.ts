@@ -1,6 +1,5 @@
 "use server";
 
-import { requireOwner } from "@/lib/auth/guard";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { pool } from "@/lib/db";
@@ -14,7 +13,6 @@ export async function createChickBatch(
   _prev: ActionState,
   formData: FormData
 ): Promise<ActionState> {
-  await requireOwner();
   try {
     const date = optDate(formData, "date");
     const shedCode = optStr(formData, "shed_code");

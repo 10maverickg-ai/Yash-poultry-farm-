@@ -1,6 +1,5 @@
 "use server";
 
-import { requireOwner } from "@/lib/auth/guard";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { pool, withTransaction } from "@/lib/db";
@@ -18,7 +17,6 @@ function back(path: string, msg: string, ok = false): never {
 // Lifecycle: appends a dated stage event and closes the previous open one.
 // Stages that exist in the flocks.current_stage enum also update that column.
 export async function addStageEvent(flockId: string, formData: FormData) {
-  await requireOwner();
   const path = `/flocks/${flockId}`;
   const stage = String(formData.get("stage") ?? "");
   const from = String(formData.get("from_date") ?? "");
@@ -35,7 +33,6 @@ export async function addStageEvent(flockId: string, formData: FormData) {
 }
 
 export async function addMoultPeriod(formData: FormData) {
-  await requireOwner();
   const flockId = String(formData.get("flock") ?? "");
   const start = String(formData.get("start_date") ?? "");
   const end = String(formData.get("end_date") ?? "");
@@ -51,7 +48,6 @@ export async function addMoultPeriod(formData: FormData) {
 }
 
 export async function confirmMoult(id: number, formData: FormData) {
-  await requireOwner();
   const start = String(formData.get("start_date") ?? "");
   const end = String(formData.get("end_date") ?? "");
   const path = "/flocks/moulting";
@@ -62,7 +58,6 @@ export async function confirmMoult(id: number, formData: FormData) {
 }
 
 export async function addBatch(formData: FormData) {
-  await requireOwner();
   const path = "/flocks/batches";
   const arrival = String(formData.get("arrival_date") ?? "");
   const count = Number(formData.get("starting_count"));
@@ -76,7 +71,6 @@ export async function addBatch(formData: FormData) {
 }
 
 export async function updateBatch(id: number, formData: FormData) {
-  await requireOwner();
   const path = "/flocks/batches";
   const status = String(formData.get("status") ?? "");
   const moved = String(formData.get("moved_to_layer_date") ?? "");

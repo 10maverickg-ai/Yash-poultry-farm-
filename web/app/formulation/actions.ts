@@ -1,6 +1,5 @@
 "use server";
 
-import { requireOwner } from "@/lib/auth/guard";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { withTransaction } from "@/lib/db";
@@ -24,7 +23,6 @@ export async function saveFormulation(
   _prev: ActionState,
   formData: FormData
 ): Promise<ActionState> {
-  await requireOwner();
   try {
     const group = optStr(formData, "formulation_group");
     const effectiveDate = optDate(formData, "effective_date");
