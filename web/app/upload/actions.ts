@@ -1,6 +1,5 @@
 "use server";
 
-import { requireOwner } from "@/lib/auth/guard";
 import { savedDaySummary } from "@/lib/uploadQueue/store";
 import { friendlyReaderError } from "@/lib/reader/friendlyError";
 import { revalidatePath } from "next/cache";
@@ -153,7 +152,6 @@ export async function uploadAndExtractDailyProduction(
   _prev: UploadOutcome | null,
   formData: FormData
 ): Promise<UploadOutcome> {
-  await requireOwner();
   const file = formData.get("photo");
   const dateHint = formData.get("date");
   if (!(file instanceof File) || file.size === 0) {

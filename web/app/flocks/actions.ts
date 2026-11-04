@@ -1,6 +1,5 @@
 "use server";
 
-import { requireOwner } from "@/lib/auth/guard";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { pool, withTransaction } from "@/lib/db";
@@ -29,7 +28,6 @@ export async function createFlock(
   _prev: ActionState,
   formData: FormData
 ): Promise<ActionState> {
-  await requireOwner();
   try {
     const displayLabel = optStr(formData, "display_label");
     if (!displayLabel) throw new Error("Display label is required");
@@ -91,7 +89,6 @@ export async function updateFlock(
   _prev: ActionState,
   formData: FormData
 ): Promise<ActionState> {
-  await requireOwner();
   try {
     const displayLabel = optStr(formData, "display_label");
     if (!displayLabel) throw new Error("Display label is required");
@@ -154,7 +151,6 @@ export async function transitionStage(
   _prev: ActionState,
   formData: FormData
 ): Promise<ActionState> {
-  await requireOwner();
   try {
     const newStage = optStr(formData, "new_stage");
     const transitionDate = optDate(formData, "transition_date");
@@ -208,7 +204,6 @@ export async function correctStage(
   _prev: ActionState,
   formData: FormData
 ): Promise<ActionState> {
-  await requireOwner();
   try {
     const newStage = optStr(formData, "corrected_stage");
     if (!newStage || !STAGE_ORDER.includes(newStage as (typeof STAGE_ORDER)[number]))
@@ -240,7 +235,6 @@ export async function depleteFlock(
   _prev: ActionState,
   formData: FormData
 ): Promise<ActionState> {
-  await requireOwner();
   try {
     const depletionDate = optDate(formData, "depletion_date");
     if (!depletionDate) throw new Error("Depletion date is required");
@@ -277,7 +271,6 @@ export async function renumberFlocks(
   _prev: ActionState,
   formData: FormData
 ): Promise<ActionState> {
-  await requireOwner();
   try {
     const effectiveFrom = optDate(formData, "effective_from");
     if (!effectiveFrom) throw new Error("Effective date is required");

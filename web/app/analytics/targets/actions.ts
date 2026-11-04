@@ -1,6 +1,5 @@
 "use server";
 
-import { requireOwner } from "@/lib/auth/guard";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { pool } from "@/lib/db";
@@ -16,7 +15,6 @@ const METRICS = ["hd", "feed", "mortality"];
 // Owner override for one age band, every season: HD and feed "our realistic level = X % of the breeder's book"; deaths (V11)
 // "our usual deaths = X % of birds per week". Wins over the learned value.
 export async function setOverride(formData: FormData) {
-  await requireOwner();
   const grp = String(formData.get("grp") ?? "");
   const metric = String(formData.get("metric") ?? "");
   const band = Number(formData.get("band_start"));
@@ -35,7 +33,6 @@ export async function setOverride(formData: FormData) {
 }
 
 export async function clearOverride(formData: FormData) {
-  await requireOwner();
   await pool.query(`DELETE FROM realistic_target_overrides WHERE farm_code=$1 AND grp=$2 AND metric=$3 AND band_start=$4`, [
     ACTIVE_FARM,
     String(formData.get("grp") ?? ""),

@@ -1,10 +1,7 @@
 import { TEMPLATE_CSV } from "@/lib/import/paperHistory";
-import { guardRoute } from "@/lib/auth/guard";
 
-export const dynamic = "force-dynamic";
+export const dynamic = "force-static";
 
-export async function GET() {
-  const denied = await guardRoute("owner");
-  if (denied) return denied;
+export function GET() {
   return new Response(TEMPLATE_CSV, { headers: { "content-type": "text/csv; charset=utf-8", "content-disposition": 'attachment; filename="paper-history-template.csv"' } });
 }
