@@ -1,33 +1,62 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import Link from "next/link";
 import { ACTIVE_FARM, ACTIVE_FARM_NAME } from "@/lib/farm";
 import { Suspense } from "react";
 import { MainNav } from "@/components/MainNav";
 import { StackTables } from "@/components/StackTables";
+import { peekSession } from "@/lib/auth/guard";
+import { InstallHint } from "@/components/InstallHint";
+import { PwaRegister } from "@/components/PwaRegister";
 import "./globals.css";
 
 export const metadata: Metadata = {
   title: { default: ACTIVE_FARM_NAME, template: `%s — ${ACTIVE_FARM_NAME}` },
   description: "Register entry and records for Yash Poultry Farm",
+  applicationName: "Yash Poultry Farm",
+  appleWebApp: { capable: true, title: "Farm", statusBarStyle: "black-translucent" },
+  formatDetection: { telephone: false },
+  other: { "apple-mobile-web-app-capable": "yes" }, // Next itself writes the newer mobile-web-app-capable; older iPhones still read this one
+  icons: {
+    icon: [
+      { url: "/icons/favicon-32.png", sizes: "32x32", type: "image/png" },
+      { url: "/favicon.ico", sizes: "any" },
+    ],
+    apple: [{ url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" }],
+  },
 };
 
-export default function RootLayout({
+// viewport-fit=cover lets the app use the whole screen; the safe-area padding in globals.css keeps everything clear of the notch and the home bar
+export const viewport: Viewport = { width: "device-width", initialScale: 1, viewportFit: "cover", themeColor: "#1d6f42" };
+
+export default async function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
+  // Who is looking decides what the menu shows: a staff phone and the login screen get no menu at all.
+  const session = await peekSession();
+  const owner = session?.role === "owner";
   return (
     <html lang="en">
       <body>
         <a href="#main" className="skip-link">Skip to the page</a>
         <header className="site-header">
-          <Link href="/" className="brand">
-            {ACTIVE_FARM_NAME}
-          </Link>
-          <span className="farm-badge">{ACTIVE_FARM}</span>
-          <Suspense fallback={null}><MainNav position="top" /></Suspense>
+          <div className="header-row">
+            <Link href={owner ? "/" : session ? "/upload" : "/login"} className="brand">
+              {ACTIVE_FARM_NAME}
+            </Link>
+            {owner && <span className="farm-badge">{ACTIVE_FARM}</span>}
+            {session && (
+              <form action="/api/logout" method="post" className="logout-form">
+                <button type="submit" className="logout-btn">Log out</button>
+              </form>
+            )}
+          </div>
+          {owner && <Suspense fallback={null}><MainNav position="top" /></Suspense>}
         </header>
+        <InstallHint />
         <main id="main" tabIndex={-1}>{children}</main>
+        <PwaRegister />
         <StackTables />
-        <Suspense fallback={null}><MainNav position="bottom" /></Suspense>
+        {owner && <Suspense fallback={null}><MainNav position="bottom" /></Suspense>}
       </body>
     </html>
   );

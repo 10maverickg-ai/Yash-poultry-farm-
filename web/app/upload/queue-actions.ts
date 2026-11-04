@@ -1,5 +1,6 @@
 "use server";
 
+import { requireOwner } from "@/lib/auth/guard";
 import { revalidatePath } from "next/cache";
 import { uploadRegisterPhoto, photoProblem } from "@/lib/storage";
 import { pickReader } from "@/lib/reader/pick";
@@ -17,6 +18,7 @@ export interface EnqueueResult {
 // one, so a failure on one never loses the others, and everything already
 // stored stays in the queue even if the browser is closed.
 export async function enqueuePhoto(formData: FormData): Promise<EnqueueResult> {
+  await requireOwner();
   try {
     const file = formData.get("photo");
     const date = formData.get("date");
@@ -43,6 +45,7 @@ export interface ProcessResult {
 // Reads the next waiting photo with the current reader. Never throws and never
 // touches any other photo: whatever happens is written to THIS photo's row.
 export async function processNext(): Promise<ProcessResult> {
+  await requireOwner();
   let claimed: Awaited<ReturnType<typeof claimNext>> = null;
   try {
     claimed = await claimNext();
@@ -82,23 +85,28 @@ export async function processNext(): Promise<ProcessResult> {
 const refresh = () => revalidatePath("/upload");
 
 export async function keepSavedDay(id: number) {
+  await requireOwner();
   await setStatus(id, { status: "dismissed", message: "Kept the saved day; this photo was not used." });
   refresh();
 }
 export async function replaceSavedDay(id: number) {
+  await requireOwner();
   await setStatus(id, { status: "waiting", replaceOk: true, message: "Will replace the saved day." });
   refresh();
 }
 export async function retryPhoto(id: number) {
+  await requireOwner();
   await setStatus(id, { status: "waiting", message: null });
   refresh();
 }
 export async function chooseDate(id: number, date: string) {
+  await requireOwner();
   if (!iso.test(date)) return;
   await setStatus(id, { status: "waiting", forceDate: date, message: `Reading with the date ${date}.` });
   refresh();
 }
 export async function dismissPhoto(id: number) {
+  await requireOwner();
   await setStatus(id, { status: "dismissed", message: null });
   refresh();
 }

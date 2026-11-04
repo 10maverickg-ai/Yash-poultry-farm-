@@ -1,5 +1,6 @@
 "use server";
 
+import { requireOwner } from "@/lib/auth/guard";
 import { withTransaction, pool } from "@/lib/db";
 import { ACTIVE_FARM } from "@/lib/farm";
 import { insertDailyProductionRow } from "@/lib/extraction/writeDailyProduction";
@@ -47,6 +48,7 @@ function resolvedLedger(section: "big" | "small", l: LedgerDay, produced: number
  * "manual entry". Anything that does not tie is saved anyway and FLAGGED (the app never rejects a day); nothing is guessed.
  */
 export async function saveManualDay(_prev: DayState | null, formData: FormData): Promise<DayState> {
+  await requireOwner();
   try {
     const day = parseDay(String(formData.get("payload") ?? ""));
     if (!day) return { ok: false, message: "The page could not be read. Reload it and try again; nothing was saved." };

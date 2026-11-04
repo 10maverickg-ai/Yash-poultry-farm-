@@ -1,6 +1,10 @@
 import type { NextConfig } from "next";
 
+// A different value for every build: the service worker names its cache after it, and the "Updated" note compares it (not a secret).
+const BUILD_ID = (process.env.VERCEL_GIT_COMMIT_SHA ?? "").slice(0, 12) || Date.now().toString(36);
+
 const nextConfig: NextConfig = {
+  env: { NEXT_PUBLIC_BUILD_ID: BUILD_ID },
   experimental: {
     serverActions: {
       // Defense-in-depth only — the real fix is client-side compression in

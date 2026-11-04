@@ -1,5 +1,6 @@
 "use server";
 
+import { requireOwner } from "@/lib/auth/guard";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { pool } from "@/lib/db";
@@ -19,6 +20,7 @@ export async function markAlertReviewed(
   id: number,
   returnTo: string,
 ) {
+  await requireOwner();
   const table = TABLES[source];
   if (!table) throw new Error("Unknown record type");
   await pool.query(
@@ -34,6 +36,7 @@ export async function markAlertReviewed(
 // verdict per alert (saving again changes it). Used to tune the rules from
 // evidence; it never changes or hides the alert itself.
 export async function saveAlertFeedback(alertKey: string, verdict: "real" | "noise", returnTo: string) {
+  await requireOwner();
   if (verdict !== "real" && verdict !== "noise") throw new Error("Unknown verdict");
   if (!/^[a-z_]+\|\d{4}-\d{2}-\d{2}\|[0-9a-f-]+(#\d+)?$|^[a-z_]+\|\d{4}-\d{2}-\d{2}\|farm(#\d+)?$/.test(alertKey)) throw new Error("Bad alert key");
   await pool.query(

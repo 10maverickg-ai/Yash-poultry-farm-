@@ -1,5 +1,6 @@
 "use server";
 
+import { requireOwner } from "@/lib/auth/guard";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { withTransaction } from "@/lib/db";
@@ -63,6 +64,7 @@ export async function saveEggStock(
   _prev: ActionState,
   formData: FormData
 ): Promise<ActionState> {
+  await requireOwner();
   try {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error("Invalid date");
 

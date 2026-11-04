@@ -1,5 +1,6 @@
 "use server";
 
+import { requireOwner } from "@/lib/auth/guard";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { pool } from "@/lib/db";
@@ -30,6 +31,7 @@ export async function updateSale(
   _prev: ActionState,
   formData: FormData
 ): Promise<ActionState> {
+  await requireOwner();
   try {
     const ttype = optStr(formData, "transaction_type");
     if (ttype && !TRANSACTION_TYPES.includes(ttype))
@@ -63,6 +65,7 @@ export async function updateSale(
 // Left empty it stays empty (nothing is guessed). Only movements of type 'sale'
 // can be changed through this.
 export async function setBirdSaleBuyer(id: number, formData: FormData) {
+  await requireOwner();
   const buyer = String(formData.get("buyer") ?? "").trim().slice(0, 80);
   await pool.query(
     `UPDATE flock_movements SET buyer = $2 WHERE id = $1 AND farm_code = $3 AND movement_type = 'sale'`,
@@ -74,6 +77,7 @@ export async function setBirdSaleBuyer(id: number, formData: FormData) {
 
 // Quick change of who got the eggs, straight from the Sales list. Never touches the price or the amount.
 export async function setSaleRecipient(saleId: number, formData: FormData) {
+  await requireOwner();
   const recipient = String(formData.get("recipient") ?? "");
   if (!isRecipient(recipient)) redirect("/sales?error=" + encodeURIComponent("Choose who got the eggs from the list."));
   await pool.query(`UPDATE sales SET recipient = $2 WHERE id = $1 AND farm_code = $3`, [saleId, recipient, ACTIVE_FARM]);

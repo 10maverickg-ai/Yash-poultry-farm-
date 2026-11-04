@@ -1,5 +1,6 @@
 "use server";
 
+import { requireOwner } from "@/lib/auth/guard";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { pool } from "@/lib/db";
@@ -16,6 +17,7 @@ export async function createShed(
   _prev: ActionState,
   formData: FormData
 ): Promise<ActionState> {
+  await requireOwner();
   try {
     const shedCode = optStr(formData, "shed_code");
     if (!shedCode) throw new Error("Shed code is required");
@@ -44,6 +46,7 @@ export async function updateShed(
   _prev: ActionState,
   formData: FormData
 ): Promise<ActionState> {
+  await requireOwner();
   try {
     await pool.query(
       `UPDATE sheds SET shed_type = $3, max_capacity = $4, notes = $5

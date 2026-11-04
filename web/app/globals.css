@@ -871,3 +871,25 @@ main:focus { outline: none; }
 @media (max-width: 820px) {
   td > a { display: inline-flex; align-items: center; min-height: 44px; min-width: 44px; }
 }
+
+/* Login (V13) */
+.header-row { display: flex; align-items: center; gap: 0.25rem; flex-wrap: nowrap; }
+.logout-form { margin: 0 0 0 auto; }
+.logout-btn { min-height: 44px; min-width: 44px; padding: 0 0.9rem; border-radius: 999px; background: transparent; color: var(--accent-ink); border: 1px solid rgba(255, 255, 255, 0.6); font: inherit; font-size: 0.9rem; cursor: pointer; }
+.login-card { max-width: 26rem; margin: 1.5rem auto; }
+.login-pw { display: flex; gap: 0.4rem; align-items: stretch; }
+.login-input { flex: 1; min-width: 0; min-height: 52px; font-size: 1.15rem; }
+.login-eye { min-height: 52px; min-width: 64px; border-radius: 8px; background: transparent; color: var(--accent); border: 1px solid var(--line); font: inherit; cursor: pointer; }
+.login-go { min-height: 52px; font-size: 1.1rem; }
+
+/* Home-screen app (V13): nothing hides under the notch, the status bar or the home bar */
+body { padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right); }
+.site-header { padding-top: calc(0.75rem + env(safe-area-inset-top)); }
+.install-hint, .pwa-note { display: flex; align-items: center; gap: 0.6rem; margin: 0.5rem 1rem 0; padding: 0.4rem 0.4rem 0.4rem 0.9rem; background: #fff; border: 1px solid var(--line); border-left: 4px solid var(--accent); border-radius: 8px; font-size: 0.92rem; }
+.install-hint > span, .pwa-note > span { flex: 1; min-width: 0; }
+.install-go { min-height: 44px; padding: 0 1rem; }
+.pwa-x { min-height: 44px; min-width: 44px; background: transparent; color: var(--muted); border: 0; font-size: 1.1rem; cursor: pointer; }
+.pwa-note { position: fixed; left: 0; right: 0; bottom: calc(64px + env(safe-area-inset-bottom)); z-index: 60; margin: 0 1rem; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18); }
+
+/* a link that is a card's title (Knowledge topics) is a full-height tap target */
+.card h3 > a { display: inline-flex; align-items: center; min-height: 44px; }

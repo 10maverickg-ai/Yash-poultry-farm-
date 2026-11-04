@@ -1,5 +1,6 @@
 "use server";
 
+import { requireOwner } from "@/lib/auth/guard";
 import { revalidatePath } from "next/cache";
 import { parseRateMessages, parseNetPriceList, rateNumbers } from "@/lib/rates/parse";
 import { friendlyReaderError } from "@/lib/reader/friendlyError";
@@ -54,6 +55,7 @@ async function textFromScreenshot(file: File): Promise<string> {
 }
 
 export async function previewRates(_prev: PreviewState | null, formData: FormData): Promise<PreviewState> {
+  await requireOwner();
   try {
     let text = String(formData.get("text") ?? "");
     const shot = formData.get("screenshot");
@@ -99,6 +101,7 @@ export async function previewRates(_prev: PreviewState | null, formData: FormDat
 }
 
 export async function confirmRates(_prev: PreviewState | null, formData: FormData): Promise<PreviewState> {
+  await requireOwner();
   try {
     const toSave: RateToSave[] = [];
     const seen = new Set<string>();

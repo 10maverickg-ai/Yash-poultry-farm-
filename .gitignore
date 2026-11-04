@@ -1,3 +1,9 @@
 .env
 *.log
 pgdata/
+
+# any env file may hold secrets: only the example without values is tracked (V13)
+.env*
+!.env.example
+*.pem
+.vercel

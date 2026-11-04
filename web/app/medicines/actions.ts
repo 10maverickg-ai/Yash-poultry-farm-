@@ -1,5 +1,6 @@
 "use server";
 
+import { requireOwner } from "@/lib/auth/guard";
 import { pool, withTransaction } from "@/lib/db";
 import { ACTIVE_FARM } from "@/lib/farm";
 import { isPlaceholderDate } from "@/lib/ageWeeks";
@@ -41,6 +42,7 @@ const fieldsOf = (f: FormData) => ({ date: STR(f, "date"), kind: STR(f, "kind"),
 // One line of the register. The result is shown on the same screen (no page change), and the next line keeps the date, type, target,
 // supplier and the register-page photo, so a whole page of the register is quick to enter.
 export async function saveLine(_prev: LineState | null, formData: FormData): Promise<LineState> {
+  await requireOwner();
   try {
     const v = validateLine(fieldsOf(formData));
     if (!v.ok) return { ok: false, message: v.errors.join(" ") };
@@ -64,6 +66,7 @@ export async function saveLine(_prev: LineState | null, formData: FormData): Pro
 }
 
 export async function saveLineEdit(id: number, _prev: LineState | null, formData: FormData): Promise<LineState> {
+  await requireOwner();
   try {
     const v = validateLine(fieldsOf(formData));
     if (!v.ok) return { ok: false, message: v.errors.join(" ") };
@@ -77,6 +80,7 @@ export async function saveLineEdit(id: number, _prev: LineState | null, formData
 
 // Delete needs the owner to tick the confirmation box (nothing is deleted from a single tap).
 export async function removeLine(id: number, _prev: LineState | null, formData: FormData): Promise<LineState> {
+  await requireOwner();
   if (STR(formData, "confirm") !== "yes") return { ok: false, message: "Tick “Yes, delete this line” first." };
   try {
     await deleteLine(id);
@@ -88,6 +92,7 @@ export async function removeLine(id: number, _prev: LineState | null, formData: 
 
 // "None this month" for medicines and vaccines (monthly_input_status), and taking it back. The answer is shown on the same screen.
 export async function markMonthNone(month: string, _prev: LineState | null, formData: FormData): Promise<LineState> {
+  await requireOwner();
   if (!/^\d{4}-\d{2}$/.test(month)) return { ok: false, message: "Unknown month." };
   const undo = STR(formData, "undo") === "1";
   try {
@@ -102,6 +107,7 @@ export interface MedImportState { mode: "preview" | "imported" | "error"; messag
 
 // Import from CSV / Excel with a dry run. Lines already in the register (same date, type, name, target, quantity, unit) are skipped, never doubled.
 export async function importMedicines(_prev: MedImportState | null, formData: FormData): Promise<MedImportState> {
+  await requireOwner();
   try {
     const file = formData.get("file");
     if (!(file instanceof File) || file.size === 0) return { mode: "error", message: "Choose a CSV or Excel file first." };
@@ -130,6 +136,7 @@ function parseTarget(t: string): { flock: string | null; batch: number | null } 
 }
 
 export async function addVaccination(_prev: LineState | null, formData: FormData): Promise<LineState> {
+  await requireOwner();
   const target = parseTarget(String(formData.get("target") ?? ""));
   const vaccine = String(formData.get("vaccine") ?? "").trim();
   const due = String(formData.get("due_date") ?? "");
@@ -144,6 +151,7 @@ export async function addVaccination(_prev: LineState | null, formData: FormData
 }
 
 export async function markVaccinationGiven(id: number, _prev: LineState | null, formData: FormData): Promise<LineState> {
+  await requireOwner();
   const given = String(formData.get("given_date") ?? "");
   if (!iso.test(given)) return { ok: false, message: "Choose the date it was given." };
   await pool.query(`UPDATE vaccination_schedule SET given_date = $2 WHERE id = $1 AND farm_code = $3`, [id, given, ACTIVE_FARM]);
@@ -154,6 +162,7 @@ export async function markVaccinationGiven(id: number, _prev: LineState | null, 
 // standards are "vaccine:<name>" at an age in weeks. Due date = start + weeks.
 // Nothing is added twice (same target + vaccine + due date).
 export async function fillScheduleFromLibrary(_prev: LineState | null, formData: FormData): Promise<LineState> {
+  await requireOwner();
   const target = parseTarget(String(formData.get("target") ?? ""));
   const entryId = Number(formData.get("entry"));
   if (!target) return { ok: false, message: "Choose the flock or batch." };
@@ -199,6 +208,7 @@ export async function fillScheduleFromLibrary(_prev: LineState | null, formData:
 
 // The owner or the vet can move a due date (library dates are only a starting point).
 export async function changeVaccinationDue(id: number, _prev: LineState | null, formData: FormData): Promise<LineState> {
+  await requireOwner();
   const due = String(formData.get("due_date") ?? "");
   if (!iso.test(due)) return { ok: false, message: "Choose the new due date." };
   await pool.query(`UPDATE vaccination_schedule SET due_date = $2 WHERE id = $1 AND farm_code = $3`, [id, due, ACTIVE_FARM]);
