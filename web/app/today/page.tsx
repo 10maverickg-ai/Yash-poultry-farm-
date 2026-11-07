@@ -10,6 +10,8 @@ import { allSegmentPanels, farmCheck } from "@/lib/analytics/segments";
 import { buildToday, type TodayItem } from "@/lib/analytics/today";
 import { loadBoosters } from "@/lib/medicines/boosterStore";
 import { boosterAlerts } from "@/lib/medicines/boosters";
+import { planAlertsInput } from "@/lib/medicines/chickStore";
+import { chickAlerts } from "@/lib/medicines/chickPlan";
 import { todayIST } from "@/lib/weather/openMeteo";
 import { chip } from "@/lib/analytics/chips";
 import { FarmLine, SegmentPanelView } from "@/components/SegmentPanels";
@@ -57,7 +59,7 @@ export default async function TodayPage() {
   const realToday = new Date().toISOString().slice(0, 10);
   const realYesterday = addDays(realToday, -1);
   // one wave of parallel reads
-  const [input, costInput, extras, photoQ, queueQ, rateQ, boosters] = await Promise.all([
+  const [input, costInput, extras, photoQ, queueQ, rateQ, boosters, plans] = await Promise.all([
     loadEngineInput(),
     loadCostInput(),
     loadPeriodExtras(),
@@ -65,6 +67,7 @@ export default async function TodayPage() {
     pool.query(`SELECT count(*)::int AS n FROM upload_queue WHERE farm_code = $1 AND entered_date = $2 AND status IN ('waiting','reading','saved','needs_review')`, [ACTIVE_FARM, realYesterday]),
     pool.query(`SELECT count(*)::int AS n FROM daily_egg_rates WHERE date = $1`, [realYesterday]),
     loadBoosters(todayIST()).catch(() => null), // a missing table or a slow read never stops Today
+    planAlertsInput().catch(() => null),
   ]);
   const { ctx } = buildFarmCtx(input);
   after(() => refreshWeatherQuietly()); // after the page is sent: the page never waits for the weather service
@@ -93,6 +96,7 @@ export default async function TodayPage() {
   const t = buildToday(ctx, extras, costInput, latest, missing);
   // vaccine boosters every 6 months: one line per vaccine (flocks listed) and one line when last dates are missing
   // (put at the top of the list: there are at most three of them and each is something to do, not a trend to watch)
+  if (plans) t.soon.unshift(...chickAlerts(plans, todayIST()).map((a) => ({ id: a.id, title: a.title, detail: a.detail, href: a.href, group: "farm" as const }))); // one line per chick batch that has a plan
   if (boosters) t.soon.unshift(...boosterAlerts(boosters.table, boosters.rules, todayIST()).map((a) => ({ id: a.id, title: a.title, detail: a.detail, href: a.href, group: "farm" as const })));
 
   return (

@@ -895,3 +895,9 @@ main:focus { outline: none; }
 .md-enter summary { cursor: pointer; padding: 0.4rem 0; color: var(--accent); font-weight: 600; min-height: 44px; display: flex; align-items: center; }
 .md-given { margin: 0; padding-left: 1.1rem; }
 .md-given li { margin: 0.15rem 0; }
+
+/* Chick vaccination plan (V14) */
+.cp-days { display: grid; gap: 0.5rem; margin-bottom: 0.8rem; }
+.cp-day { display: grid; gap: 0.3rem; }
+.cp-step { padding: 0.35rem 0; border-top: 1px solid var(--line); }
+.cp-step:first-of-type { border-top: 0; }

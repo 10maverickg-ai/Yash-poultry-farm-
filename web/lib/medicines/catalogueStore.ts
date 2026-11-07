@@ -28,7 +28,9 @@ export async function listCatalogue(db: Db = pool): Promise<CatalogueItem[]> {
       `SELECT c.*,
               (SELECT count(*) FROM medicine_lines l WHERE l.catalogue_id = c.id)
             + (SELECT count(*) FROM vaccine_repeat_rule_items r WHERE r.catalogue_id = c.id)
-            + (SELECT count(*) FROM vaccine_repeat_rules r WHERE r.main_catalogue_id = c.id) AS used
+            + (SELECT count(*) FROM vaccine_repeat_rules r WHERE r.main_catalogue_id = c.id)
+            + (SELECT count(*) FROM vaccination_schedule v WHERE v.catalogue_id = c.id)
+            + (SELECT count(*) FROM vaccination_schedule_template t WHERE t.catalogue_id = c.id) AS used
          FROM medicine_catalogue c WHERE c.farm_code = $1 ORDER BY lower(c.name)`,
       [ACTIVE_FARM]
     ),
