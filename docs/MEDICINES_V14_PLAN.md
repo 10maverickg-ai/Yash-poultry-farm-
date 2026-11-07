@@ -40,3 +40,7 @@ Additive only: new tables, new nullable columns, no row is changed except `catal
 - "ND booster (lay)" and "LPAI booster (lay)" are created as list items marked to confirm, because the exact products are not known. Any other list item (for example LASOTA or the owner's real ND product) can be ticked as "counts as an ND booster" later.
 - A line for the whole farm or a shed (V12 style) still counts towards a booster: whole farm for every laying flock, a shed for the flocks now in that shed. New entries always write one line per flock.
 - Product choice "standard or B2K" for the day-23 IBD booster is one list item ("IBD booster (standard or B2K)") with the two spellings as aliases; the product used is written in the line's note.
+
+## Status at the end of V14
+
+All eight points are built and tested (see `docs/V5_PROGRESS.md`, section V14). Differences from this plan, all small: the per-flock card also shows older whole-farm and shed lines; the Today lines for chick batches (one per batch with a plan) were added next to the booster lines; migrations are 0049 (list + usage columns), 0050 (booster rules) and 0051 (chick schedule template), numbered after the unused V13 login migration 0048.

@@ -901,3 +901,6 @@ main:focus { outline: none; }
 .cp-day { display: grid; gap: 0.3rem; }
 .cp-step { padding: 0.35rem 0; border-top: 1px solid var(--line); }
 .cp-step:first-of-type { border-top: 0; }
+
+/* a link that is a card's title (Knowledge topics, flock names on the medicines screens) is a full-height tap target */
+.card h3 > a { display: inline-flex; align-items: center; min-height: 44px; }

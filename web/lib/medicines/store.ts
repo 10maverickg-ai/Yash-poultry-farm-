@@ -171,8 +171,8 @@ export async function listUnmatched(): Promise<{ item: string; kind: string; lin
 }
 
 /** One-tap match: every unmatched line typed with this name gets the list item (and the item's type, which decides medicine / vaccine cost). */
-export async function matchLinesByName(itemText: string, catalogueId: number): Promise<number> {
-  const { rowCount } = await pool.query(
+export async function matchLinesByName(itemText: string, catalogueId: number, db: Pick<PoolClient, "query"> = pool): Promise<number> {
+  const { rowCount } = await db.query(
     `UPDATE medicine_lines m SET catalogue_id = c.id, kind = c.kind, updated_at = now()
        FROM medicine_catalogue c
       WHERE c.id = $3 AND c.farm_code = $1 AND c.kind IN ('medicine','vaccine') AND m.farm_code = $1 AND m.catalogue_id IS NULL AND lower(btrim(m.item)) = lower(btrim($2))`,
