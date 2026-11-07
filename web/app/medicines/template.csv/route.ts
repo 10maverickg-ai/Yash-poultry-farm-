@@ -1,4 +1,4 @@
-import { IMPORT_TEMPLATE } from "@/lib/medicines/lines";
+import { IMPORT_TEMPLATE } from "@/lib/medicines/import";
 
 export const dynamic = "force-static";
 

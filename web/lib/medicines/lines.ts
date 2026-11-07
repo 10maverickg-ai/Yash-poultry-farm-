@@ -1,6 +1,6 @@
 // The medicine and vaccine register (V12 N3): one line per medicine or vaccine given or bought. Pure functions, no database, so
 // scripts/medicines-check.mts can test them. A line's cost is OPTIONAL: no cost means "cost not entered", never ₹0.
-import { parseCsv, parseDate } from "@/lib/import/paperHistory";
+import { parseDate } from "@/lib/import/paperHistory";
 
 export const KINDS = [
   { key: "medicine", label: "Medicine" },
@@ -20,8 +20,25 @@ export interface LineInput extends Target {
   cost: number | null; // null = cost not entered
   supplier: string | null;
   note: string | null;
+  // V14: which list item, which entry it was saved with, and what was typed for the whole entry (all optional)
+  catalogueId?: number | null;
+  entryGroup?: string | null;
+  costTotal?: number | null;
+  quantityTotal?: number | null;
+  splitBasis?: "birds" | "equal" | null;
 }
-export interface LineRow extends LineInput { id: number; photoUrl: string | null; sourceTag: string; targetLabel: string }
+export interface LineRow extends LineInput {
+  id: number;
+  photoUrl: string | null;
+  sourceTag: string;
+  targetLabel: string;
+  catalogueId: number | null;
+  listName: string | null; // the list item's name (null = typed name not matched to the list)
+  entryGroup: string | null;
+  costTotal: number | null;
+  quantityTotal: number | null;
+  splitBasis: "birds" | "equal" | null;
+}
 
 const todayISO = () => new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10); // India date
 const clean = (s: string | null | undefined) => {
@@ -127,95 +144,7 @@ export function groupSchedule(items: ScheduleItem[], today = todayISO(), soonDay
   return g;
 }
 
-// ---- import from CSV / Excel ------------------------------------------------------------------------------------------------
 export const IMPORT_TAG = "register import";
-export const IMPORT_TEMPLATE = "date,type,name,for,quantity,unit,cost,supplier,note\n2026-07-04,medicine,Enrofloxacin,BAB-3,2,bottles,850,Kisan Vet Store,5 days in water\n2026-07-10,vaccine,Ranikhet (Lasota),farm,3,vials,420,,whole farm\n";
-const HEADS: Record<string, string[]> = {
-  date: ["date", "day"],
-  type: ["type", "kind", "medicine or vaccine"],
-  name: ["name", "item", "what", "medicine", "medicine name", "vaccine name"],
-  for: ["for", "flock", "flock or shed", "shed", "given to"],
-  quantity: ["quantity", "qty", "amount"],
-  unit: ["unit", "units"],
-  cost: ["cost", "price", "rupees", "cost (rs)", "amount (rs)", "₹"],
-  supplier: ["supplier", "bought from", "shop"],
-  note: ["note", "notes", "remark", "remarks"],
-};
-export interface ImportRowResult {
-  line: number;
-  state: "ok" | "exists" | "error";
-  errors: string[];
-  warnings: string[];
-  input: LineInput | null;
-  raw: { date: string; name: string; target: string };
-}
-export interface ImportReport { rows: ImportRowResult[]; columnProblems: string[]; counts: { total: number; ok: number; exists: number; error: number } }
-
-/** A line is "the same" as an existing one when date, kind, name, target, quantity and unit all match (so importing twice never doubles). */
-export const dupKey = (l: Pick<LineInput, "date" | "kind" | "item" | "scope" | "flockId" | "shedCode" | "quantity" | "unit">) =>
-  [l.date, l.kind, l.item.toLowerCase(), l.scope, l.flockId ?? "", l.shedCode ?? "", l.quantity ?? "", (l.unit ?? "").toLowerCase()].join("|");
-
-export function parseImport(
-  text: string | string[][],
-  flocks: { id: string; label: string }[],
-  sheds: string[],
-  existing: Set<string>,
-  today = todayISO(),
-): ImportReport {
-  const table = typeof text === "string" ? parseCsv(text) : text;
-  const problems: string[] = [];
-  if (table.length === 0) return { rows: [], columnProblems: ["The file is empty."], counts: { total: 0, ok: 0, exists: 0, error: 0 } };
-  const head = table[0].map((h) => h.trim().toLowerCase().replace(/\s+/g, " "));
-  const col: Record<string, number> = {};
-  for (const [k, names] of Object.entries(HEADS)) {
-    const i = head.findIndex((h) => names.includes(h));
-    if (i >= 0) col[k] = i;
-  }
-  for (const need of ["date", "type", "name"]) if (col[need] == null) problems.push(`Column "${need === "name" ? "name" : need}" not found. Use the template.`);
-  const byFlock = new Map(flocks.map((f) => [f.label.trim().toLowerCase(), f.id]));
-  const byShed = new Map(sheds.map((s) => [s.trim().toLowerCase(), s]));
-  const seen = new Set<string>();
-  const rows: ImportRowResult[] = [];
-  if (problems.length === 0) {
-    table.slice(1).forEach((cells, i) => {
-      const get = (k: string) => (col[k] == null ? "" : (cells[col[k]] ?? "").trim());
-      const dateIso = parseDate(get("date")) ?? "";
-      const forRaw = get("for");
-      const f = forRaw.toLowerCase();
-      let target = "farm";
-      const warnings: string[] = [];
-      const errors: string[] = [];
-      if (f !== "" && !["farm", "whole farm", "all", "all flocks"].includes(f)) {
-        if (byFlock.has(f)) target = `flock:${byFlock.get(f)}`;
-        else if (byShed.has(f)) target = `shed:${byShed.get(f)}`;
-        else errors.push(`"${forRaw}" is not a flock or a shed in the app. Use a flock name such as BAB-3, a shed name, or "farm".`);
-      }
-      const typeRaw = get("type").toLowerCase();
-      const kind = ["medicine", "med", "medicines", "m", "दवा"].includes(typeRaw) ? "medicine" : ["vaccine", "vaccines", "vac", "v", "vaccination"].includes(typeRaw) ? "vaccine" : typeRaw;
-      const v = validateLine({ date: dateIso, kind, item: get("name"), target, quantity: get("quantity"), unit: get("unit"), cost: get("cost"), supplier: get("supplier"), note: get("note") }, today);
-      const lineNo = i + 2;
-      const raw = { date: get("date"), name: get("name"), target: forRaw || "farm" };
-      if (!v.ok) {
-        rows.push({ line: lineNo, state: "error", errors: [...errors, ...v.errors], warnings, input: null, raw });
-        return;
-      }
-      if (errors.length) {
-        rows.push({ line: lineNo, state: "error", errors, warnings, input: null, raw });
-        return;
-      }
-      if (v.line.cost == null) warnings.push("no cost: counted as 'cost not entered', not zero");
-      const key = dupKey(v.line);
-      if (seen.has(key)) {
-        rows.push({ line: lineNo, state: "error", errors: ["the same line appears twice in the file"], warnings, input: null, raw });
-        return;
-      }
-      seen.add(key);
-      rows.push({ line: lineNo, state: existing.has(key) ? "exists" : "ok", errors: [], warnings, input: v.line, raw });
-    });
-  }
-  const counts = { total: rows.length, ok: rows.filter((r) => r.state === "ok").length, exists: rows.filter((r) => r.state === "exists").length, error: rows.filter((r) => r.state === "error").length };
-  return { rows, columnProblems: problems, counts };
-}
 
 /** What the edit form starts with (kept here, not in the client form file, because the page calls it on the server). */
-export const defaultsFromLine = (l: LineRow) => ({ date: l.date, kind: l.kind as string, target: targetValue(l), item: l.item, quantity: l.quantity, unit: l.unit, cost: l.cost, supplier: l.supplier, note: l.note });
+export const defaultsFromLine = (l: LineRow) => ({ date: l.date, kind: l.kind as string, target: targetValue(l), item: l.item, catalogueId: l.catalogueId, quantity: l.quantity, unit: l.unit, cost: l.cost, supplier: l.supplier, note: l.note });

@@ -8,6 +8,17 @@ export interface Change {
 
 export const CHANGES: Change[] = [
   {
+    date: "2026-11-07",
+    title: "One master list of medicines and vaccines, per-flock entry, boosters every 6 months, chick vaccination plan",
+    points: [
+      "New “Medicines list”: every medicine, vaccine and farm task used on the farm, once, with other spellings (Croyza and Coryza are the same item). It starts with everything you told me. Names or details you were not sure of carry a “to confirm” badge: check them with the vet or the packet, then tap “Mark as confirmed”.",
+      "Entering a medicine is now: pick it from the list (search), tick the flocks that got it (Whole farm, Main group and Young group are shortcuts), date, quantity and cost. One line is saved for each flock. A total cost or quantity for several flocks is split by the number of birds in each flock that day, and the screen shows exactly how. If a medicine is not in the list you can add it on the spot (marked “to confirm”).",
+      "New screen “What is each flock on”, also on every flock page: the ND and LPAI boosters (every 6 months) with a traffic light that is also written in words, the last date, the next due date, and what was given. A flock with no date entered says “Last date not entered” and offers “Enter the last date”: the app never assumes a date. Today shows ONE line per vaccine when boosters are overdue or due within 14 days, and one line when dates are missing.",
+      "New “Chick vaccination plan”: your day-by-day schedule from day 1 (the day the chicks arrive) to day 105, with debeaking and nail cutting as tasks. Type any arrival date to preview the plan; a newly registered chick batch gets its plan by itself; for a batch that is already here tap “Make the plan” and tick off what was really done. Nothing is created for the current flocks.",
+      "The Excel/CSV import now takes list names and one or several flocks (BAB-1; BAB-2, main, young or all). A name the list does not know is never added silently: you choose what it means. Older lines typed by hand are matched to the list when the name is exact, or with one tap under “Not matched to the list”.",
+    ],
+  },
+  {
     date: "2026-10-29",
     title: "Medicines ready for the register photos, enter a day by hand, health alert, who got the eggs",
     points: [

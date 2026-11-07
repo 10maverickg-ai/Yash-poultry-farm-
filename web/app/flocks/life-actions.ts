@@ -1,5 +1,6 @@
 "use server";
 
+import { createPlanForBatch } from "@/lib/medicines/chickStore";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { pool, withTransaction } from "@/lib/db";
@@ -63,11 +64,13 @@ export async function addBatch(formData: FormData) {
   const count = Number(formData.get("starting_count"));
   if (!iso.test(arrival)) back(path, "Choose the arrival date.");
   if (!Number.isInteger(count) || count <= 0) back(path, "Enter how many chicks arrived.");
-  await pool.query(
-    `INSERT INTO chick_batches (farm_code, arrival_date, source, starting_count, shed_side, status, note) VALUES ($1,$2,$3,$4,$5,'in_chick_shed',$6)`,
+  const { rows } = await pool.query(
+    `INSERT INTO chick_batches (farm_code, arrival_date, source, starting_count, shed_side, status, note) VALUES ($1,$2,$3,$4,$5,'in_chick_shed',$6) RETURNING id`,
     [ACTIVE_FARM, arrival, String(formData.get("source") ?? "") || null, count, String(formData.get("shed_side") ?? "") || null, String(formData.get("note") ?? "") || null]
   );
-  back(path, "Batch saved.", true);
+  // a batch registered from now on gets its vaccination plan (day 1 = arrival); if that fails the batch is still saved
+  const made = await withTransaction((c) => createPlanForBatch(c, Number(rows[0].id))).catch(() => 0);
+  back(path, made > 0 ? "Batch saved. Its vaccination plan was made (see Medicines, Chick vaccination plan)." : "Batch saved.", true);
 }
 
 export async function updateBatch(id: number, formData: FormData) {
