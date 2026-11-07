@@ -5,7 +5,8 @@ import { TO_CONFIRM_LINE, itemSummary, kindLabel } from "@/lib/medicines/catalog
 import { CatalogueItemForm } from "@/components/CatalogueItemForm";
 import { CatalogueDelete } from "@/components/CatalogueDelete";
 import { ActionForm } from "@/components/ActionForm";
-import { addAliasAction, confirmCatalogueItem, deleteCatalogueItem, removeAliasAction, saveCatalogueItem, setCatalogueActive } from "../actions";
+import { addAliasAction, confirmCatalogueItem, deleteCatalogueItem, removeAliasAction, saveBoosterRules, saveCatalogueItem, setCatalogueActive } from "../actions";
+import { itemRuleIds, listRules } from "@/lib/medicines/boosterStore";
 
 export const dynamic = "force-dynamic";
 
@@ -19,6 +20,7 @@ export default async function ItemPage({ params }: { params: Promise<{ id: strin
   if (!Number.isInteger(n)) notFound();
   const item = await getItem(n);
   if (!item) notFound();
+  const [rules, mine] = item.kind === "vaccine" ? await Promise.all([listRules(), itemRuleIds(item.id)]) : [[], [] as number[]];
   return (
     <>
       <h1>{item.name}</h1>
@@ -46,6 +48,22 @@ export default async function ItemPage({ params }: { params: Promise<{ id: strin
           <button type="submit">Add</button>
         </ActionForm>
       </section>
+
+      {item.kind === "vaccine" && rules.length > 0 && (
+        <>
+          <h2>Counts as a booster</h2>
+          <ActionForm action={saveBoosterRules.bind(null, item.id)} className="card stack">
+            <p className="muted" style={{ margin: 0 }}>Some vaccines are repeated every 6 months in laying flocks. Tick the booster this item counts for: when it is given to a flock, that flock&apos;s next due date moves on.</p>
+            {rules.map((r) => (
+              <label key={r.id} className="check-line">
+                <input type="checkbox" name="rule" value={r.id} defaultChecked={mine.includes(r.id)} disabled={r.mainItemId === item.id} />
+                <span>{r.label} <span className="hint">(every {r.repeatMonths} months{r.mainItemId === item.id ? "; this is its own item" : ""})</span></span>
+              </label>
+            ))}
+            <button type="submit">Save</button>
+          </ActionForm>
+        </>
+      )}
 
       <h2>In the pick list</h2>
       <section className="card stack">

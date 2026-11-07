@@ -26,7 +26,9 @@ export async function listCatalogue(db: Db = pool): Promise<CatalogueItem[]> {
   const [c, a] = await Promise.all([
     db.query(
       `SELECT c.*,
-              (SELECT count(*) FROM medicine_lines l WHERE l.catalogue_id = c.id) AS used
+              (SELECT count(*) FROM medicine_lines l WHERE l.catalogue_id = c.id)
+            + (SELECT count(*) FROM vaccine_repeat_rule_items r WHERE r.catalogue_id = c.id)
+            + (SELECT count(*) FROM vaccine_repeat_rules r WHERE r.main_catalogue_id = c.id) AS used
          FROM medicine_catalogue c WHERE c.farm_code = $1 ORDER BY lower(c.name)`,
       [ACTIVE_FARM]
     ),

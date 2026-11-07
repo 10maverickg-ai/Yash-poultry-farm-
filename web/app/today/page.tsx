@@ -8,6 +8,9 @@ import { addDays, flockCards, lastDayOfData, SEGMENTS, SEGMENT_NAME } from "@/li
 import { loadPeriodExtras } from "@/lib/analytics/periodLoad";
 import { allSegmentPanels, farmCheck } from "@/lib/analytics/segments";
 import { buildToday, type TodayItem } from "@/lib/analytics/today";
+import { loadBoosters } from "@/lib/medicines/boosterStore";
+import { boosterAlerts } from "@/lib/medicines/boosters";
+import { todayIST } from "@/lib/weather/openMeteo";
 import { chip } from "@/lib/analytics/chips";
 import { FarmLine, SegmentPanelView } from "@/components/SegmentPanels";
 import { DataStamp } from "@/components/DataStamp";
@@ -54,13 +57,14 @@ export default async function TodayPage() {
   const realToday = new Date().toISOString().slice(0, 10);
   const realYesterday = addDays(realToday, -1);
   // one wave of parallel reads
-  const [input, costInput, extras, photoQ, queueQ, rateQ] = await Promise.all([
+  const [input, costInput, extras, photoQ, queueQ, rateQ, boosters] = await Promise.all([
     loadEngineInput(),
     loadCostInput(),
     loadPeriodExtras(),
     pool.query(`SELECT count(*)::int AS n FROM daily_production WHERE farm_code = $1 AND date = $2 AND deleted_at IS NULL`, [ACTIVE_FARM, realYesterday]),
     pool.query(`SELECT count(*)::int AS n FROM upload_queue WHERE farm_code = $1 AND entered_date = $2 AND status IN ('waiting','reading','saved','needs_review')`, [ACTIVE_FARM, realYesterday]),
     pool.query(`SELECT count(*)::int AS n FROM daily_egg_rates WHERE date = $1`, [realYesterday]),
+    loadBoosters(todayIST()).catch(() => null), // a missing table or a slow read never stops Today
   ]);
   const { ctx } = buildFarmCtx(input);
   after(() => refreshWeatherQuietly()); // after the page is sent: the page never waits for the weather service
@@ -87,6 +91,9 @@ export default async function TodayPage() {
   if (money.missing.length) missing.push({ text: `The cost is incomplete, so profit is not final: ${money.missing.join(", ")} not entered.`, href: "/purchases", cta: "Open Costs and fill them in" });
 
   const t = buildToday(ctx, extras, costInput, latest, missing);
+  // vaccine boosters every 6 months: one line per vaccine (flocks listed) and one line when last dates are missing
+  // (put at the top of the list: there are at most three of them and each is something to do, not a trend to watch)
+  if (boosters) t.soon.unshift(...boosterAlerts(boosters.table, boosters.rules, todayIST()).map((a) => ({ id: a.id, title: a.title, detail: a.detail, href: a.href, group: "farm" as const })));
 
   return (
     <>

@@ -1,6 +1,7 @@
 "use server";
 
 import { withTransaction } from "@/lib/db";
+import { setItemRules } from "@/lib/medicines/boosterStore";
 import { validateItem, validateAlias } from "@/lib/medicines/catalogue";
 import { addAlias, createItem, deleteItemIfUnused, isClash, listCatalogue, removeAlias, setActive, setConfirmed, updateItem } from "@/lib/medicines/catalogueStore";
 
@@ -94,3 +95,14 @@ export async function removeAliasAction(aliasId: number, _prev: ItemState | null
   }
 }
 
+
+// Which boosters this list item counts for (an item ticked here counts as that booster when the last date of a flock is worked out).
+export async function saveBoosterRules(id: number, _prev: ItemState | null, formData: FormData): Promise<ItemState> {
+  try {
+    const ids = formData.getAll("rule").map((v) => Number(v)).filter((n) => Number.isInteger(n) && n > 0);
+    await setItemRules(id, ids);
+    return { ok: true, message: "Saved." };
+  } catch {
+    return { ok: false, message: FAILED };
+  }
+}

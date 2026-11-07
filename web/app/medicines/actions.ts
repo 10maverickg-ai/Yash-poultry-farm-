@@ -7,6 +7,7 @@ import { randomUUID } from "node:crypto";
 import { validateLine, IMPORT_TAG, parseImport, type ImportReport } from "@/lib/medicines/lines";
 import { birdsOn, deleteEntryGroup, deleteLine, existingKeys, insertLine, listEntryFlocks, listTargets, matchLinesByName, setMonthNone, updateLine } from "@/lib/medicines/store";
 import { createItem, isClash, listCatalogue } from "@/lib/medicines/catalogueStore";
+import { listRules, listLayingFlocks } from "@/lib/medicines/boosterStore";
 import { describeSplit, planEntry, validateEntry } from "@/lib/medicines/entry";
 import { uploadRegisterPhoto } from "@/lib/storage";
 import { tableFromFile } from "@/lib/import/file";
@@ -275,4 +276,28 @@ export async function changeVaccinationDue(id: number, _prev: LineState | null, 
   if (!iso.test(due)) return { ok: false, message: "Choose the new due date." };
   await pool.query(`UPDATE vaccination_schedule SET due_date = $2 WHERE id = $1 AND farm_code = $3`, [id, due, ACTIVE_FARM]);
   return { ok: true, message: "Due date changed." };
+}
+
+
+// "Enter last date": one tap on a flock's booster when no date is recorded (or to add a newer one). It writes a normal register line for
+// that flock with the rule's own list item and no cost, so it counts exactly like any other entry. A date is always typed, never assumed.
+export async function enterLastBooster(flockId: string, ruleCode: string, _prev: LineState | null, formData: FormData): Promise<LineState> {
+  const date = STR(formData, "date");
+  const today = new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
+  if (!iso.test(date)) return { ok: false, message: "Choose the date it was given." };
+  if (date > today) return { ok: false, message: "That date is in the future. Choose the date it was given." };
+  if (date < "2015-01-01") return { ok: false, message: "That date looks wrong. Check the year." };
+  try {
+    const [rules, flocks, items] = await Promise.all([listRules(), listLayingFlocks(), listCatalogue()]);
+    const rule = rules.find((r) => r.code === ruleCode);
+    const flock = flocks.find((f) => f.id === flockId);
+    const item = items.find((i) => i.id === rule?.mainItemId);
+    if (!rule || !flock || !item) return { ok: false, message: "That flock or booster is not in the app." };
+    const dup = await pool.query(`SELECT 1 FROM medicine_lines WHERE farm_code = $1 AND flock_internal_id = $2 AND catalogue_id = $3 AND date = $4`, [ACTIVE_FARM, flockId, item.id, date]);
+    if (dup.rows.length) return { ok: false, message: `${flock.label} already has ${rule.label} on that date.` };
+    await tx((c) => insertLine(c, { scope: "flock", flockId, shedCode: null, date, kind: "vaccine", item: item.name, quantity: null, unit: null, cost: null, supplier: null, note: "Last date entered from the booster screen", catalogueId: item.id }, null, "booster last date"));
+    return { ok: true, message: `Saved: ${rule.label} for ${flock.label} on ${date}.` };
+  } catch {
+    return { ok: false, message: "That could not be saved just now. Try again in a moment." };
+  }
 }
