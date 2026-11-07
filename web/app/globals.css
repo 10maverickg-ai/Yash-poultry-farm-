@@ -883,3 +883,15 @@ main:focus { outline: none; }
 .md-pick-on { border-color: var(--accent); background: #eaf5ee; }
 .md-flocks { display: grid; gap: 0.35rem; grid-template-columns: 1fr; }
 @media (min-width: 560px) { .md-flocks { grid-template-columns: 1fr 1fr; } }
+
+/* What is each flock on (V14) */
+.md-flockcard { display: grid; gap: 0.35rem; }
+.md-booster { padding: 0.4rem 0; border-top: 1px solid var(--line); }
+.md-booster-head { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; }
+.md-tl { display: inline-block; width: 0.85rem; height: 0.85rem; border-radius: 50%; vertical-align: -1px; }
+.md-tl-green { background: #2e7d4f; } .md-tl-amber { background: #d99200; } .md-tl-red { background: #c0392b; }
+.md-tl-green-text { color: #166534; } .md-tl-amber-text { color: #8a5200; } .md-tl-red-text { color: #b91c1c; }
+.md-status { font-weight: 600; font-size: 0.9rem; }
+.md-enter summary { cursor: pointer; padding: 0.4rem 0; color: var(--accent); font-weight: 600; min-height: 44px; display: flex; align-items: center; }
+.md-given { margin: 0; padding-left: 1.1rem; }
+.md-given li { margin: 0.15rem 0; }
