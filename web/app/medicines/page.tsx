@@ -2,12 +2,14 @@ import Link from "next/link";
 import { listFlocks } from "@/lib/flocks";
 import { listBatches } from "@/lib/flocklife/load";
 import { pool } from "@/lib/db";
-import { listLines, listSchedule, listSuggestions, listTargets, monthStatus } from "@/lib/medicines/store";
+import { listEntryFlocks, listLines, listSchedule, listSuggestions, listUnmatched, monthStatus } from "@/lib/medicines/store";
+import { listCatalogue } from "@/lib/medicines/catalogueStore";
+import { itemSummary, norm, pickable } from "@/lib/medicines/catalogue";
 import { groupSchedule, monthSummary, monthsOf, type ScheduleItem } from "@/lib/medicines/lines";
-import { MedicineLineForm } from "@/components/MedicineLineForm";
+import { MedicineEntryForm } from "@/components/MedicineEntryForm";
 import { MedicineMonthNone } from "@/components/MedicineMonthNone";
 import { ActionForm } from "@/components/ActionForm";
-import { saveLine, markMonthNone, addVaccination, markVaccinationGiven, fillScheduleFromLibrary, changeVaccinationDue } from "./actions";
+import { saveEntry, matchUnmatched, markMonthNone, addVaccination, markVaccinationGiven, fillScheduleFromLibrary, changeVaccinationDue } from "./actions";
 import { dmy, inr } from "@/lib/format";
 
 export const metadata = { title: "Medicines and vaccines" };
@@ -51,9 +53,11 @@ function ScheduleList({ title, items, tone, today, kids }: { title: string; item
 export default async function MedicinesPage({ searchParams }: { searchParams: Promise<SP> }) {
   const sp = await searchParams;
   const today = todayISO();
-  const [lines, targets, suggestions, schedule, flocks, batches, lib] = await Promise.all([
+  const [lines, entryFlocks, catalogue, unmatched, suggestions, schedule, flocks, batches, lib] = await Promise.all([
     listLines(),
-    listTargets(),
+    listEntryFlocks(),
+    listCatalogue(),
+    listUnmatched(),
     listSuggestions(),
     listSchedule(),
     listFlocks(),
@@ -76,19 +80,21 @@ export default async function MedicinesPage({ searchParams }: { searchParams: Pr
     ...batches.map((b) => ({ v: `batch:${b.id}`, l: `Chick batch ${b.arrival}` })),
     ...flocks.filter((f) => f.status === "active").map((f) => ({ v: `flock:${f.flock_internal_id}`, l: `Flock ${f.display_label}` })),
   ];
-  const defaults = { date: sp.date && /^\d{4}-\d{2}-\d{2}$/.test(sp.date) ? sp.date : (lines[0]?.date ?? today), kind: sp.kind ?? "medicine", target: sp.target ?? "farm" };
+  const defaults = { date: sp.date && /^\d{4}-\d{2}-\d{2}$/.test(sp.date) ? sp.date : (lines[0]?.date ?? today), flockIds: [] as string[], supplier: "" };
+  const pick = pickable(catalogue).map((i) => ({ id: i.id, name: i.name, kind: i.kind as "vaccine" | "medicine", summary: itemSummary(i), needsConfirmation: i.needsConfirmation, search: norm([i.name, i.purpose, i.brand, ...i.aliases.map((a) => a.alias)].filter(Boolean).join(" ")) }));
+  const matchable = catalogue.filter((i) => i.kind !== "management" && i.active);
   return (
     <>
       <h1>Medicines &amp; vaccines</h1>
       {sp.saved && <div className="saved-banner">{sp.saved}</div>}
       {sp.error && <div className="error-banner">{sp.error}</div>}
       <p className="muted">
-        One line for each medicine or vaccine written in the register. The cost is optional; a line with a cost counts in the monthly cost on the <Link href="/purchases">Costs screen</Link>.
-        {" "}<Link href="/medicines/import">Import many lines from Excel →</Link>
+        Pick the medicine or vaccine from the list, tick the flocks that got it, and save. One line is kept for each flock. The cost is optional; a line with a cost counts in the monthly cost on the <Link href="/purchases">Costs screen</Link>.
+        {" "}<Link href="/medicines/list">Medicines list →</Link> · <Link href="/medicines/import">Import many lines from Excel →</Link>
       </p>
 
-      <h2 id="enter">1. Enter a line</h2>
-      <MedicineLineForm action={saveLine} targets={targets} suggestions={suggestions} defaults={defaults} mode="add" />
+      <h2 id="enter">1. Enter what was given</h2>
+      <MedicineEntryForm action={saveEntry} items={pick} flocks={entryFlocks} defaults={defaults} suppliers={suggestions.suppliers} />
 
       <h2 id="month">2. The month</h2>
       <div className="card">
@@ -123,10 +129,10 @@ export default async function MedicinesPage({ searchParams }: { searchParams: Pr
                   <tr key={l.id}>
                     <td>{dmy(l.date)}</td>
                     <td>{l.kind === "vaccine" ? "Vaccine" : "Medicine"}</td>
-                    <td>{l.item}{l.supplier ? <span className="muted"> · {l.supplier}</span> : null}{l.sourceTag !== "hand entry" ? <span className="muted"> · {l.sourceTag}</span> : null}</td>
+                    <td>{l.listName ?? l.item}{l.catalogueId == null ? <span className="badge badge-confirm" style={{ marginLeft: "0.4rem" }}>not in the list</span> : null}{l.supplier ? <span className="muted"> · {l.supplier}</span> : null}{l.sourceTag !== "hand entry" ? <span className="muted"> · {l.sourceTag}</span> : null}</td>
                     <td>{l.targetLabel}</td>
                     <td>{l.quantity != null ? `${l.quantity} ${l.unit ?? ""}` : "—"}</td>
-                    <td>{l.cost == null ? <span className="muted">not entered</span> : inr(l.cost)}</td>
+                    <td>{l.cost == null ? <span className="muted">not entered</span> : inr(l.cost)}{l.entryGroup && l.costTotal != null ? <span className="muted an-tiny" style={{ display: "block" }}>share of {inr(l.costTotal)} ({l.splitBasis === "birds" ? "by birds" : "equal"})</span> : null}</td>
                     <td>{l.photoUrl ? <a href={l.photoUrl} target="_blank" rel="noreferrer">photo</a> : "—"}</td>
                     <td><Link href={`/medicines/line/${l.id}`}>Edit</Link></td>
                   </tr>
@@ -134,6 +140,25 @@ export default async function MedicinesPage({ searchParams }: { searchParams: Pr
               </tbody>
             </table>
           </div>
+        </>
+      )}
+
+      {unmatched.length > 0 && (
+        <>
+          <h2 id="unmatched">Not matched to the list</h2>
+          <p className="muted">These older lines were typed by hand and their name is not in the Medicines list. Pick the item they mean and tap Match: every line with that name is matched at once, the card goes away and the lines show the list name in the month list.</p>
+          {unmatched.map((u) => (
+            <div key={`${u.item}|${u.kind}`} className="card">
+              <div><b>{u.item}</b> <span className="muted an-tiny">{u.lines} line{u.lines === 1 ? "" : "s"} · last {dmy(u.latest)} · {u.cost > 0 ? inr(u.cost) : "no cost entered"}</span></div>
+              <ActionForm action={matchUnmatched.bind(null, u.item)} className="actions-bar" style={{ marginTop: "0.4rem", marginBottom: 0 }}>
+                <select name="catalogue_id" defaultValue="" aria-label={`List item for ${u.item}`}>
+                  <option value="" disabled>Choose the item…</option>
+                  {matchable.map((i) => (<option key={i.id} value={i.id}>{i.name}</option>))}
+                </select>
+                <button type="submit">Match</button>
+              </ActionForm>
+            </div>
+          ))}
         </>
       )}
 

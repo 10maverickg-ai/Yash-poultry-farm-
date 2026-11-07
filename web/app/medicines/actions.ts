@@ -3,8 +3,11 @@
 import { pool, withTransaction } from "@/lib/db";
 import { ACTIVE_FARM } from "@/lib/farm";
 import { isPlaceholderDate } from "@/lib/ageWeeks";
+import { randomUUID } from "node:crypto";
 import { validateLine, IMPORT_TAG, parseImport, type ImportReport } from "@/lib/medicines/lines";
-import { deleteLine, existingKeys, insertLine, listTargets, setMonthNone, updateLine } from "@/lib/medicines/store";
+import { birdsOn, deleteEntryGroup, deleteLine, existingKeys, insertLine, listEntryFlocks, listTargets, matchLinesByName, setMonthNone, updateLine } from "@/lib/medicines/store";
+import { createItem, isClash, listCatalogue } from "@/lib/medicines/catalogueStore";
+import { describeSplit, planEntry, validateEntry } from "@/lib/medicines/entry";
 import { uploadRegisterPhoto } from "@/lib/storage";
 import { tableFromFile } from "@/lib/import/file";
 import { withTransaction as tx } from "@/lib/db";
@@ -36,39 +39,85 @@ export interface LineState {
   keep?: { date: string; kind: string; target: string; supplier: string };
   deleted?: boolean;
 }
+export interface EntryState {
+  ok: boolean;
+  message: string;
+  savedId?: string; // changes with every save, so the form can start fresh
+  photoUrl?: string | null;
+  keep?: { date: string; flockIds: string[]; supplier: string };
+}
 const fieldsOf = (f: FormData) => ({ date: STR(f, "date"), kind: STR(f, "kind"), item: STR(f, "item"), target: STR(f, "target"), quantity: STR(f, "quantity"), unit: STR(f, "unit"), cost: STR(f, "cost"), supplier: STR(f, "supplier"), note: STR(f, "note") });
 
-// One line of the register. The result is shown on the same screen (no page change), and the next line keeps the date, type, target,
-// supplier and the register-page photo, so a whole page of the register is quick to enter.
-export async function saveLine(_prev: LineState | null, formData: FormData): Promise<LineState> {
+// One entry of the register: an item picked from the list, one or more flocks ticked. One line is saved PER FLOCK (so per-flock reports are
+// exact); a total quantity or cost is split by the birds in each flock on that date and the screen says so. The answer is shown on the same
+// screen, and the next entry keeps the date, flocks, shop and the register-page photo.
+export async function saveEntry(_prev: EntryState | null, formData: FormData): Promise<EntryState> {
   try {
-    const v = validateLine(fieldsOf(formData));
+    const [items, flocks] = await Promise.all([listCatalogue(), listEntryFlocks()]);
+    const v = validateEntry(
+      { date: STR(formData, "date"), catalogue_id: STR(formData, "catalogue_id"), new_name: STR(formData, "new_name"), new_kind: STR(formData, "new_kind"), new_purpose: STR(formData, "new_purpose"), flock_ids: formData.getAll("flock_id").map(String), quantity: STR(formData, "quantity"), unit: STR(formData, "unit"), cost: STR(formData, "cost"), supplier: STR(formData, "supplier"), note: STR(formData, "note") },
+      items,
+      flocks.map((f) => ({ id: f.id, label: f.label, birds: f.birds }))
+    );
     if (!v.ok) return { ok: false, message: v.errors.join(" ") };
-    if (v.line.scope === "flock") {
-      const t = await listTargets();
-      if (!t.flocks.some((f) => f.id === v.line.flockId)) return { ok: false, message: "That flock is not in the app." };
-    }
-    const photo = await photoFrom(formData, v.line.date);
+    const e = v.entry;
+    const birds = await birdsOn(e.date, e.flockIds);
+    const plan = planEntry(e, flocks.map((f) => ({ id: f.id, label: f.label, birds: birds.get(f.id) ?? f.birds })));
+    const photo = await photoFrom(formData, e.date);
     const photoUrl = photo.url ?? (STR(formData, "keep_photo") || null);
-    const id = await tx((c) => insertLine(c, v.line, photoUrl, "hand entry"));
+    const group = plan.parts.length > 1 ? randomUUID() : null;
+    let name = "";
+    let created = false;
+    await tx(async (c) => {
+      let item = e.choice.item ? { id: e.choice.item.id, name: e.choice.item.name, kind: e.choice.item.kind } : null;
+      if (!item && e.choice.create) {
+        const cr = e.choice.create;
+        const id = await createItem(c, { name: cr.name, kind: cr.kind, purpose: cr.purpose, route: null, dose: null, brand: null, unit: null, note: null }, true);
+        item = { id, name: cr.name, kind: cr.kind };
+        created = true;
+      }
+      if (!item) throw new Error("no item");
+      name = item.name;
+      for (const part of plan.parts) {
+        await insertLine(
+          c,
+          { scope: "flock", flockId: part.flockId, shedCode: null, date: e.date, kind: item.kind as "medicine" | "vaccine", item: item.name, quantity: part.quantity, unit: e.unit, cost: part.cost, supplier: e.supplier, note: e.note, catalogueId: item.id, entryGroup: group, costTotal: plan.costTotal, quantityTotal: plan.quantityTotal, splitBasis: plan.basis },
+          photoUrl,
+          "hand entry"
+        );
+      }
+    });
+    const where = plan.parts.map((p) => p.label).join(", ");
+    const split = describeSplit(plan, e.unit);
     return {
       ok: true,
-      savedId: id,
+      savedId: group ?? `${Date.now()}`,
       photoUrl,
-      keep: { date: v.line.date, kind: v.line.kind, target: STR(formData, "target"), supplier: v.line.supplier ?? "" },
-      message: `Saved: ${v.line.item}.${photo.problem ? ` ${photo.problem}` : ""}${STR(formData, "intent") === "done" ? "" : " Add the next line."}`,
+      keep: { date: e.date, flockIds: e.flockIds, supplier: e.supplier ?? "" },
+      message: [`Saved: ${name} for ${where}.`, created ? "It was added to the Medicines list and is marked “to confirm”." : "", e.choice.note ?? "", split, photo.problem ?? "", STR(formData, "intent") === "done" ? "" : "Add the next one."].filter(Boolean).join(" "),
     };
-  } catch {
-    return { ok: false, message: "The line could not be saved just now. Nothing was lost on your screen; try again in a moment." };
+  } catch (err) {
+    return { ok: false, message: isClash(err) ? "That name is already in the Medicines list. Pick it from the list." : "The entry could not be saved just now. Nothing was lost on your screen; try again in a moment." };
   }
 }
 
 export async function saveLineEdit(id: number, _prev: LineState | null, formData: FormData): Promise<LineState> {
   try {
-    const v = validateLine(fieldsOf(formData));
+    const f = fieldsOf(formData);
+    // the name comes from the list: a picked item decides the name and the type; an old line not matched to the list keeps its typed name
+    const cid = Number(STR(formData, "catalogue_id"));
+    let catalogueId: number | null = null;
+    if (Number.isInteger(cid) && cid > 0) {
+      const item = (await listCatalogue()).find((i) => i.id === cid);
+      if (!item || item.kind === "management") return { ok: false, message: "Pick a medicine or vaccine from the list." };
+      f.item = item.name;
+      f.kind = item.kind;
+      catalogueId = item.id;
+    }
+    const v = validateLine(f);
     if (!v.ok) return { ok: false, message: v.errors.join(" ") };
     const photo = await photoFrom(formData, v.line.date);
-    const ok = await updateLine(id, v.line, photo.url);
+    const ok = await updateLine(id, { ...v.line, catalogueId }, photo.url);
     return ok ? { ok: true, savedId: id, message: `Changed: ${v.line.item}.${photo.problem ? ` ${photo.problem}` : ""}` } : { ok: false, message: "That line no longer exists." };
   } catch {
     return { ok: false, message: "The change could not be saved just now. Try again in a moment." };
@@ -83,6 +132,29 @@ export async function removeLine(id: number, _prev: LineState | null, formData: 
     return { ok: true, deleted: true, message: "The line was deleted." };
   } catch {
     return { ok: false, message: "The line could not be deleted just now. Try again in a moment." };
+  }
+}
+
+// Delete every line that was saved together (one entry for several flocks); also needs the tick.
+export async function removeEntry(group: string, _prev: LineState | null, formData: FormData): Promise<LineState> {
+  if (STR(formData, "confirm") !== "yes") return { ok: false, message: "Tick “Yes, delete the whole entry” first." };
+  try {
+    const n = await deleteEntryGroup(group);
+    return { ok: true, deleted: true, message: `The entry was deleted (${n} line${n === 1 ? "" : "s"}).` };
+  } catch {
+    return { ok: false, message: "The entry could not be deleted just now. Try again in a moment." };
+  }
+}
+
+// One tap: every old line typed with this name gets the picked list item.
+export async function matchUnmatched(itemText: string, _prev: LineState | null, formData: FormData): Promise<LineState> {
+  const id = Number(STR(formData, "catalogue_id"));
+  if (!Number.isInteger(id) || id <= 0) return { ok: false, message: "Pick the list item these lines mean." };
+  try {
+    const n = await matchLinesByName(itemText, id);
+    return n > 0 ? { ok: true, message: `Matched ${n} line${n === 1 ? "" : "s"}.` } : { ok: false, message: "Nothing to match: those lines were already matched, or that item cannot be used." };
+  } catch {
+    return { ok: false, message: "That could not be saved just now. Try again in a moment." };
   }
 }
 

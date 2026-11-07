@@ -20,8 +20,25 @@ export interface LineInput extends Target {
   cost: number | null; // null = cost not entered
   supplier: string | null;
   note: string | null;
+  // V14: which list item, which entry it was saved with, and what was typed for the whole entry (all optional)
+  catalogueId?: number | null;
+  entryGroup?: string | null;
+  costTotal?: number | null;
+  quantityTotal?: number | null;
+  splitBasis?: "birds" | "equal" | null;
 }
-export interface LineRow extends LineInput { id: number; photoUrl: string | null; sourceTag: string; targetLabel: string }
+export interface LineRow extends LineInput {
+  id: number;
+  photoUrl: string | null;
+  sourceTag: string;
+  targetLabel: string;
+  catalogueId: number | null;
+  listName: string | null; // the list item's name (null = typed name not matched to the list)
+  entryGroup: string | null;
+  costTotal: number | null;
+  quantityTotal: number | null;
+  splitBasis: "birds" | "equal" | null;
+}
 
 const todayISO = () => new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10); // India date
 const clean = (s: string | null | undefined) => {
@@ -218,4 +235,4 @@ export function parseImport(
 }
 
 /** What the edit form starts with (kept here, not in the client form file, because the page calls it on the server). */
-export const defaultsFromLine = (l: LineRow) => ({ date: l.date, kind: l.kind as string, target: targetValue(l), item: l.item, quantity: l.quantity, unit: l.unit, cost: l.cost, supplier: l.supplier, note: l.note });
+export const defaultsFromLine = (l: LineRow) => ({ date: l.date, kind: l.kind as string, target: targetValue(l), item: l.item, catalogueId: l.catalogueId, quantity: l.quantity, unit: l.unit, cost: l.cost, supplier: l.supplier, note: l.note });

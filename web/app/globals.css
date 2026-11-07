@@ -876,3 +876,10 @@ main:focus { outline: none; }
 .badge-confirm { background: #fff4d6; color: #8a5200; border: 1px solid #e8c56a; }
 .md-item { display: grid; gap: 0.15rem; }
 .md-item-head { display: flex; flex-wrap: wrap; gap: 0.4rem 0.6rem; align-items: baseline; }
+.md-fieldset { border: 0; padding: 0; margin: 0; display: grid; gap: 0.5rem; }
+.md-picklist { display: grid; gap: 0.3rem; max-height: 17rem; overflow-y: auto; padding: 0.2rem; border: 1px solid var(--line); border-radius: 10px; background: #fff; }
+.md-pick, .md-flock-tick { display: flex; align-items: flex-start; gap: 0.6rem; min-height: 44px; padding: 0.45rem 0.6rem; border: 1px solid var(--line); border-radius: 10px; background: #fff; cursor: pointer; }
+.md-pick input, .md-flock-tick input { margin-top: 0.2rem; min-width: 22px; min-height: 22px; }
+.md-pick-on { border-color: var(--accent); background: #eaf5ee; }
+.md-flocks { display: grid; gap: 0.35rem; grid-template-columns: 1fr; }
+@media (min-width: 560px) { .md-flocks { grid-template-columns: 1fr 1fr; } }
