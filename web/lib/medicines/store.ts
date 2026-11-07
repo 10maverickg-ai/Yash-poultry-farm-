@@ -2,7 +2,8 @@ import type { PoolClient } from "pg";
 import { pool } from "@/lib/db";
 import { ACTIVE_FARM } from "@/lib/farm";
 import { matchOldLines } from "./catalogueStore";
-import { dupKey, type LineInput, type LineRow, type Kind, type ScheduleItem, type Scope } from "./lines";
+import { lineKey } from "./import";
+import { type LineInput, type LineRow, type Kind, type ScheduleItem, type Scope } from "./lines";
 
 const D = (v: unknown) => String(v).slice(0, 10);
 const n = (v: unknown) => (v == null ? null : Number(v));
@@ -84,9 +85,25 @@ export async function deleteLine(id: number): Promise<boolean> {
   const { rowCount } = await pool.query(`DELETE FROM medicine_lines WHERE id = $1 AND farm_code = $2`, [id, ACTIVE_FARM]);
   return (rowCount ?? 0) > 0;
 }
+/** lineKey() of every line already in the register (date + list item + flock), so an import never doubles a line. */
 export async function existingKeys(): Promise<Set<string>> {
   const rows = await listLines();
-  return new Set(rows.map((r) => dupKey(r)));
+  return new Set(rows.map((r) => lineKey(r.date, r.catalogueId, r.item, r.flockId)));
+}
+
+/** Birds in each flock on each date (the last register figure on or before it, else the flock's current count). Keyed "date|flockId". */
+export async function birdsForDates(dates: string[], flockIds: string[]): Promise<Map<string, number | null>> {
+  const out = new Map<string, number | null>();
+  if (dates.length === 0 || flockIds.length === 0) return out;
+  const { rows } = await pool.query(
+    `SELECT d.date::text AS date, f.id::text AS flock,
+            COALESCE((SELECT p.bird_population FROM daily_production p WHERE p.flock_internal_id = f.id AND p.date <= d.date AND p.deleted_at IS NULL AND p.bird_population IS NOT NULL ORDER BY p.date DESC LIMIT 1),
+                     (SELECT fl.current_bird_count FROM flocks fl WHERE fl.flock_internal_id = f.id)) AS birds
+       FROM unnest($1::date[]) AS d(date) CROSS JOIN unnest($2::uuid[]) AS f(id)`,
+    [dates, flockIds]
+  );
+  for (const r of rows) out.set(`${r.date}|${r.flock}`, r.birds == null ? null : Number(r.birds));
+  return out;
 }
 
 /** "None this month" for medicines (monthly_input_status key 'medicines'), and taking it back. */

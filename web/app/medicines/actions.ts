@@ -4,8 +4,9 @@ import { pool, withTransaction } from "@/lib/db";
 import { ACTIVE_FARM } from "@/lib/farm";
 import { isPlaceholderDate } from "@/lib/ageWeeks";
 import { randomUUID } from "node:crypto";
-import { validateLine, IMPORT_TAG, parseImport, type ImportReport } from "@/lib/medicines/lines";
-import { birdsOn, deleteEntryGroup, deleteLine, existingKeys, insertLine, listEntryFlocks, listTargets, matchLinesByName, setMonthNone, updateLine } from "@/lib/medicines/store";
+import { validateLine, IMPORT_TAG } from "@/lib/medicines/lines";
+import { importDates, parseImport, type ImportReport } from "@/lib/medicines/import";
+import { birdsForDates, birdsOn, deleteEntryGroup, deleteLine, existingKeys, insertLine, listEntryFlocks, matchLinesByName, setMonthNone, updateLine } from "@/lib/medicines/store";
 import { createItem, isClash, listCatalogue } from "@/lib/medicines/catalogueStore";
 import { listRules, listLayingFlocks } from "@/lib/medicines/boosterStore";
 import { describeSplit, planEntry, validateEntry } from "@/lib/medicines/entry";
@@ -171,24 +172,59 @@ export async function markMonthNone(month: string, _prev: LineState | null, form
   }
 }
 
-export interface MedImportState { mode: "preview" | "imported" | "error"; message: string; report?: ImportReport }
+export interface MedImportState { mode: "preview" | "imported" | "error"; message: string; report?: ImportReport; mapping?: Record<string, string>; catalogue?: { id: number; name: string; kind: string }[] }
 
-// Import from CSV / Excel with a dry run. Lines already in the register (same date, type, name, target, quantity, unit) are skipped, never doubled.
+// Import from CSV / Excel with a dry run. The name must be in the Medicines list (or an other spelling of an item); names the list does not
+// know are shown with a choice (match, add as a new "to confirm" item, leave out): nothing is created silently. Flock cells can name several
+// flocks, main, young or all: one line per flock, a total cost or quantity split by birds on that date. Lines already in the register are
+// skipped, never doubled.
 export async function importMedicines(_prev: MedImportState | null, formData: FormData): Promise<MedImportState> {
   try {
     const file = formData.get("file");
     if (!(file instanceof File) || file.size === 0) return { mode: "error", message: "Choose a CSV or Excel file first." };
     const table = await tableFromFile(file);
-    const [t, existing] = await Promise.all([listTargets(), existingKeys()]);
-    const report = parseImport(table, t.flocks.map((f) => ({ id: f.id, label: f.label })), t.sheds, existing);
+    const mapping: Record<string, string> = {};
+    for (const [k, v] of formData.entries()) if (k.startsWith("map|") && typeof v === "string" && v) mapping[k.slice(4)] = v;
+    const [items, flocks, existing] = await Promise.all([listCatalogue(), listEntryFlocks(), existingKeys()]);
+    const dates = importDates(table);
+    const birds = await birdsForDates(dates, flocks.map((f) => f.id));
+    const ctx = {
+      items,
+      flocks: flocks.map((f) => ({ id: f.id, label: f.label, segment: f.segment, shed: null as string | null })),
+      birds: (date: string, flockId: string) => birds.get(`${date}|${flockId}`) ?? null,
+      existing,
+      mapping,
+      today: new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10),
+    };
+    const report = parseImport(table, ctx);
+    const choices = items.filter((i) => i.kind !== "management" && i.active).map((i) => ({ id: i.id, name: i.name, kind: i.kind }));
     if (report.columnProblems.length) return { mode: "error", message: report.columnProblems.join(" "), report };
-    if (STR(formData, "intent") !== "import") return { mode: "preview", message: "Dry run: nothing was saved.", report };
-    if (report.counts.error > 0 && formData.get("skip_errors") !== "on") return { mode: "preview", message: "Some lines have errors. Fix the file, or tick “import the good lines and skip the others”.", report };
+    if (STR(formData, "intent") !== "import") return { mode: "preview", message: report.counts.unknown > 0 ? "Dry run: nothing was saved. Some names are not in the Medicines list: choose what to do with each." : "Dry run: nothing was saved.", report, mapping, catalogue: choices };
+    if (report.counts.unknown > 0) return { mode: "preview", message: "Some names are not in the Medicines list yet. Choose what to do with each one below, then import.", report, mapping, catalogue: choices };
+    if (report.counts.error > 0 && formData.get("skip_errors") !== "on") return { mode: "preview", message: "Some lines have errors. Fix the file, or tick “import the good lines and skip the others”.", report, mapping, catalogue: choices };
     let written = 0;
+    let created = 0;
     await tx(async (c) => {
-      for (const r of report.rows) if (r.state === "ok" && r.input) { await insertLine(c, r.input, null, IMPORT_TAG); written++; }
+      const made = new Map<string, number>(); // new items, once per name
+      for (const r of report.rows) {
+        if (r.state !== "ok" || !r.item || !r.plan || !r.date) continue;
+        let id = r.item.id;
+        if (r.item.create) {
+          const k = `${r.item.kind}|${r.item.name.toLowerCase()}`;
+          if (!made.has(k)) {
+            made.set(k, await createItem(c, { name: r.item.name, kind: r.item.kind, purpose: null, route: null, dose: null, brand: null, unit: null, note: "Added by an import: to confirm." }, true));
+            created++;
+          }
+          id = made.get(k)!;
+        }
+        const group = r.plan.parts.length > 1 ? randomUUID() : null;
+        for (const part of r.plan.parts) {
+          await insertLine(c, { scope: "flock", flockId: part.flockId, shedCode: null, date: r.date, kind: r.item.kind, item: r.item.name, quantity: part.quantity, unit: r.unit, cost: part.cost, supplier: r.supplier, note: r.note, catalogueId: id, entryGroup: group, costTotal: r.plan.costTotal, quantityTotal: r.plan.quantityTotal, splitBasis: r.plan.basis }, null, IMPORT_TAG);
+          written++;
+        }
+      }
     });
-    return { mode: "imported", message: `Imported ${written} line${written === 1 ? "" : "s"}; skipped ${report.rows.length - written}. They are tagged “${IMPORT_TAG}”. Lines with a cost now count on the Costs screen.`, report };
+    return { mode: "imported", message: `Imported ${written} line${written === 1 ? "" : "s"} from ${report.counts.ok} row${report.counts.ok === 1 ? "" : "s"}${created ? `; ${created} new item${created === 1 ? "" : "s"} added to the Medicines list and marked “to confirm”` : ""}; skipped ${report.rows.length - report.counts.ok} row${report.rows.length - report.counts.ok === 1 ? "" : "s"}. They are tagged “${IMPORT_TAG}”. Lines with a cost now count on the Costs screen.`, report };
   } catch (e) {
     return { mode: "error", message: e instanceof Error ? e.message : "Could not read the file." };
   }
