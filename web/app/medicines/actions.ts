@@ -3,8 +3,13 @@
 import { pool, withTransaction } from "@/lib/db";
 import { ACTIVE_FARM } from "@/lib/farm";
 import { isPlaceholderDate } from "@/lib/ageWeeks";
-import { validateLine, IMPORT_TAG, parseImport, type ImportReport } from "@/lib/medicines/lines";
-import { deleteLine, existingKeys, insertLine, listTargets, setMonthNone, updateLine } from "@/lib/medicines/store";
+import { randomUUID } from "node:crypto";
+import { validateLine, IMPORT_TAG } from "@/lib/medicines/lines";
+import { importDates, parseImport, type ImportReport } from "@/lib/medicines/import";
+import { birdsForDates, birdsOn, deleteEntryGroup, deleteLine, existingKeys, insertLine, listEntryFlocks, matchLinesByName, setMonthNone, updateLine } from "@/lib/medicines/store";
+import { createItem, isClash, listCatalogue } from "@/lib/medicines/catalogueStore";
+import { listRules, listLayingFlocks } from "@/lib/medicines/boosterStore";
+import { describeSplit, planEntry, validateEntry } from "@/lib/medicines/entry";
 import { uploadRegisterPhoto } from "@/lib/storage";
 import { tableFromFile } from "@/lib/import/file";
 import { withTransaction as tx } from "@/lib/db";
@@ -36,39 +41,85 @@ export interface LineState {
   keep?: { date: string; kind: string; target: string; supplier: string };
   deleted?: boolean;
 }
+export interface EntryState {
+  ok: boolean;
+  message: string;
+  savedId?: string; // changes with every save, so the form can start fresh
+  photoUrl?: string | null;
+  keep?: { date: string; flockIds: string[]; supplier: string };
+}
 const fieldsOf = (f: FormData) => ({ date: STR(f, "date"), kind: STR(f, "kind"), item: STR(f, "item"), target: STR(f, "target"), quantity: STR(f, "quantity"), unit: STR(f, "unit"), cost: STR(f, "cost"), supplier: STR(f, "supplier"), note: STR(f, "note") });
 
-// One line of the register. The result is shown on the same screen (no page change), and the next line keeps the date, type, target,
-// supplier and the register-page photo, so a whole page of the register is quick to enter.
-export async function saveLine(_prev: LineState | null, formData: FormData): Promise<LineState> {
+// One entry of the register: an item picked from the list, one or more flocks ticked. One line is saved PER FLOCK (so per-flock reports are
+// exact); a total quantity or cost is split by the birds in each flock on that date and the screen says so. The answer is shown on the same
+// screen, and the next entry keeps the date, flocks, shop and the register-page photo.
+export async function saveEntry(_prev: EntryState | null, formData: FormData): Promise<EntryState> {
   try {
-    const v = validateLine(fieldsOf(formData));
+    const [items, flocks] = await Promise.all([listCatalogue(), listEntryFlocks()]);
+    const v = validateEntry(
+      { date: STR(formData, "date"), catalogue_id: STR(formData, "catalogue_id"), new_name: STR(formData, "new_name"), new_kind: STR(formData, "new_kind"), new_purpose: STR(formData, "new_purpose"), flock_ids: formData.getAll("flock_id").map(String), quantity: STR(formData, "quantity"), unit: STR(formData, "unit"), cost: STR(formData, "cost"), supplier: STR(formData, "supplier"), note: STR(formData, "note") },
+      items,
+      flocks.map((f) => ({ id: f.id, label: f.label, birds: f.birds }))
+    );
     if (!v.ok) return { ok: false, message: v.errors.join(" ") };
-    if (v.line.scope === "flock") {
-      const t = await listTargets();
-      if (!t.flocks.some((f) => f.id === v.line.flockId)) return { ok: false, message: "That flock is not in the app." };
-    }
-    const photo = await photoFrom(formData, v.line.date);
+    const e = v.entry;
+    const birds = await birdsOn(e.date, e.flockIds);
+    const plan = planEntry(e, flocks.map((f) => ({ id: f.id, label: f.label, birds: birds.get(f.id) ?? f.birds })));
+    const photo = await photoFrom(formData, e.date);
     const photoUrl = photo.url ?? (STR(formData, "keep_photo") || null);
-    const id = await tx((c) => insertLine(c, v.line, photoUrl, "hand entry"));
+    const group = plan.parts.length > 1 ? randomUUID() : null;
+    let name = "";
+    let created = false;
+    await tx(async (c) => {
+      let item = e.choice.item ? { id: e.choice.item.id, name: e.choice.item.name, kind: e.choice.item.kind } : null;
+      if (!item && e.choice.create) {
+        const cr = e.choice.create;
+        const id = await createItem(c, { name: cr.name, kind: cr.kind, purpose: cr.purpose, route: null, dose: null, brand: null, unit: null, note: null }, true);
+        item = { id, name: cr.name, kind: cr.kind };
+        created = true;
+      }
+      if (!item) throw new Error("no item");
+      name = item.name;
+      for (const part of plan.parts) {
+        await insertLine(
+          c,
+          { scope: "flock", flockId: part.flockId, shedCode: null, date: e.date, kind: item.kind as "medicine" | "vaccine", item: item.name, quantity: part.quantity, unit: e.unit, cost: part.cost, supplier: e.supplier, note: e.note, catalogueId: item.id, entryGroup: group, costTotal: plan.costTotal, quantityTotal: plan.quantityTotal, splitBasis: plan.basis },
+          photoUrl,
+          "hand entry"
+        );
+      }
+    });
+    const where = plan.parts.map((p) => p.label).join(", ");
+    const split = describeSplit(plan, e.unit);
     return {
       ok: true,
-      savedId: id,
+      savedId: group ?? `${Date.now()}`,
       photoUrl,
-      keep: { date: v.line.date, kind: v.line.kind, target: STR(formData, "target"), supplier: v.line.supplier ?? "" },
-      message: `Saved: ${v.line.item}.${photo.problem ? ` ${photo.problem}` : ""}${STR(formData, "intent") === "done" ? "" : " Add the next line."}`,
+      keep: { date: e.date, flockIds: e.flockIds, supplier: e.supplier ?? "" },
+      message: [`Saved: ${name} for ${where}.`, created ? "It was added to the Medicines list and is marked “to confirm”." : "", e.choice.note ?? "", split, photo.problem ?? "", STR(formData, "intent") === "done" ? "" : "Add the next one."].filter(Boolean).join(" "),
     };
-  } catch {
-    return { ok: false, message: "The line could not be saved just now. Nothing was lost on your screen; try again in a moment." };
+  } catch (err) {
+    return { ok: false, message: isClash(err) ? "That name is already in the Medicines list. Pick it from the list." : "The entry could not be saved just now. Nothing was lost on your screen; try again in a moment." };
   }
 }
 
 export async function saveLineEdit(id: number, _prev: LineState | null, formData: FormData): Promise<LineState> {
   try {
-    const v = validateLine(fieldsOf(formData));
+    const f = fieldsOf(formData);
+    // the name comes from the list: a picked item decides the name and the type; an old line not matched to the list keeps its typed name
+    const cid = Number(STR(formData, "catalogue_id"));
+    let catalogueId: number | null = null;
+    if (Number.isInteger(cid) && cid > 0) {
+      const item = (await listCatalogue()).find((i) => i.id === cid);
+      if (!item || item.kind === "management") return { ok: false, message: "Pick a medicine or vaccine from the list." };
+      f.item = item.name;
+      f.kind = item.kind;
+      catalogueId = item.id;
+    }
+    const v = validateLine(f);
     if (!v.ok) return { ok: false, message: v.errors.join(" ") };
     const photo = await photoFrom(formData, v.line.date);
-    const ok = await updateLine(id, v.line, photo.url);
+    const ok = await updateLine(id, { ...v.line, catalogueId }, photo.url);
     return ok ? { ok: true, savedId: id, message: `Changed: ${v.line.item}.${photo.problem ? ` ${photo.problem}` : ""}` } : { ok: false, message: "That line no longer exists." };
   } catch {
     return { ok: false, message: "The change could not be saved just now. Try again in a moment." };
@@ -86,6 +137,29 @@ export async function removeLine(id: number, _prev: LineState | null, formData: 
   }
 }
 
+// Delete every line that was saved together (one entry for several flocks); also needs the tick.
+export async function removeEntry(group: string, _prev: LineState | null, formData: FormData): Promise<LineState> {
+  if (STR(formData, "confirm") !== "yes") return { ok: false, message: "Tick “Yes, delete the whole entry” first." };
+  try {
+    const n = await deleteEntryGroup(group);
+    return { ok: true, deleted: true, message: `The entry was deleted (${n} line${n === 1 ? "" : "s"}).` };
+  } catch {
+    return { ok: false, message: "The entry could not be deleted just now. Try again in a moment." };
+  }
+}
+
+// One tap: every old line typed with this name gets the picked list item.
+export async function matchUnmatched(itemText: string, _prev: LineState | null, formData: FormData): Promise<LineState> {
+  const id = Number(STR(formData, "catalogue_id"));
+  if (!Number.isInteger(id) || id <= 0) return { ok: false, message: "Pick the list item these lines mean." };
+  try {
+    const n = await matchLinesByName(itemText, id);
+    return n > 0 ? { ok: true, message: `Matched ${n} line${n === 1 ? "" : "s"}.` } : { ok: false, message: "Nothing to match: those lines were already matched, or that item cannot be used." };
+  } catch {
+    return { ok: false, message: "That could not be saved just now. Try again in a moment." };
+  }
+}
+
 // "None this month" for medicines and vaccines (monthly_input_status), and taking it back. The answer is shown on the same screen.
 export async function markMonthNone(month: string, _prev: LineState | null, formData: FormData): Promise<LineState> {
   if (!/^\d{4}-\d{2}$/.test(month)) return { ok: false, message: "Unknown month." };
@@ -98,24 +172,59 @@ export async function markMonthNone(month: string, _prev: LineState | null, form
   }
 }
 
-export interface MedImportState { mode: "preview" | "imported" | "error"; message: string; report?: ImportReport }
+export interface MedImportState { mode: "preview" | "imported" | "error"; message: string; report?: ImportReport; mapping?: Record<string, string>; catalogue?: { id: number; name: string; kind: string }[] }
 
-// Import from CSV / Excel with a dry run. Lines already in the register (same date, type, name, target, quantity, unit) are skipped, never doubled.
+// Import from CSV / Excel with a dry run. The name must be in the Medicines list (or an other spelling of an item); names the list does not
+// know are shown with a choice (match, add as a new "to confirm" item, leave out): nothing is created silently. Flock cells can name several
+// flocks, main, young or all: one line per flock, a total cost or quantity split by birds on that date. Lines already in the register are
+// skipped, never doubled.
 export async function importMedicines(_prev: MedImportState | null, formData: FormData): Promise<MedImportState> {
   try {
     const file = formData.get("file");
     if (!(file instanceof File) || file.size === 0) return { mode: "error", message: "Choose a CSV or Excel file first." };
     const table = await tableFromFile(file);
-    const [t, existing] = await Promise.all([listTargets(), existingKeys()]);
-    const report = parseImport(table, t.flocks.map((f) => ({ id: f.id, label: f.label })), t.sheds, existing);
+    const mapping: Record<string, string> = {};
+    for (const [k, v] of formData.entries()) if (k.startsWith("map|") && typeof v === "string" && v) mapping[k.slice(4)] = v;
+    const [items, flocks, existing] = await Promise.all([listCatalogue(), listEntryFlocks(), existingKeys()]);
+    const dates = importDates(table);
+    const birds = await birdsForDates(dates, flocks.map((f) => f.id));
+    const ctx = {
+      items,
+      flocks: flocks.map((f) => ({ id: f.id, label: f.label, segment: f.segment, shed: null as string | null })),
+      birds: (date: string, flockId: string) => birds.get(`${date}|${flockId}`) ?? null,
+      existing,
+      mapping,
+      today: new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10),
+    };
+    const report = parseImport(table, ctx);
+    const choices = items.filter((i) => i.kind !== "management" && i.active).map((i) => ({ id: i.id, name: i.name, kind: i.kind }));
     if (report.columnProblems.length) return { mode: "error", message: report.columnProblems.join(" "), report };
-    if (STR(formData, "intent") !== "import") return { mode: "preview", message: "Dry run: nothing was saved.", report };
-    if (report.counts.error > 0 && formData.get("skip_errors") !== "on") return { mode: "preview", message: "Some lines have errors. Fix the file, or tick “import the good lines and skip the others”.", report };
+    if (STR(formData, "intent") !== "import") return { mode: "preview", message: report.counts.unknown > 0 ? "Dry run: nothing was saved. Some names are not in the Medicines list: choose what to do with each." : "Dry run: nothing was saved.", report, mapping, catalogue: choices };
+    if (report.counts.unknown > 0) return { mode: "preview", message: "Some names are not in the Medicines list yet. Choose what to do with each one below, then import.", report, mapping, catalogue: choices };
+    if (report.counts.error > 0 && formData.get("skip_errors") !== "on") return { mode: "preview", message: "Some lines have errors. Fix the file, or tick “import the good lines and skip the others”.", report, mapping, catalogue: choices };
     let written = 0;
+    let created = 0;
     await tx(async (c) => {
-      for (const r of report.rows) if (r.state === "ok" && r.input) { await insertLine(c, r.input, null, IMPORT_TAG); written++; }
+      const made = new Map<string, number>(); // new items, once per name
+      for (const r of report.rows) {
+        if (r.state !== "ok" || !r.item || !r.plan || !r.date) continue;
+        let id = r.item.id;
+        if (r.item.create) {
+          const k = `${r.item.kind}|${r.item.name.toLowerCase()}`;
+          if (!made.has(k)) {
+            made.set(k, await createItem(c, { name: r.item.name, kind: r.item.kind, purpose: null, route: null, dose: null, brand: null, unit: null, note: "Added by an import: to confirm." }, true));
+            created++;
+          }
+          id = made.get(k)!;
+        }
+        const group = r.plan.parts.length > 1 ? randomUUID() : null;
+        for (const part of r.plan.parts) {
+          await insertLine(c, { scope: "flock", flockId: part.flockId, shedCode: null, date: r.date, kind: r.item.kind, item: r.item.name, quantity: part.quantity, unit: r.unit, cost: part.cost, supplier: r.supplier, note: r.note, catalogueId: id, entryGroup: group, costTotal: r.plan.costTotal, quantityTotal: r.plan.quantityTotal, splitBasis: r.plan.basis }, null, IMPORT_TAG);
+          written++;
+        }
+      }
     });
-    return { mode: "imported", message: `Imported ${written} line${written === 1 ? "" : "s"}; skipped ${report.rows.length - written}. They are tagged “${IMPORT_TAG}”. Lines with a cost now count on the Costs screen.`, report };
+    return { mode: "imported", message: `Imported ${written} line${written === 1 ? "" : "s"} from ${report.counts.ok} row${report.counts.ok === 1 ? "" : "s"}${created ? `; ${created} new item${created === 1 ? "" : "s"} added to the Medicines list and marked “to confirm”` : ""}; skipped ${report.rows.length - report.counts.ok} row${report.rows.length - report.counts.ok === 1 ? "" : "s"}. They are tagged “${IMPORT_TAG}”. Lines with a cost now count on the Costs screen.`, report };
   } catch (e) {
     return { mode: "error", message: e instanceof Error ? e.message : "Could not read the file." };
   }
@@ -203,4 +312,28 @@ export async function changeVaccinationDue(id: number, _prev: LineState | null, 
   if (!iso.test(due)) return { ok: false, message: "Choose the new due date." };
   await pool.query(`UPDATE vaccination_schedule SET due_date = $2 WHERE id = $1 AND farm_code = $3`, [id, due, ACTIVE_FARM]);
   return { ok: true, message: "Due date changed." };
+}
+
+
+// "Enter last date": one tap on a flock's booster when no date is recorded (or to add a newer one). It writes a normal register line for
+// that flock with the rule's own list item and no cost, so it counts exactly like any other entry. A date is always typed, never assumed.
+export async function enterLastBooster(flockId: string, ruleCode: string, _prev: LineState | null, formData: FormData): Promise<LineState> {
+  const date = STR(formData, "date");
+  const today = new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
+  if (!iso.test(date)) return { ok: false, message: "Choose the date it was given." };
+  if (date > today) return { ok: false, message: "That date is in the future. Choose the date it was given." };
+  if (date < "2015-01-01") return { ok: false, message: "That date looks wrong. Check the year." };
+  try {
+    const [rules, flocks, items] = await Promise.all([listRules(), listLayingFlocks(), listCatalogue()]);
+    const rule = rules.find((r) => r.code === ruleCode);
+    const flock = flocks.find((f) => f.id === flockId);
+    const item = items.find((i) => i.id === rule?.mainItemId);
+    if (!rule || !flock || !item) return { ok: false, message: "That flock or booster is not in the app." };
+    const dup = await pool.query(`SELECT 1 FROM medicine_lines WHERE farm_code = $1 AND flock_internal_id = $2 AND catalogue_id = $3 AND date = $4`, [ACTIVE_FARM, flockId, item.id, date]);
+    if (dup.rows.length) return { ok: false, message: `${flock.label} already has ${rule.label} on that date.` };
+    await tx((c) => insertLine(c, { scope: "flock", flockId, shedCode: null, date, kind: "vaccine", item: item.name, quantity: null, unit: null, cost: null, supplier: null, note: "Last date entered from the booster screen", catalogueId: item.id }, null, "booster last date"));
+    return { ok: true, message: `Saved: ${rule.label} for ${flock.label} on ${date}.` };
+  } catch {
+    return { ok: false, message: "That could not be saved just now. Try again in a moment." };
+  }
 }

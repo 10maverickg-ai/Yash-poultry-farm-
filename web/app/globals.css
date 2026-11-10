@@ -871,3 +871,36 @@ main:focus { outline: none; }
 @media (max-width: 820px) {
   td > a { display: inline-flex; align-items: center; min-height: 44px; min-width: 44px; }
 }
+
+/* Medicines list (V14) */
+.badge-confirm { background: #fff4d6; color: #8a5200; border: 1px solid #e8c56a; }
+.md-item { display: grid; gap: 0.15rem; }
+.md-item-head { display: flex; flex-wrap: wrap; gap: 0.4rem 0.6rem; align-items: baseline; }
+.md-fieldset { border: 0; padding: 0; margin: 0; display: grid; gap: 0.5rem; }
+.md-picklist { display: grid; gap: 0.3rem; max-height: 17rem; overflow-y: auto; padding: 0.2rem; border: 1px solid var(--line); border-radius: 10px; background: #fff; }
+.md-pick, .md-flock-tick { display: flex; align-items: flex-start; gap: 0.6rem; min-height: 44px; padding: 0.45rem 0.6rem; border: 1px solid var(--line); border-radius: 10px; background: #fff; cursor: pointer; }
+.md-pick input, .md-flock-tick input { margin-top: 0.2rem; min-width: 22px; min-height: 22px; }
+.md-pick-on { border-color: var(--accent); background: #eaf5ee; }
+.md-flocks { display: grid; gap: 0.35rem; grid-template-columns: 1fr; }
+@media (min-width: 560px) { .md-flocks { grid-template-columns: 1fr 1fr; } }
+
+/* What is each flock on (V14) */
+.md-flockcard { display: grid; gap: 0.35rem; }
+.md-booster { padding: 0.4rem 0; border-top: 1px solid var(--line); }
+.md-booster-head { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; }
+.md-tl { display: inline-block; width: 0.85rem; height: 0.85rem; border-radius: 50%; vertical-align: -1px; }
+.md-tl-green { background: #2e7d4f; } .md-tl-amber { background: #d99200; } .md-tl-red { background: #c0392b; }
+.md-tl-green-text { color: #166534; } .md-tl-amber-text { color: #8a5200; } .md-tl-red-text { color: #b91c1c; }
+.md-status { font-weight: 600; font-size: 0.9rem; }
+.md-enter summary { cursor: pointer; padding: 0.4rem 0; color: var(--accent); font-weight: 600; min-height: 44px; display: flex; align-items: center; }
+.md-given { margin: 0; padding-left: 1.1rem; }
+.md-given li { margin: 0.15rem 0; }
+
+/* Chick vaccination plan (V14) */
+.cp-days { display: grid; gap: 0.5rem; margin-bottom: 0.8rem; }
+.cp-day { display: grid; gap: 0.3rem; }
+.cp-step { padding: 0.35rem 0; border-top: 1px solid var(--line); }
+.cp-step:first-of-type { border-top: 0; }
+
+/* a link that is a card's title (Knowledge topics, flock names on the medicines screens) is a full-height tap target */
+.card h3 > a { display: inline-flex; align-items: center; min-height: 44px; }

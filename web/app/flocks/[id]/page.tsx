@@ -14,6 +14,9 @@ import { buildFarmCtx } from "@/lib/analytics/ctx";
 import { flockCards, lastDayOfData } from "@/lib/analytics/engine";
 import { chip } from "@/lib/analytics/chips";
 import { TargetLines } from "@/components/TargetLines";
+import { FlockMedicinesCard } from "@/components/FlockMedicinesCard";
+import { loadFlockMedicines } from "@/lib/medicines/boosterStore";
+import { todayIST } from "@/lib/weather/openMeteo";
 
 export const dynamic = "force-dynamic";
 
@@ -36,6 +39,7 @@ export default async function FlockDetailPage({
   } catch {
     card = null; // the targets box is extra information; never block the flock page
   }
+  const medView = await loadFlockMedicines(todayIST(), id).then((r) => r.views[0] ?? null).catch(() => null); // extra information; never blocks the flock page
   const placeholder = isPlaceholderDate(flock.placement_date, flock.placement_date_confirmed);
   const ageWeeks = flock.placement_date && !placeholder ? weeksSince(flock.placement_date) : null;
   const TYPE: Record<string, string> = { transfer_out: "moved out", transfer_in: "moved in", sale: "sold", cull: "culled", unexplained_out: "left (destination not known)", unexplained_in: "arrived (source not known)", count_adjustment: "count adjusted" };
@@ -104,6 +108,10 @@ export default async function FlockDetailPage({
       )}
 
       {flock.status === "active" && <DepleteFlockForm flockId={id} />}
+
+      <h2>Medicines and vaccines</h2>
+      {medView ? <FlockMedicinesCard flock={medView.flock} cells={medView.cells} given={medView.given} today={todayIST()} link={false} /> : <p className="card muted">This flock has left the farm; its medicines are on the <Link href="/medicines">Medicines screen</Link>.</p>}
+      <p className="muted an-tiny"><Link href="/medicines">Enter a medicine or vaccine →</Link> · <Link href="/medicines/flocks">All flocks →</Link></p>
 
       <h2>Lifecycle</h2>
       <div className="card stack">

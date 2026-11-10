@@ -1,5 +1,5 @@
-// Tests the medicine register logic (V12 N3): line validation, month totals, schedule groups, CSV import.  npx tsx scripts/medicines-check.mts
-import { validateLine, parseTarget, targetValue, monthSummary, groupSchedule, parseImport, dupKey, IMPORT_TEMPLATE, monthsOf } from "../lib/medicines/lines.ts";
+// Tests the medicine register logic (V12 N3): line validation, month totals, schedule groups.  npx tsx scripts/medicines-check.mts
+import { validateLine, parseTarget, targetValue, monthSummary, groupSchedule, monthsOf } from "../lib/medicines/lines.ts";
 
 let failed = 0;
 const ok = (n: string, c: boolean, x = "") => { if (!c) failed++; console.log(`${c ? "PASS" : "FAIL"}  ${n}${c ? "" : "  " + x}`); };
@@ -34,27 +34,6 @@ ok("schedule: overdue = due before today and not given", g.overdue.map((x) => x.
 ok("schedule: due today and within 14 days = due soon (12 Nov is day 14, 13 Nov is later)", g.soon.map((x) => x.id).join() === "2,3" && g.later.map((x) => x.id).join() === "4");
 ok("schedule: given = done, even if it was given late", g.done.map((x) => x.id).join() === "5");
 
-const flocks = [{ id: "f3", label: "BAB-3" }, { id: "f1", label: "BAB-1" }];
-const rep = parseImport(IMPORT_TEMPLATE, flocks, ["Layer Shed 1 First"], new Set(), TODAY);
-ok("import: the template's two example lines are ok", rep.counts.ok === 2 && rep.counts.error === 0 && rep.rows[0].input!.flockId === "f3" && rep.rows[1].input!.scope === "farm", JSON.stringify(rep.counts));
-const csv = `Date,Type,Name,For,Quantity,Unit,Cost,Supplier,Note
-2026-07-04,medicine,Enrofloxacin,BAB-3,2,bottles,850,,
-2026-07-05,Vaccine,Lasota,Layer Shed 1 First,3,vials,,,
-2026-07-06,medicine,Gentamicin,BAB-99,1,bottle,100,,
-2026-12-25,medicine,Future,farm,1,box,1,,
-2026-07-07,tonic,Liver tonic,farm,,,,,
-2026-07-04,medicine,Enrofloxacin,BAB-3,2,bottles,850,,
-2026-07-08,medicine,Calcium,farm,5,kg,abc,,
-04/08/2026,medicine,Vitamin,farm,1,pack,50,,
-`;
-const exists = new Set([dupKey({ date: "2026-08-04", kind: "medicine", item: "Vitamin", scope: "farm", flockId: null, shedCode: null, quantity: 1, unit: "pack" })]);
-const r2 = parseImport(csv, flocks, ["Layer Shed 1 First"], exists, TODAY);
-const st = r2.rows.map((r) => r.state);
-ok("import: good line ok; shed target understood; no cost gives a warning not an error", st[0] === "ok" && st[1] === "ok" && r2.rows[1].input!.shedCode === "Layer Shed 1 First" && r2.rows[1].warnings.some((w) => /not zero/.test(w)));
-ok("import: unknown flock named in plain words", st[2] === "error" && /BAB-99/.test(r2.rows[2].errors.join()));
-ok("import: future date, bad type, duplicate in file and bad cost are all errors", st[3] === "error" && /future/.test(r2.rows[3].errors.join()) && st[4] === "error" && st[5] === "error" && /twice/.test(r2.rows[5].errors.join()) && st[6] === "error");
-ok("import: DD/MM/YYYY date read; a line already in the register is 'exists' and not imported again", st[7] === "exists", st.join());
-ok("import: counts add up", r2.counts.total === 8 && r2.counts.ok === 2 && r2.counts.exists === 1 && r2.counts.error === 5, JSON.stringify(r2.counts));
-ok("import: missing columns are reported", parseImport("date,qty\n2026-01-01,1", flocks, [], new Set(), TODAY).columnProblems.length === 2);
+// (the CSV / Excel import now takes list names and several flocks: its tests are in scripts/medicines-v14-check.mts)
 console.log(failed ? `\n${failed} FAILED` : "\nall passed");
 process.exit(failed ? 1 : 0);
