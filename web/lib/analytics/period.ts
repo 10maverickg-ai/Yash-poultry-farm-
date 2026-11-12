@@ -327,7 +327,7 @@ export function summarizeRange(ctx: Ctx, cost: CostInput, extras: PeriodExtras, 
   const lastDate = dates[dates.length - 1] ?? null;
   const n = dates.length;
   const dataNote =
-    n === 0 ? "no data in this period" : `${n} of ${range.days} day${range.days === 1 ? "" : "s"} have data`;
+    n === 0 ? "no data in this period" : range.days === 1 ? "1 of 1 day has data" : `${n} of ${range.days} days have data`;
 
   // best / worst day by farm HD%
   const withHd = series.filter((s): s is DayPoint & { hd: number } => s.hd != null);
