@@ -51,6 +51,7 @@ export default async function FlockDetailPage({
         <span className={`badge badge-${flock.status}`}>{flock.status}</span>
       </h1>
 
+      <p className="flock-compare"><Link href={`/analytics/compare?a=${encodeURIComponent(flock.display_label)}`} className="btn btn-secondary">Compare this flock with another</Link> <Link href={`/analytics?view=custom&f=${encodeURIComponent(flock.display_label)}`} className="btn btn-secondary">This flock over any dates</Link></p>
       {sp.saved && <div className="saved-banner">{sp.saved}</div>}
       {sp.error && <div className="error-banner">{sp.error}</div>}
       {placeholder && (

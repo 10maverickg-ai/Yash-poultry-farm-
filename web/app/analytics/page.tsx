@@ -27,7 +27,7 @@ import { pool } from "@/lib/db";
 import { ACTIVE_FARM } from "@/lib/farm";
 import { loadCostInput } from "@/lib/costs/load";
 import { loadPeriodExtras } from "@/lib/analytics/periodLoad";
-import { PeriodView, ViewSwitch } from "@/components/PeriodView";
+import { PeriodView, RangeView, ViewSwitch } from "@/components/PeriodView";
 import { DataStamp } from "@/components/DataStamp";
 import { chip } from "@/lib/analytics/chips";
 import { dmy, n0, n1 } from "@/lib/format";
@@ -84,7 +84,7 @@ export const metadata = { title: "Analytics" };
 export default async function AnalyticsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ date?: string; month?: string; view?: string; p?: string }>;
+  searchParams: Promise<{ date?: string; month?: string; view?: string; p?: string; from?: string | string[]; to?: string | string[]; f?: string | string[] }>;
 }) {
   const sp = await searchParams;
   // one wave of parallel reads (every extra round trip to the database costs a second on a slow connection)
@@ -99,6 +99,16 @@ export default async function AnalyticsPage({
   const forecast = forecastAlerts(engineInput.weather ?? [], todayIST());
   after(() => refreshWeatherQuietly()); // after the page is sent: the page never waits for the weather service
   const view = sp.view === "week" || sp.view === "month" || sp.view === "year" ? sp.view : "day";
+
+  if (sp.view === "custom" && ctx.dates.length > 0) {
+    return (
+      <>
+        <h1>Analytics</h1>
+        <DataStamp latest={lastDayOfData(ctx)} today={new Date().toISOString().slice(0, 10)} />
+        <RangeView input={engineInput} cost={costInput} extras={extras} sp={sp} today={todayIST()} />
+      </>
+    );
+  }
 
   if (view !== "day" && ctx.dates.length > 0) {
     return (

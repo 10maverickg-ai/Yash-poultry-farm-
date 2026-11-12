@@ -1,9 +1,16 @@
 // Period aggregation: PURE functions (no DB, no framework) that turn the daily
-// rows into a week / month / year summary. Used by the Analytics pages and the
-// Excel export, and tested by scripts/period-check.mts on the real rows.
+// rows into a summary of ANY date range [from, to] (V15), optionally for chosen
+// flocks only. Week / month / year are thin wrappers: they only pick the dates
+// (rangeOf) and call the same summarizeRange. Used by the Analytics pages, the
+// Compare screen and the Excel export; tested by scripts/period-check.mts and
+// scripts/range-check.mts on the real rows.
 //
 // Rules (docs/DECISIONS.md):
-//   - Week = Monday..Sunday. Month and year are calendar periods.
+//   - Week = Monday..Sunday. Month and year are calendar periods. A custom range
+//     is any from..to (inclusive, plain IST dates, at most 366 days).
+//   - With chosen flocks every number uses those flocks' own rows only (their
+//     own birds and eggs). Sales, ledger breakage and costs are farm-level: they
+//     are not split by flock, so they are left out (farmLevel = false), never zero.
 //   - HD% for a period is POOLED: total eggs / total bird-days x 100, never the
 //     mean of daily percentages (a day with few birds must not weigh the same
 //     as a day with many).
@@ -36,9 +43,12 @@ import {
 import { BAG_KG, dayEconomics, type CostInput } from "../costs/engine";
 
 export type PeriodKind = "week" | "month" | "year";
+/** A week / month / year, or any from..to the owner picked (V15). */
+export type RangeKind = PeriodKind | "custom";
+export const MAX_RANGE_DAYS = 366;
 
 export interface PeriodRange {
-  kind: PeriodKind;
+  kind: RangeKind;
   from: string;
   to: string;
   days: number; // calendar days in the full period
@@ -73,8 +83,68 @@ export function rangeOf(kind: PeriodKind, anchor: string): PeriodRange {
   return { kind, from: `${y}-01-01`, to: `${y}-12-31`, days: (y % 4 === 0 && (y % 100 !== 0 || y % 400 === 0)) ? 366 : 365, label: String(y) };
 }
 
-/** The period `steps` before (negative) or after (positive) this one. */
+const isoDay = /^\d{4}-\d{2}-\d{2}$/;
+export const isIsoDate = (d: string | null | undefined): d is string => !!d && isoDay.test(d) && !Number.isNaN(Date.parse(d + "T00:00:00Z")) && new Date(d + "T00:00:00Z").toISOString().slice(0, 10) === d;
+
+/** "1 Sep – 15 Sep 2026", "15 Sep 2026" (one day), "25 Dec 2026 – 5 Jan 2027". */
+export function rangeLabel(from: string, to: string): string {
+  const y1 = from.slice(0, 4);
+  const y2 = to.slice(0, 4);
+  if (from === to) return `${dm(from)} ${y1}`;
+  return y1 === y2 ? `${dm(from)} – ${dm(to)} ${y2}` : `${dm(from)} ${y1} – ${dm(to)} ${y2}`;
+}
+
+/** Any from..to as a range (dates already valid and from <= to). */
+export function makeRange(from: string, to: string): PeriodRange {
+  return { kind: "custom", from, to, days: diffDays(to, from) + 1, label: rangeLabel(from, to) };
+}
+
+/**
+ * The range the owner asked for, made safe, with a plain sentence for every change:
+ * from after to = swapped; dates after `today` are left out; more than 366 days = the last 366 days up to `to`.
+ */
+export function customRange(fromIn: string, toIn: string, opts: { today?: string } = {}): { range: PeriodRange; notes: string[]; swapped: boolean } {
+  const notes: string[] = [];
+  let from = fromIn;
+  let to = toIn;
+  const swapped = from > to;
+  if (swapped) {
+    [from, to] = [to, from];
+    notes.push(`"From" (${dm(fromIn)} ${fromIn.slice(0, 4)}) was after "To" (${dm(toIn)} ${toIn.slice(0, 4)}), so the two dates were swapped.`);
+  }
+  if (opts.today && to > opts.today) {
+    notes.push(`Dates after today (${dm(opts.today)} ${opts.today.slice(0, 4)}) are left out.`);
+    to = opts.today;
+    if (from > to) from = to;
+  }
+  if (diffDays(to, from) + 1 > MAX_RANGE_DAYS) {
+    from = addDays(to, -(MAX_RANGE_DAYS - 1));
+    notes.push(`A range can be at most ${MAX_RANGE_DAYS} days, so it starts on ${dm(from)} ${from.slice(0, 4)} (${MAX_RANGE_DAYS} days up to ${dm(to)} ${to.slice(0, 4)}).`);
+  }
+  return { range: makeRange(from, to), notes, swapped };
+}
+
+/** How the range sits against the data: days before the first entered day and after the last one (they are empty, never filled in). */
+export function rangeCoverage(ctx: Ctx, r: PeriodRange): { firstData: string | null; lastData: string | null; before: number; after: number; note: string | null } {
+  const firstData = ctx.dates[0] ?? null;
+  const lastData = ctx.dates[ctx.dates.length - 1] ?? null;
+  if (!firstData || !lastData) return { firstData, lastData, before: r.days, after: 0, note: "No daily rows are entered yet." };
+  const before = r.from < firstData ? Math.min(r.days, diffDays(firstData, r.from)) : 0;
+  const after = r.to > lastData ? Math.min(r.days, diffDays(r.to, lastData)) : 0;
+  const parts: string[] = [];
+  if (before > 0) parts.push(`data starts on ${dm(firstData)} ${firstData.slice(0, 4)}, so the ${before} day${before === 1 ? "" : "s"} before ${before === r.days ? "(the whole range) are" : "it are"} empty`);
+  if (after > 0) parts.push(`the last entered day is ${dm(lastData)} ${lastData.slice(0, 4)}, so the ${after} day${after === 1 ? "" : "s"} after it ${after === 1 ? "is" : "are"} empty`);
+  return { firstData, lastData, before, after, note: parts.length ? parts.join("; ").replace(/^./, (c) => c.toUpperCase()) + "." : null };
+}
+
+/** The range of the same length just before this one (custom), or the previous week / month / year. */
+export function precedingRange(r: PeriodRange): PeriodRange {
+  return shiftRange(r, -1);
+}
+
+/** The period `steps` before (negative) or after (positive) this one. A custom range moves by its own length. */
 export function shiftRange(r: PeriodRange, steps: number): PeriodRange {
+  if (r.kind === "custom") return makeRange(addDays(r.from, r.days * steps), addDays(r.to, r.days * steps));
   if (r.kind === "week") return rangeOf("week", addDays(r.from, 7 * steps));
   if (r.kind === "month") {
     const t = Number(r.from.slice(0, 4)) * 12 + Number(r.from.slice(5, 7)) - 1 + steps;
@@ -85,6 +155,10 @@ export function shiftRange(r: PeriodRange, steps: number): PeriodRange {
 
 /** Same period one year earlier (a week is shifted by 52 weeks, so it stays Monday..Sunday). */
 export function lastYearRange(r: PeriodRange): PeriodRange {
+  if (r.kind === "custom") {
+    const back = (d: string) => { const y = Number(d.slice(0, 4)) - 1; const m = Number(d.slice(5, 7)); return `${y}-${pad(m)}-${pad(Math.min(Number(d.slice(8, 10)), lastOfMonth(y, m)))}`; };
+    return makeRange(back(r.from), back(r.to));
+  }
   if (r.kind === "week") return shiftRange(r, -52);
   if (r.kind === "month") return shiftRange(r, -12);
   return shiftRange(r, -1);
@@ -140,6 +214,10 @@ export interface FlockPeriod {
 
 export interface PeriodSummary {
   segment: SegFilter; // which group these numbers are for; "all" = the whole farm (sum of the segments)
+  /** V15: the flocks chosen (flock ids), or null = every flock of the segment. */
+  flockFilter: string[] | null;
+  /** V15: false when flocks are chosen: sales, ledger breakage and costs are farm-level and are not split by flock (left out, never zero). */
+  farmLevel: boolean;
   range: PeriodRange;
   firstDate: string | null;
   lastDate: string | null;
@@ -212,16 +290,31 @@ const sum = (xs: number[]) => xs.reduce((s, x) => s + x, 0);
 const meanOf = (xs: number[]) => (xs.length ? sum(xs) / xs.length : null);
 const pct = (a: number, b: number) => (b > 0 ? (a / b) * 100 : null);
 
+/** Week / month / year (V7): the same engine as any range, for one segment. */
 export function summarizePeriod(ctx: Ctx, cost: CostInput, extras: PeriodExtras, range: PeriodRange, seg: SegFilter = "all"): PeriodSummary {
+  return summarizeRange(ctx, cost, extras, range, { segment: seg });
+}
+
+export interface RangeFilter {
+  segment?: SegFilter;
+  /** Flock ids; null / empty = every flock of the segment. */
+  flocks?: readonly string[] | null;
+}
+
+/** THE period engine (V15): every number for the days from..to (inclusive), for a segment and/or chosen flocks. */
+export function summarizeRange(ctx: Ctx, cost: CostInput, extras: PeriodExtras, range: PeriodRange, filter: RangeFilter = {}): PeriodSummary {
+  const seg: SegFilter = filter.segment ?? "all";
+  const only = filter.flocks && filter.flocks.length ? new Set(filter.flocks) : undefined;
   const { from, to } = range;
-  const dates = ctx.dates.filter((d) => d >= from && d <= to && dayTotals(ctx, d, seg) != null);
+  const dates = ctx.dates.filter((d) => d >= from && d <= to && dayTotals(ctx, d, seg, only) != null);
   const series: DayPoint[] = dates.map((d) => {
-    const t = dayTotals(ctx, d, seg)!;
+    const t = dayTotals(ctx, d, seg, only)!;
     return { date: d, eggs: t.eggs, hd: t.hd, deaths: t.mort, feedBags: t.feed, birds: t.birds };
   });
   const maxTemps: Record<string, number> = {};
   for (const [d, w] of ctx.weatherByDate) if (d >= from && d <= to && w.tempMax != null) maxTemps[d] = w.tempMax;
-  const inScope = (r: { flockId: string; date: string }) => seg === "all" || segmentOn(ctx, r.flockId, r.date) === seg;
+  const inScope = (r: { flockId: string; date: string }) => (seg === "all" || segmentOn(ctx, r.flockId, r.date) === seg) && (!only || only.has(r.flockId));
+  const farmLevel = !only;
   const rows = ctx.input.prod.filter((r) => r.date >= from && r.date <= to && inScope(r));
   const feedRows = rows.filter((r) => r.feed != null);
   const eggsTotal = sum(rows.map((r) => r.eggs ?? 0));
@@ -234,7 +327,7 @@ export function summarizePeriod(ctx: Ctx, cost: CostInput, extras: PeriodExtras,
   const lastDate = dates[dates.length - 1] ?? null;
   const n = dates.length;
   const dataNote =
-    n === 0 ? "no data in this period" : `${n} of ${range.days} day${range.days === 1 ? "" : "s"} have data`;
+    n === 0 ? "no data in this period" : range.days === 1 ? "1 of 1 day has data" : `${n} of ${range.days} days have data`;
 
   // best / worst day by farm HD%
   const withHd = series.filter((s): s is DayPoint & { hd: number } => s.hd != null);
@@ -242,13 +335,13 @@ export function summarizePeriod(ctx: Ctx, cost: CostInput, extras: PeriodExtras,
   const worst = withHd.length ? withHd.reduce((a, b) => (b.hd < a.hd ? b : a)) : null;
 
   // deductions
-  const ded = extras.deductions.filter((d) => d.date >= from && d.date <= to && (seg === "all" || ledgerSegment(ctx, d.section ?? "big", d.date) === seg));
+  const ded = farmLevel ? extras.deductions.filter((d) => d.date >= from && d.date <= to && (seg === "all" || ledgerSegment(ctx, d.section ?? "big", d.date) === seg)) : [];
   const breakage = sum(ded.filter((d) => d.category === "breakage").map((d) => d.eggs));
   const otherOut = sum(ded.filter((d) => d.category !== "breakage").map((d) => d.eggs));
 
   // birds: opening = day-before closing when known, else first day's end count rebuilt
   const popOn = (d: string) => sum(ctx.input.prod.filter((r) => r.date === d && inScope(r)).map((r) => r.pop ?? 0));
-  const prevDate = [...ctx.dates].reverse().find((d) => d < from && dayTotals(ctx, d, seg) != null) ?? null;
+  const prevDate = [...ctx.dates].reverse().find((d) => d < from && dayTotals(ctx, d, seg, only) != null) ?? null;
   const mv = ctx.input.movements.filter((m) => m.date >= from && m.date <= to && inScope(m));
   const isAnil = (m: { type: string }) => m.type === "transfer_in" || m.type === "transfer_out";
   let opening: number | null = null;
@@ -263,7 +356,7 @@ export function summarizePeriod(ctx: Ctx, cost: CostInput, extras: PeriodExtras,
   const closing = lastDate ? popOn(lastDate) : null;
 
   // money
-  const split = seg === "all";
+  const split = seg === "all" && farmLevel;
   const priceOn = (type: string): number | null => {
     let best: { v: number; from: string } | null = null;
     for (const x of cost.settings) if (x.type === type && !x.month && x.effectiveFrom <= to && (!best || x.effectiveFrom > best.from)) best = { v: x.value, from: x.effectiveFrom };
@@ -283,7 +376,7 @@ export function summarizePeriod(ctx: Ctx, cost: CostInput, extras: PeriodExtras,
     total: cs((e) => e.cost.total),
   };
   const saleSeg = (x: PeriodSale) => ledgerSegment(ctx, x.grade === "small" ? "small" : "big", x.date);
-  const sales = extras.sales.filter((s) => s.date >= from && s.date <= to && (seg === "all" || saleSeg(s) === seg));
+  const sales = farmLevel ? extras.sales.filter((s) => s.date >= from && s.date <= to && (seg === "all" || saleSeg(s) === seg)) : [];
   const eggsSold = sum(sales.map((s) => s.eggs));
   const priced = sales.filter((s) => s.amount != null);
   const unpricedEggs = sum(sales.filter((s) => s.amount == null).map((s) => s.eggs));
@@ -401,6 +494,7 @@ export function summarizePeriod(ctx: Ctx, cost: CostInput, extras: PeriodExtras,
   let total = 0;
   for (const d of dates) {
     for (const a of alertsFor(ctx, d, { segment: seg })) {
+      if (only && !(a.flockId && only.has(a.flockId))) continue; // chosen flocks: only their own alerts
       byKind[a.kind] = (byKind[a.kind] ?? 0) + 1;
       total++;
     }
@@ -408,6 +502,8 @@ export function summarizePeriod(ctx: Ctx, cost: CostInput, extras: PeriodExtras,
 
   return {
     segment: seg,
+    flockFilter: only ? [...only] : null,
+    farmLevel,
     range,
     firstDate,
     lastDate,
@@ -425,9 +521,9 @@ export function summarizePeriod(ctx: Ctx, cost: CostInput, extras: PeriodExtras,
       best: best ? { date: best.date, hd: best.hd } : null,
       worst: worst ? { date: worst.date, hd: worst.hd } : null,
       breakage,
-      breakagePct: pct(breakage, eggsTotal),
+      breakagePct: farmLevel ? pct(breakage, eggsTotal) : null,
       otherOut,
-      otherOutPct: pct(otherOut, eggsTotal),
+      otherOutPct: farmLevel ? pct(otherOut, eggsTotal) : null,
     },
     birds: {
       opening,
@@ -446,8 +542,8 @@ export function summarizePeriod(ctx: Ctx, cost: CostInput, extras: PeriodExtras,
       recorded: feedRows.length > 0,
       gPerBirdDay: feedBirdDays > 0 ? (kg * 1000) / feedBirdDays : null,
       kgPer100Eggs: feedRows.length > 0 && eggsTotal > 0 ? (kg / sum(feedRows.map((r) => r.eggs ?? 0))) * 100 : null,
-      daysLeftAtEnd: lastDate && seg !== "young" ? (feedDaysLeft(ctx, lastDate)?.days ?? null) : null,
-      eggStockDaysAtEnd: lastDate ? (eggStockDays(ctx, lastDate, seg)?.days ?? null) : null,
+      daysLeftAtEnd: lastDate && seg !== "young" && farmLevel ? (feedDaysLeft(ctx, lastDate)?.days ?? null) : null,
+      eggStockDaysAtEnd: lastDate && farmLevel ? (eggStockDays(ctx, lastDate, seg)?.days ?? null) : null,
     },
     money,
     flocks,
@@ -523,4 +619,49 @@ export function runRate(monthSummaries: PeriodSummary[]): { month: string; eggsY
   if (full.length < 2) return null;
   const last = full[full.length - 1];
   return { month: last.range.label, eggsYear: last.eggs.total * 12, revenueYear: last.money.revenue > 0 ? last.money.revenue * 12 : null };
+}
+
+// ---- custom ranges (V15) -------------------------------------------------------
+/** Calendar months that overlap the range, clipped to it (a clipped month is labelled with its real dates). */
+export function monthsClipped(range: PeriodRange): PeriodRange[] {
+  const out: PeriodRange[] = [];
+  for (let m = rangeOf("month", range.from); m.from <= range.to; m = shiftRange(m, 1)) {
+    const from = m.from < range.from ? range.from : m.from;
+    const to = m.to > range.to ? range.to : m.to;
+    out.push(from === m.from && to === m.to ? m : { ...makeRange(from, to), kind: "month" });
+  }
+  return out;
+}
+
+/** The pieces a range table is cut into: weeks for up to 120 days, months beyond. Clipped pieces carry their real dates. */
+export function partsWithin(range: PeriodRange): { unit: "week" | "month"; parts: PeriodRange[] } {
+  if (range.days <= 120) {
+    return { unit: "week", parts: weeksWithin(range).map((w) => (w.days === 7 ? w : { ...w, label: rangeLabel(w.from, w.to) })) };
+  }
+  return { unit: "month", parts: monthsClipped(range) };
+}
+
+/** The last `n` days that have data (the most recent `n` entered dates), as a range ending on the last entered day. */
+export function lastDaysWithData(ctx: Ctx, n: number): PeriodRange | null {
+  if (ctx.dates.length === 0) return null;
+  const to = ctx.dates[ctx.dates.length - 1];
+  const from = ctx.dates[Math.max(0, ctx.dates.length - n)];
+  return makeRange(from, to);
+}
+
+/** The quick chips of the Custom tab. "Last N days" end on the last entered day; "This month" stops at today. */
+export function quickRanges(ctx: Ctx, today: string): { key: string; label: string; range: PeriodRange }[] {
+  const out: { key: string; label: string; range: PeriodRange }[] = [];
+  for (const n of [7, 14, 30]) {
+    const r = lastDaysWithData(ctx, n);
+    if (r) out.push({ key: `last${n}`, label: n === 7 ? "Last 7 days" : `Last ${n}`, range: r });
+  }
+  const thisMonth = rangeOf("month", today);
+  out.push({ key: "thismonth", label: "This month", range: makeRange(thisMonth.from, today < thisMonth.to ? today : thisMonth.to) });
+  const lastMonth = shiftRange(thisMonth, -1);
+  out.push({ key: "lastmonth", label: "Last month", range: makeRange(lastMonth.from, lastMonth.to) });
+  const last = ctx.dates[ctx.dates.length - 1];
+  const aug = "2026-08-01";
+  if (last && last >= aug) out.push({ key: "sinceaug", label: "Since 1 Aug", range: makeRange(aug, last) });
+  return out;
 }

@@ -5,17 +5,24 @@ import {
   compare,
   lastYearRange,
   monthsWithin,
+  partsWithin,
+  precedingRange,
+  quickRanges,
+  rangeCoverage,
   rangeOf,
   runRate,
   shiftRange,
   summarizePeriod,
+  summarizeRange,
   weeksWithin,
   type Change,
   type PeriodExtras,
   type PeriodKind,
   type PeriodRange,
   type PeriodSummary,
+  type RangeKind,
 } from "@/lib/analytics/period";
+import { flockOptions, rangeHref, readRange, type Param } from "@/lib/analytics/rangeParams";
 import type { CostInput } from "@/lib/costs/engine";
 import type { EngineInput } from "@/lib/analytics/engine";
 import { SeriesChart } from "@/components/PeriodCharts";
@@ -34,22 +41,26 @@ const KIND_LABEL: Record<AlertKind, string> = {
   flock_health: "Flock may be sick",
 };
 
-const VIEWS: { key: "day" | PeriodKind; label: string }[] = [
+const VIEWS: { key: "day" | RangeKind; label: string }[] = [
   { key: "day", label: "Day" },
   { key: "week", label: "Week" },
   { key: "month", label: "Month" },
   { key: "year", label: "Year" },
+  { key: "custom", label: "Custom" },
 ];
 
-export function ViewSwitch({ view, anchor }: { view: string; anchor: string }) {
+export function ViewSwitch({ view, anchor, compareHref = "/analytics/compare" }: { view: string; anchor: string; compareHref?: string }) {
   return (
+    <>
     <nav className="pv-switch" aria-label="Analytics view">
       {VIEWS.map((v) => (
-        <a key={v.key} href={v.key === "day" ? `/analytics?date=${anchor}` : `/analytics?view=${v.key}&p=${anchor}`} className={view === v.key ? "on" : ""} aria-current={view === v.key ? "page" : undefined}>
+        <a key={v.key} href={v.key === "day" ? `/analytics?date=${anchor}` : v.key === "custom" ? "/analytics?view=custom" : `/analytics?view=${v.key}&p=${anchor}`} className={view === v.key ? "on" : ""} aria-current={view === v.key ? "page" : undefined}>
           {v.label}
         </a>
       ))}
     </nav>
+    <p className="pv-compare"><a className="btn btn-secondary" href={compareHref}>Compare flocks</a> <span className="muted an-tiny">two flocks or two periods side by side</span></p>
+    </>
   );
 }
 
@@ -232,8 +243,10 @@ function Alerts({ s }: { s: PeriodSummary }) {
 
 function Next({ ctx, s }: { ctx: Ctx; s: PeriodSummary }) {
   const items: string[] = [];
+  const only = s.flockFilter ? new Set(s.flockFilter) : null;
   if (s.lastDate) {
-    for (const w of watchList(ctx, s.lastDate, s.segment)) items.push(w.text);
+    // chosen flocks: only what is about those flocks (farm-wide items belong to "All flocks")
+    for (const w of watchList(ctx, s.lastDate, s.segment)) if (!only || (w.flockId && only.has(w.flockId))) items.push(w.text);
   }
   if (s.feed.daysLeftAtEnd != null && s.feed.daysLeftAtEnd < 1.5) items.push(`Feed stock at the end of the period was only ${n1(s.feed.daysLeftAtEnd)} days.`);
   if (s.feed.eggStockDaysAtEnd != null && s.feed.eggStockDaysAtEnd > 4) items.push(`Egg stock at the end of the period was ${n1(s.feed.eggStockDaysAtEnd)} days of production.`);
@@ -262,8 +275,12 @@ function Headline({ s, c }: { s: PeriodSummary; c: Change[] }) {
         ) : (
           <Card title="Feed g / bird / day" value="not recorded" sub="feed is not recorded for this group" />
         )}
-        <Card title="Revenue" value={s.money.revenue ? inr(s.money.revenue) : "—"} sub={s.money.costSplit ? "priced egg sales" : "priced egg sales of this group"} c={g("revenueDay")} money />
-        {s.money.costSplit ? (
+        {!s.farmLevel ? (
+          <Card title="Sales, cost and profit" value="farm-level" sub="not split by flock: choose All flocks to see them" />
+        ) : (
+          <Card title="Revenue" value={s.money.revenue ? inr(s.money.revenue) : "—"} sub={s.money.costSplit ? "priced egg sales" : "priced egg sales of this group"} c={g("revenueDay")} money />
+        )}
+        {!s.farmLevel ? null : s.money.costSplit ? (
           <Card title={s.money.costComplete ? "Profit (estimate)" : "Profit (incomplete)"} value={s.money.profit != null ? inr(s.money.profit) : "—"} sub={s.money.costComplete ? undefined : "cost inputs missing"} c={g("profitDay")} money />
         ) : (
           <Card title="Cost and profit" value="whole farm" sub="shared costs are not split between groups" />
@@ -273,9 +290,13 @@ function Headline({ s, c }: { s: PeriodSummary; c: Change[] }) {
         <summary>More numbers</summary>
         <ul className="an-list">
           <li>Birds: opening {s.birds.opening != null ? n0(s.birds.opening) : "–"}, closing {s.birds.closing != null ? n0(s.birds.closing) : "–"}. Moved out: {n0(s.birds.soldOut)} sold, {n0(s.birds.anilOut)} to Anil farm; in: {n0(s.birds.anilIn)} from Anil farm. These are movements, not deaths.</li>
-          <li>Breakage {n0(s.eggs.breakage)} eggs{s.eggs.breakagePct != null ? ` (${s.eggs.breakagePct.toFixed(2)}% of eggs laid)` : ""}; labour take, gifts and other {n0(s.eggs.otherOut)} eggs{s.eggs.otherOutPct != null ? ` (${s.eggs.otherOutPct.toFixed(2)}%)` : ""}.</li>
+          {s.farmLevel ? (
+            <li>Breakage {n0(s.eggs.breakage)} eggs{s.eggs.breakagePct != null ? ` (${s.eggs.breakagePct.toFixed(2)}% of eggs laid)` : ""}; labour take, gifts and other {n0(s.eggs.otherOut)} eggs{s.eggs.otherOutPct != null ? ` (${s.eggs.otherOutPct.toFixed(2)}%)` : ""}.</li>
+          ) : (
+            <li>Breakage and labour take: written in the egg ledger for the whole page, not split by flock.</li>
+          )}
           {s.eggs.best && s.eggs.worst && <li>Best day {pretty(s.eggs.best.date)} ({n1(s.eggs.best.hd)}%), worst day {pretty(s.eggs.worst.date)} ({n1(s.eggs.worst.hd)}%).</li>}
-          <li>Feed {n0(s.feed.kg)} kg. Feed left at period end: {s.feed.daysLeftAtEnd != null ? `${n1(s.feed.daysLeftAtEnd)} days` : "–"}. Egg stock: {s.feed.eggStockDaysAtEnd != null ? `${n1(s.feed.eggStockDaysAtEnd)} days` : "–"}.</li>
+          <li>{s.feed.recorded ? `Feed ${n0(s.feed.kg)} kg.` : "Feed is not recorded for these flocks."} {s.farmLevel ? <>Feed left at period end: {s.feed.daysLeftAtEnd != null ? `${n1(s.feed.daysLeftAtEnd)} days` : "–"}. Egg stock: {s.feed.eggStockDaysAtEnd != null ? `${n1(s.feed.eggStockDaysAtEnd)} days` : "–"}.</> : "Feed stock and egg stock are kept for the whole farm, not per flock."}</li>
           {s.eggs.hdMeanOfDaily != null && s.eggs.hdPooled != null && <li>Mean of the daily percentages would be {n1(s.eggs.hdMeanOfDaily)}%; the pooled figure above is the correct one.</li>}
         </ul>
       </details>
@@ -283,58 +304,92 @@ function Headline({ s, c }: { s: PeriodSummary; c: Change[] }) {
   );
 }
 
+const shortDay = (d: string) => new Date(d + "T00:00:00Z").toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
+const nextDay = (d: string) => new Date(Date.parse(d + "T00:00:00Z") + 86400000).toISOString().slice(0, 10);
+
 function SeriesBlock({ s, every }: { s: PeriodSummary; every?: number }) {
-  const lab = (d: string) => (s.range.kind === "week" ? new Date(d + "T00:00:00Z").toLocaleDateString("en-GB", { weekday: "short", timeZone: "UTC" }) : String(Number(d.slice(8, 10))));
-  // every day of the period on the axis, with a gap where there is no data
-  const days: string[] = [];
-  for (let d = s.range.from; d <= s.range.to && days.length < 40; d = new Date(Date.parse(d + "T00:00:00Z") + 86400000).toISOString().slice(0, 10)) days.push(d);
-  const by = new Map(s.series.map((p) => [p.date, p]));
-  const pts = (f: (p: (typeof s.series)[number]) => number | null) => days.map((d) => ({ label: lab(d), value: by.has(d) ? f(by.get(d)!) : null }));
+  const custom = s.range.kind === "custom";
+  // a custom range longer than about two months is drawn one point per Monday-Sunday week, so it stays readable on a phone
+  const weekly = custom && s.range.days > 62;
+  const lab = (d: string) => (s.range.kind === "week" ? new Date(d + "T00:00:00Z").toLocaleDateString("en-GB", { weekday: "short", timeZone: "UTC" }) : custom ? shortDay(d) : String(Number(d.slice(8, 10))));
+  type P = { label: string; eggs: number | null; hd: number | null; deaths: number | null; feed: number | null; temp: number | null };
+  let pts: P[];
+  if (weekly) {
+    pts = weeksWithin(s.range).map((w) => {
+      const rs = s.series.filter((p) => p.date >= w.from && p.date <= w.to);
+      const n = rs.length;
+      const eggs = rs.reduce((t, p) => t + p.eggs, 0);
+      const birds = rs.reduce((t, p) => t + p.birds, 0);
+      return { label: shortDay(w.from), eggs: n ? eggs / n : null, hd: birds > 0 ? (eggs / birds) * 100 : null, deaths: n ? rs.reduce((t, p) => t + p.deaths, 0) / n : null, feed: n ? rs.reduce((t, p) => t + p.feedBags, 0) / n : null, temp: null };
+    });
+  } else {
+    // every day of the period on the axis, with a gap where there is no data
+    const days: string[] = [];
+    for (let d = s.range.from; d <= s.range.to && days.length < 63; d = nextDay(d)) days.push(d);
+    const by = new Map(s.series.map((p) => [p.date, p]));
+    pts = days.map((d) => {
+      const p = by.get(d);
+      return { label: lab(d), eggs: p ? p.eggs : null, hd: p ? p.hd : null, deaths: p ? p.deaths : null, feed: p ? p.feedBags : null, temp: s.maxTemps[d] ?? null };
+    });
+  }
+  const pick = (f: (p: P) => number | null) => pts.map((p) => ({ label: p.label, value: f(p) }));
+  // "15 Oct" labels are wide: at most about six on a phone-width chart
+  const ev = custom && every == null ? (pts.length <= 7 ? 1 : Math.ceil(pts.length / 6)) : every;
   // max temperature as a thin line on the HD and deaths charts (V11); nothing is drawn when the weather is not available
-  const temp = Object.keys(s.maxTemps).length ? { name: "max temperature", unit: "°C", values: days.map((d) => s.maxTemps[d] ?? null) } : undefined;
+  const temp = !weekly && Object.keys(s.maxTemps).length ? { name: "max temperature", unit: "°C", values: pts.map((p) => p.temp) } : undefined;
+  const per = weekly ? " (average per day, one point per week)" : "";
+  const long = s.range.kind === "month" || custom;
   return (
     <section className="card" aria-label="Daily charts">
-      <SeriesChart title="Eggs per day" unit="eggs" kind="bar" points={pts((p) => p.eggs)} labelEvery={every} />
-      <SeriesChart title="Hen-day %" unit="% of birds" kind="line" points={pts((p) => p.hd)} labelEvery={every} overlay={temp} />
-      {s.range.kind === "month" && (
+      <SeriesChart title={`Eggs per day${per}`} unit="eggs" kind="bar" points={pick((p) => p.eggs)} labelEvery={ev} />
+      <SeriesChart title={`Hen-day %${weekly ? " (pooled per week)" : ""}`} unit="% of birds" kind="line" points={pick((p) => p.hd)} labelEvery={ev} overlay={temp} />
+      {long && (
         <>
-          <SeriesChart title="Deaths per day" unit="birds" kind="bar" points={pts((p) => p.deaths)} labelEvery={every} overlay={temp} />
-          <SeriesChart title="Feed per day" unit="bags" kind="bar" points={pts((p) => p.feedBags)} labelEvery={every} />
+          <SeriesChart title={`Deaths per day${per}`} unit="birds" kind="bar" points={pick((p) => p.deaths)} labelEvery={ev} overlay={temp} />
+          {s.feed.recorded ? <SeriesChart title={`Feed per day${per}`} unit="bags" kind="bar" points={pick((p) => p.feed)} labelEvery={ev} /> : <p className="muted an-tiny">Feed per day: feed is not recorded for these flocks (left page of the register).</p>}
         </>
       )}
-      <p className="muted an-foot">A blank day means no data was entered for it.{temp ? "" : " Weather is not available yet, so no temperature line is drawn."}</p>
+      <p className="muted an-foot">{weekly ? "The range is longer than two months, so each point is one Monday–Sunday week; the day table below has every day." : "A blank day means no data was entered for it."}{temp || weekly ? "" : " Weather is not available yet, so no temperature line is drawn."}</p>
     </section>
   );
 }
 
 function DayTable({ s }: { s: PeriodSummary }) {
+  const table = (
+    <table className="an-table" style={{ minWidth: 0 }}>
+      <thead><tr><th>Day</th><th className="num">Eggs</th><th className="num">Eggs per 100 birds</th><th className="num">Deaths</th><th className="num">Feed (bags)</th></tr></thead>
+      <tbody>
+        {s.series.map((p) => (
+          <tr key={p.date}>
+            <td><Link href={`/day?date=${p.date}`}>{pretty(p.date)}</Link></td>
+            <td className="num">{n0(p.eggs)}</td><td className="num">{p.hd != null ? n1(p.hd) : "–"}</td><td className="num">{n0(p.deaths)}</td><td className="num">{s.feed.recorded ? n0(p.feedBags) : "not recorded"}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
   return (
     <div className="card an-scroll">
-      <table className="an-table" style={{ minWidth: 0 }}>
-        <thead><tr><th>Day</th><th className="num">Eggs</th><th className="num">Eggs per 100 birds</th><th className="num">Deaths</th><th className="num">Feed</th></tr></thead>
-        <tbody>
-          {s.series.map((p) => (
-            <tr key={p.date}>
-              <td><Link href={`/day?date=${p.date}`}>{pretty(p.date)}</Link></td>
-              <td className="num">{n0(p.eggs)}</td><td className="num">{p.hd != null ? n1(p.hd) : "–"}</td><td className="num">{n0(p.deaths)}</td><td className="num">{n0(p.feedBags)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      <p className="muted an-foot">Tap a day to open it.</p>
+      {s.series.length > 7 ? (
+        <details>
+          <summary>Day by day ({s.series.length} days with data)</summary>
+          {table}
+        </details>
+      ) : table}
+      <p className="muted an-foot">Tap a day to open it.{s.range.kind === "custom" && s.series.length < s.range.days ? ` Days with no data are not listed (${s.range.days - s.series.length} of ${s.range.days}).` : ""}</p>
     </div>
   );
 }
 
-function WeekTable({ weeks }: { weeks: PeriodSummary[] }) {
+function WeekTable({ weeks, unit = "week" }: { weeks: PeriodSummary[]; unit?: "week" | "month" }) {
   return (
     <div className="card an-scroll">
       <table className="an-table">
-        <thead><tr><th>Week</th><th className="num">Days</th><th className="num">Eggs/day</th><th className="num">Eggs per 100 birds</th><th className="num">Deaths</th><th className="num">Feed g/bird</th><th className="num">Revenue</th></tr></thead>
+        <thead><tr><th>{unit === "week" ? "Week" : "Month"}</th><th className="num">Days</th><th className="num">Eggs/day</th><th className="num">Eggs per 100 birds</th><th className="num">Deaths</th><th className="num">Feed g/bird</th><th className="num">Revenue</th></tr></thead>
         <tbody>
           {weeks.map((w) => (
             <tr key={w.range.from}>
-              <td><Link href={`/analytics?view=week&p=${w.range.from}`}>{w.range.label}</Link></td>
+              <td><Link href={unit === "week" ? `/analytics?view=week&p=${w.range.from}` : `/analytics?view=month&p=${w.range.from.slice(0, 7)}`}>{w.range.label}</Link></td>
               <td className="num">{w.daysWithData}/{w.range.days}</td>
               <td className="num">{w.eggs.perDay != null ? n0(w.eggs.perDay) : "–"}</td>
               <td className="num">{w.eggs.hdPooled != null ? n1(w.eggs.hdPooled) : "–"}</td>
@@ -345,7 +400,7 @@ function WeekTable({ weeks }: { weeks: PeriodSummary[] }) {
           ))}
         </tbody>
       </table>
-      <p className="muted an-foot">Weeks run Monday to Sunday; the first and last week of a month are clipped to the month.</p>
+      <p className="muted an-foot">{unit === "week" ? "Weeks run Monday to Sunday; the first and last week are clipped to the dates shown." : "Calendar months; the first and last month are clipped to the dates shown."} Compare them by the per-day columns, not by totals.</p>
     </div>
   );
 }
@@ -433,19 +488,29 @@ function lastYearHas(ctx: Ctx, r: PeriodRange): boolean {
   return ctx.dates.some((d) => d >= ly.from && d <= ly.to);
 }
 
-function SegmentBlock({ ctx, input, kind, range, prevR, seg, sum, prev, Sg, months }: { ctx: Ctx; input: EngineInput; kind: PeriodKind; range: PeriodRange; prevR: PeriodRange; seg: Segment; sum: PeriodSummary; prev: PeriodSummary; Sg: (r: PeriodRange, seg: Segment) => PeriodSummary; months: PeriodSummary[] }) {
+function SegmentBlock({ ctx, input, kind, range, prevR, seg, title, sum, prev, Sg, months }: { ctx: Ctx; input: EngineInput; kind: RangeKind; range: PeriodRange; prevR: PeriodRange; seg: Segment | null; title?: string; sum: PeriodSummary; prev: PeriodSummary; Sg: (r: PeriodRange, seg: Segment | null) => PeriodSummary; months: PeriodSummary[] }) {
   const ch = compare(sum, prev);
+  const custom = kind === "custom";
+  const parts = custom ? partsWithin(range) : null;
+  const what = custom ? "range" : kind;
+  const prevLabel = custom ? `the ${prevR.days} day${prevR.days === 1 ? "" : "s"} before (${prevR.label})` : prev.daysWithData > 0 ? prevR.label : `the previous ${kind}`;
   return (
-    <section aria-label={SEGMENT_NAME[seg]} className={`seg-block seg-block-${seg}`}>
-      <h2 className="seg-h">{SEGMENT_NAME[seg]}</h2>
+    <section aria-label={title ?? (seg ? SEGMENT_NAME[seg] : "Chosen flocks")} className={`seg-block seg-block-${seg ?? "chosen"}`}>
+      <h2 className="seg-h">{title ?? (seg ? SEGMENT_NAME[seg] : "Chosen flocks")}</h2>
       {sum.daysWithData === 0 ? (
-        <p className="card muted">No rows for this group in this {kind}.</p>
+        <p className="card muted">No rows for {seg ? "this group" : "these flocks"} in this {what}.</p>
       ) : (
         <>
           <Headline s={sum} c={ch} />
-          {kind !== "year" && <SeriesBlock s={sum} every={kind === "month" ? 5 : 1} />}
-          {kind === "week" && <DayTable s={sum} />}
+          {kind !== "year" && <SeriesBlock s={sum} every={kind === "month" ? 5 : kind === "week" ? 1 : undefined} />}
+          {(kind === "week" || custom) && <DayTable s={sum} />}
           {kind === "month" && <WeekTable weeks={weeksWithin(range).map((w) => Sg(w, seg))} />}
+          {parts && parts.parts.length > 1 && (
+            <>
+              <h3>{parts.unit === "week" ? "Week by week" : "Month by month"}</h3>
+              <WeekTable unit={parts.unit} weeks={parts.parts.map((w) => Sg(w, seg))} />
+            </>
+          )}
           {kind === "year" && <YearView ctx={ctx} s={sum} months={months} input={input} yearsLabel={sum.partial ? `This group has ${sum.daysWithData} days of data out of ${range.days}.` : ""} />}
           {kind !== "year" && (
             <>
@@ -453,14 +518,24 @@ function SegmentBlock({ ctx, input, kind, range, prevR, seg, sum, prev, Sg, mont
               <FlockTable s={sum} />
             </>
           )}
-          <h3>Compared with {prev.daysWithData > 0 ? prevR.label : `the previous ${kind}`}</h3>
-          <CompareTable changes={ch} vsLabel={prev.daysWithData > 0 ? prevR.label : `Previous ${kind}`} lastYear={null} />
+          <h3>Compared with {prevLabel}</h3>
+          <PartialNote now={sum} prev={prev} prevR={prevR} />
+          <CompareTable changes={ch} vsLabel={custom ? "Before" : prev.daysWithData > 0 ? prevR.label : `Previous ${kind}`} lastYear={null} />
           <Alerts s={sum} />
           <Next ctx={ctx} s={sum} />
         </>
       )}
     </section>
   );
+}
+
+/** Never compare a partial period with a full one without saying so. */
+function PartialNote({ now, prev, prevR }: { now: PeriodSummary; prev: PeriodSummary; prevR: PeriodRange }) {
+  if (now.range.kind !== "custom") return null;
+  const a = now.partial ? `this range has data on ${now.daysWithData} of ${now.range.days} days` : "";
+  const b = prev.daysWithData === 0 ? `the ${prevR.days} days before have no data, so there is nothing to compare with` : prev.partial ? `the range before has data on ${prev.daysWithData} of ${prevR.days} days` : "";
+  if (!a && !b) return <p className="muted an-sub">Both ranges have data on every day.</p>;
+  return <p className="an-sub"><b>Not like for like:</b> {[a, b].filter(Boolean).join("; ")}. The table compares rates per day with data, never totals.</p>;
 }
 export function PeriodView({
   input,
@@ -486,7 +561,7 @@ export function PeriodView({
   if (range.to < first.from) range = first;
 
   const S = (r: PeriodRange) => summarizePeriod(ctx, cost, extras, r);
-  const Sg = (r: PeriodRange, g: Segment) => summarizePeriod(ctx, cost, extras, r, g);
+  const Sg = (r: PeriodRange, g: Segment | null) => summarizePeriod(ctx, cost, extras, r, g ?? "all");
   const s = S(range);
   const prevR = shiftRange(range, -1);
   const prev = S(prevR);
@@ -547,3 +622,126 @@ export function PeriodView({
   );
 }
 
+
+// ---- Custom range (V15): the same blocks as the Month view, for any from..to and optionally chosen flocks ----
+function RangePicker({ ctx, range, flockIds, today }: { ctx: Ctx; range: PeriodRange; flockIds: string[]; today: string }) {
+  const opts = flockOptions(ctx);
+  const chosen = new Set(flockIds);
+  const labels = opts.filter((o) => chosen.has(o.id)).map((o) => o.label);
+  const chips = quickRanges(ctx, today);
+  return (
+    <section className="card pv-range" aria-label="Choose the dates and flocks">
+      <form method="get" action="/analytics">
+        <input type="hidden" name="view" value="custom" />
+        <div className="pv-dates">
+          <label className="field"><span>From</span><input type="date" name="from" defaultValue={range.from} max={today} required /></label>
+          <label className="field"><span>To</span><input type="date" name="to" defaultValue={range.to} max={today} required /></label>
+        </div>
+        <details className="pv-flocks">
+          <summary>Flocks: <b>{labels.length ? labels.join(", ") : "All flocks"}</b></summary>
+          <p className="muted an-tiny" style={{ margin: "0.3rem 0" }}>Tick one or more flocks, then press Show. Tick none for all flocks.</p>
+          <div className="pv-flock-grid">
+            {opts.map((o) => (
+              <label key={o.id} className="pv-check">
+                <input type="checkbox" name="f" value={o.label} defaultChecked={chosen.has(o.id)} />
+                <span>
+                  <b>{o.label}</b>
+                  <span className="muted an-tiny">{[o.registerLabel !== o.label ? `register ${o.registerLabel}` : "", o.gone ? `left after ${dmy(o.lastDate)}` : o.segment === "young" ? "young" : "main"].filter(Boolean).join(" · ")}</span>
+                </span>
+              </label>
+            ))}
+          </div>
+          {labels.length > 0 && <p style={{ margin: "0.4rem 0 0" }}><a className="btn btn-secondary" href={rangeHref(range.from, range.to)}>All flocks</a></p>}
+        </details>
+        <button type="submit" className="pv-show">Show</button>
+      </form>
+      <div className="pv-chips" role="group" aria-label="Quick ranges">
+        {chips.map((c) => {
+          const on = c.range.from === range.from && c.range.to === range.to;
+          return (
+            <a key={c.key} href={rangeHref(c.range.from, c.range.to, labels)} className={`pv-chip${on ? " on" : ""}`} aria-current={on ? "true" : undefined}>{c.label}</a>
+          );
+        })}
+      </div>
+      <p className="muted an-tiny" style={{ margin: "0.4rem 0 0" }}>&quot;Last 7 / 14 / 30&quot; are the last days that have data. Dates are farm days (IST); both ends are included.</p>
+    </section>
+  );
+}
+
+export function RangeView({ input, cost, extras, sp, today }: { input: EngineInput; cost: CostInput; extras: PeriodExtras; sp: { from?: Param; to?: Param; f?: Param }; today: string }) {
+  const { ctx } = buildFarmCtx(input);
+  const choice = readRange(ctx, sp, today);
+  const { range, flockIds, flockLabels } = choice;
+  const chosen = flockIds.length > 0;
+  const prevR = precedingRange(range);
+  const cov = rangeCoverage(ctx, range);
+  const S = (r: PeriodRange, g: Segment | null) => (g ? summarizeRange(ctx, cost, extras, r, { segment: g }) : summarizeRange(ctx, cost, extras, r, { flocks: chosen ? flockIds : null }));
+  const s = S(range, null);
+  const prev = S(prevR, null);
+  const changes = compare(s, prev);
+  const segs = chosen ? [...new Set(s.flocks.map((f) => ctx.flockById.get(f.flockId)?.segment ?? null))] : [];
+  return (
+    <>
+      <ViewSwitch view="custom" anchor={s.lastDate ?? range.to} compareHref={`/analytics/compare?${new URLSearchParams({ ...(flockLabels[0] ? { a: flockLabels[0] } : {}), af: range.from, at: range.to, bf: range.from, bt: range.to }).toString()}`} />
+      <RangePicker ctx={ctx} range={range} flockIds={flockIds} today={today} />
+      {choice.notes.length > 0 && <div className="flag-banner" role="status">{choice.notes.map((n, i) => <p key={i} style={{ margin: 0 }}>{n}</p>)}</div>}
+      <h2 style={{ margin: "0.6rem 0 0.2rem" }}>{range.label} <span className="muted" style={{ fontWeight: 400 }}>· {range.days} day{range.days === 1 ? "" : "s"}{chosen ? ` · ${flockLabels.join(", ")}` : " · all flocks"}</span></h2>
+      <p className="an-sub" style={{ marginTop: 0 }}><b>{s.dataNote}</b>{s.partial && s.daysWithData > 0 ? " — averages use only the days with data" : ""}.{cov.note ? ` ${cov.note}` : ""}{choice.isDefault ? " Showing the last 14 days with data; pick other dates above." : ""}</p>
+      {s.daysWithData === 0 ? (
+        <p className="card muted">No data for {chosen ? "these flocks" : "the farm"} in this range. Pick other dates or one of the quick ranges.</p>
+      ) : chosen ? (
+        <>
+          <p className="card an-sub" style={{ marginTop: 0 }}>
+            Numbers below use <b>only the chosen flocks&apos; own rows</b> (their birds, eggs, deaths and feed). Egg sales, revenue, costs, profit and the egg-ledger breakage are kept for the whole farm, so they are <b>farm-level, not split by flock</b> and are not shown here. <a href={rangeHref(range.from, range.to)}>Show all flocks</a>
+            {segs.length > 1 ? " These flocks are in both groups (main and young), so their HD % mixes mature and young birds." : ""}
+          </p>
+          <SegmentBlock ctx={ctx} input={input} kind="custom" range={range} prevR={prevR} seg={null} title={`Chosen flocks: ${flockLabels.join(", ")}`} sum={s} prev={prev} Sg={S} months={[]} />
+        </>
+      ) : (
+        <>
+          {SEGMENTS.map((g) => (
+            <SegmentBlock key={g} ctx={ctx} input={input} kind="custom" range={range} prevR={prevR} seg={g} sum={S(range, g)} prev={S(prevR, g)} Sg={S} months={[]} />
+          ))}
+          <section aria-label="Whole farm">
+            <h2 className="seg-h">Whole farm</h2>
+            <p className="muted an-sub" style={{ marginTop: 0 }}>The sum of the groups above — it mixes mature and young birds, so its HD % is not a measure of either. {s.dataNote}.</p>
+            <Headline s={s} c={changes} />
+            <h3>Compared with the {prevR.days} day{prevR.days === 1 ? "" : "s"} before ({prevR.label})</h3>
+            <PartialNote now={s} prev={prev} prevR={prevR} />
+            <CompareTable changes={changes} vsLabel="Before" lastYear={null} />
+            <SalesSplit s={s} />
+            <Money s={s} />
+            <Alerts s={s} />
+            <Next ctx={ctx} s={s} />
+          </section>
+        </>
+      )}
+      {s.daysWithData > 0 && <RangeDownloads from={range.from} to={range.to} flockLabels={flockLabels} />}
+    </>
+  );
+}
+
+/** "Download this view": the same address as the screen, so the file has the same numbers. */
+function RangeDownloads({ from, to, flockLabels }: { from: string; to: string; flockLabels: string[] }) {
+  const href = (format: string, segment?: string) => {
+    const q = new URLSearchParams({ kind: "range", from, to, format });
+    for (const l of flockLabels) q.append("f", l);
+    if (segment) q.set("segment", segment);
+    return `/export/download?${q.toString()}`;
+  };
+  return (
+    <section className="card" aria-label="Download this view">
+      <h2 style={{ marginTop: 0 }}>Download this view</h2>
+      {flockLabels.length > 0 ? (
+        <p className="pv-dl"><a className="btn btn-secondary" href={href("xlsx")} download>Excel (.xlsx)</a> <a className="btn btn-secondary" href={href("csv")} download>CSV</a></p>
+      ) : (
+        <ul className="pv-dl-list">
+          {([["all", "Whole farm"], ["main", "Main flocks"], ["young", "Young flocks"]] as const).map(([g, l]) => (
+            <li key={g}><span>{l}</span> <a className="btn btn-secondary" href={href("xlsx", g)} download>Excel</a> <a className="btn btn-secondary" href={href("csv", g)} download>CSV</a></li>
+          ))}
+        </ul>
+      )}
+      <p className="muted an-foot">One row per day with data; real dates and numbers; HD % as a formula, pooled in the totals row. Read-only.</p>
+    </section>
+  );
+}
