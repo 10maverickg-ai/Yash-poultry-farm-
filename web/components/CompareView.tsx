@@ -5,7 +5,7 @@ import { buildFarmCtx } from "@/lib/analytics/ctx";
 import type { EngineInput } from "@/lib/analytics/engine";
 import type { PeriodExtras } from "@/lib/analytics/period";
 import type { CostInput } from "@/lib/costs/engine";
-import { compareRows, compareSide, overlaySeries, presets, readCompare, type CompareRow, type Fmt, type SideResult } from "@/lib/analytics/compare";
+import { compareHref, compareRows, compareSide, overlaySeries, presets, readCompare, type CompareRow, type Fmt, type SideResult } from "@/lib/analytics/compare";
 import { flockOptions, type FlockOption, type Param } from "@/lib/analytics/rangeParams";
 import { OverlayChart } from "@/components/PeriodCharts";
 import { dmy, inr, n0, n1, n2 } from "@/lib/format";
@@ -102,6 +102,7 @@ export function CompareView({ input, cost, extras, sp, today }: { input: EngineI
   const identical = st.a.flockId === st.b.flockId && st.a.range.from === st.b.range.from && st.a.range.to === st.b.range.to;
   const lengthNote = sa.length !== sb.length ? `A covers ${sa.length} day${sa.length === 1 ? "" : "s"} and B ${sb.length}: the charts draw the first ${n} days of each, so the shorter range is drawn in full and the longer one is cut. The table below uses every day of both.` : "";
   const both = [A, B];
+  const dlQuery = compareHref(st).split("?")[1];
 
   return (
     <>
@@ -208,6 +209,14 @@ export function CompareView({ input, cost, extras, sp, today }: { input: EngineI
             ))}
           </div>
         ))}
+        <section className="card" aria-label="Download this view">
+          <h2 style={{ marginTop: 0 }}>Download this view</h2>
+          <p className="pv-dl">
+            <a className="btn btn-secondary" href={`/export/download?kind=compare&format=xlsx&${dlQuery}`} download>Excel (.xlsx)</a>{" "}
+            <a className="btn btn-secondary" href={`/export/download?kind=compare&format=csv&${dlQuery}`} download>CSV</a>
+          </p>
+          <p className="muted an-foot">One row per measure: A and B as real numbers and dates, the difference B − A as a formula in Excel. Read-only.</p>
+        </section>
         <p className="muted an-foot">
           B − A: ▲ B is higher, ▼ B is lower; &quot;better&quot; / &quot;worse&quot; is written out (more eggs is better, more deaths is worse). Days, ages and bird counts have no better or worse. HD % is pooled: all eggs ÷ all bird-days, never an average of daily percentages. Profit is an estimate.
         </p>

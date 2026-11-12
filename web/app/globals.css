@@ -963,3 +963,8 @@ main:focus { outline: none; }
 .pv-compare { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; margin: 0 0 0.7rem; }
 .pv-compare .btn, .flock-compare .btn { min-height: 44px; display: inline-flex; align-items: center; }
 .flock-compare { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0.4rem 0; }
+.pv-dl { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0; }
+.pv-dl .btn, .pv-dl-list .btn { min-height: 44px; display: inline-flex; align-items: center; }
+.pv-dl-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.4rem; }
+.pv-dl-list li { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; }
+.pv-dl-list li > span { min-width: 7.5rem; font-weight: 600; }

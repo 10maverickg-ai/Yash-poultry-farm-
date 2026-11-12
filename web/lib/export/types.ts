@@ -1,4 +1,4 @@
-export type ColType = "date" | "int" | "num" | "text" | "pct";
+export type ColType = "date" | "int" | "num" | "text" | "pct" | "auto"; // auto (V15): a number stays a number, a YYYY-MM-DD text becomes a date, anything else is text
 export interface Col {
   key: string;
   header: string;
@@ -14,6 +14,6 @@ export interface Dataset {
   columns: Col[];
   rows: Record<string, string | number | null>[];
   notes: string[]; // printed under the table (estimates, missing inputs)
-  // Optional per-row formula columns: key -> (rowNumber) => formula text without "="
-  formulas?: Record<string, (row: number) => string>;
+  // Optional per-row formula columns: key -> (rowNumber) => formula text without "=" (null = no formula in that row, the value is written instead)
+  formulas?: Record<string, (row: number) => string | null>;
 }

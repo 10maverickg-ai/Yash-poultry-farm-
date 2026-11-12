@@ -716,6 +716,32 @@ export function RangeView({ input, cost, extras, sp, today }: { input: EngineInp
           </section>
         </>
       )}
+      {s.daysWithData > 0 && <RangeDownloads from={range.from} to={range.to} flockLabels={flockLabels} />}
     </>
+  );
+}
+
+/** "Download this view": the same address as the screen, so the file has the same numbers. */
+function RangeDownloads({ from, to, flockLabels }: { from: string; to: string; flockLabels: string[] }) {
+  const href = (format: string, segment?: string) => {
+    const q = new URLSearchParams({ kind: "range", from, to, format });
+    for (const l of flockLabels) q.append("f", l);
+    if (segment) q.set("segment", segment);
+    return `/export/download?${q.toString()}`;
+  };
+  return (
+    <section className="card" aria-label="Download this view">
+      <h2 style={{ marginTop: 0 }}>Download this view</h2>
+      {flockLabels.length > 0 ? (
+        <p className="pv-dl"><a className="btn btn-secondary" href={href("xlsx")} download>Excel (.xlsx)</a> <a className="btn btn-secondary" href={href("csv")} download>CSV</a></p>
+      ) : (
+        <ul className="pv-dl-list">
+          {([["all", "Whole farm"], ["main", "Main flocks"], ["young", "Young flocks"]] as const).map(([g, l]) => (
+            <li key={g}><span>{l}</span> <a className="btn btn-secondary" href={href("xlsx", g)} download>Excel</a> <a className="btn btn-secondary" href={href("csv", g)} download>CSV</a></li>
+          ))}
+        </ul>
+      )}
+      <p className="muted an-foot">One row per day with data; real dates and numbers; HD % as a formula, pooled in the totals row. Read-only.</p>
+    </section>
   );
 }

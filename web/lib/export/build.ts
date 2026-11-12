@@ -29,13 +29,23 @@ export async function buildXlsx(ds: Dataset): Promise<Buffer> {
     const values = ds.columns.map((c) => {
       const f = ds.formulas?.[c.key];
       const v = r[c.key];
-      if (f) return { formula: f(rowNo), result: typeof v === "number" ? v : undefined } as ExcelJS.CellFormulaValue;
+      const fx = f ? f(rowNo) : null;
+      if (fx) return { formula: fx, result: typeof v === "number" ? v : undefined } as ExcelJS.CellFormulaValue;
       if (v == null || v === "") return null;
       if (c.type === "date") return isoToDate(String(v));
       if (c.type === "int" || c.type === "num" || c.type === "pct") return Number(v);
+      if (c.type === "auto") return typeof v === "number" ? v : /^\d{4}-\d{2}-\d{2}$/.test(String(v)) ? isoToDate(String(v)) : String(v);
       return String(v);
     });
-    ws.addRow(values);
+    const row = ws.addRow(values);
+    // auto columns: a date cell shows as a date, a whole number without decimals
+    ds.columns.forEach((c, i) => {
+      if (c.type !== "auto") return;
+      const cell = row.getCell(i + 1);
+      const v = r[c.key];
+      if (typeof v === "number") cell.numFmt = Number.isInteger(v) ? "#,##0" : "#,##0.00";
+      else if (typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v)) cell.numFmt = "dd-mmm-yyyy";
+    });
   });
   const last = first + ds.rows.length - 1;
   if (ds.rows.length > 0 && ds.columns.some((c) => c.total || c.totalFormula)) {
