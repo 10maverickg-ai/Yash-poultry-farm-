@@ -8,6 +8,16 @@ export interface Change {
 
 export const CHANGES: Change[] = [
   {
+    date: "2026-11-12",
+    title: "Analytics for any dates, and compare two flocks side by side",
+    points: [
+      "Analytics has a fifth tab, “Custom”: pick a From date and a To date (or tap Last 7 days, Last 14, Last 30, This month, Last month, Since 1 Aug) and you get the same view as a month for exactly those days: eggs, eggs per 100 birds, deaths, feed, money, each flock, every day (tap a day to open it), sales by buyer and grade, costs with what is missing, alerts, and a comparison with the same number of days just before. If some days have no data it says how many do.",
+      "On the Custom tab, “Flocks: All flocks” lets you tick one or more flocks. Every number is then for those flocks only. Sales, costs and profit are kept for the whole farm, so they are not shown for single flocks; the screen says so.",
+      "New screen “Compare flocks” (button on Analytics, on every flock card and on each flock page): column A and column B, each with its own flock and its own dates, for example BAB-3 in September against BAB-5 in October. Every number is shown side by side with B minus A, an arrow and the word better or worse. Tick “Align by flock age” to compare the same weeks of age of two flocks. Two charts put the two lines on top of each other.",
+      "“Download this view” gives the Custom range or the comparison as Excel or CSV. Every view has its own address, so you can bookmark it or send it.",
+    ],
+  },
+  {
     date: "2026-11-07",
     title: "One master list of medicines and vaccines, per-flock entry, boosters every 6 months, chick vaccination plan",
     points: [
