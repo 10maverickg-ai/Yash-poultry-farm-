@@ -624,7 +624,7 @@ export function PeriodView({
 function RangePicker({ ctx, range, flockIds, today }: { ctx: Ctx; range: PeriodRange; flockIds: string[]; today: string }) {
   const opts = flockOptions(ctx);
   const chosen = new Set(flockIds);
-  const labels = opts.filter((o) => chosen.has(o.id)).map((o) => o.label); // flock choice: R2
+  const labels = opts.filter((o) => chosen.has(o.id)).map((o) => o.label);
   const chips = quickRanges(ctx, today);
   return (
     <section className="card pv-range" aria-label="Choose the dates and flocks">
@@ -634,6 +634,22 @@ function RangePicker({ ctx, range, flockIds, today }: { ctx: Ctx; range: PeriodR
           <label className="field"><span>From</span><input type="date" name="from" defaultValue={range.from} max={today} required /></label>
           <label className="field"><span>To</span><input type="date" name="to" defaultValue={range.to} max={today} required /></label>
         </div>
+        <details className="pv-flocks">
+          <summary>Flocks: <b>{labels.length ? labels.join(", ") : "All flocks"}</b></summary>
+          <p className="muted an-tiny" style={{ margin: "0.3rem 0" }}>Tick one or more flocks, then press Show. Tick none for all flocks.</p>
+          <div className="pv-flock-grid">
+            {opts.map((o) => (
+              <label key={o.id} className="pv-check">
+                <input type="checkbox" name="f" value={o.label} defaultChecked={chosen.has(o.id)} />
+                <span>
+                  <b>{o.label}</b>
+                  <span className="muted an-tiny">{[o.registerLabel !== o.label ? `register ${o.registerLabel}` : "", o.gone ? `left after ${dmy(o.lastDate)}` : o.segment === "young" ? "young" : "main"].filter(Boolean).join(" · ")}</span>
+                </span>
+              </label>
+            ))}
+          </div>
+          {labels.length > 0 && <p style={{ margin: "0.4rem 0 0" }}><a className="btn btn-secondary" href={rangeHref(range.from, range.to)}>All flocks</a></p>}
+        </details>
         <button type="submit" className="pv-show">Show</button>
       </form>
       <div className="pv-chips" role="group" aria-label="Quick ranges">
@@ -660,6 +676,7 @@ export function RangeView({ input, cost, extras, sp, today }: { input: EngineInp
   const s = S(range, null);
   const prev = S(prevR, null);
   const changes = compare(s, prev);
+  const segs = chosen ? [...new Set(s.flocks.map((f) => ctx.flockById.get(f.flockId)?.segment ?? null))] : [];
   return (
     <>
       <ViewSwitch view="custom" anchor={s.lastDate ?? range.to} />
@@ -669,6 +686,14 @@ export function RangeView({ input, cost, extras, sp, today }: { input: EngineInp
       <p className="an-sub" style={{ marginTop: 0 }}><b>{s.dataNote}</b>{s.partial && s.daysWithData > 0 ? " — averages use only the days with data" : ""}.{cov.note ? ` ${cov.note}` : ""}{choice.isDefault ? " Showing the last 14 days with data; pick other dates above." : ""}</p>
       {s.daysWithData === 0 ? (
         <p className="card muted">No data for {chosen ? "these flocks" : "the farm"} in this range. Pick other dates or one of the quick ranges.</p>
+      ) : chosen ? (
+        <>
+          <p className="card an-sub" style={{ marginTop: 0 }}>
+            Numbers below use <b>only the chosen flocks&apos; own rows</b> (their birds, eggs, deaths and feed). Egg sales, revenue, costs, profit and the egg-ledger breakage are kept for the whole farm, so they are <b>farm-level, not split by flock</b> and are not shown here. <a href={rangeHref(range.from, range.to)}>Show all flocks</a>
+            {segs.length > 1 ? " These flocks are in both groups (main and young), so their HD % mixes mature and young birds." : ""}
+          </p>
+          <SegmentBlock ctx={ctx} input={input} kind="custom" range={range} prevR={prevR} seg={null} title={`Chosen flocks: ${flockLabels.join(", ")}`} sum={s} prev={prev} Sg={S} months={[]} />
+        </>
       ) : (
         <>
           {SEGMENTS.map((g) => (
