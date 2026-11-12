@@ -49,8 +49,9 @@ const VIEWS: { key: "day" | RangeKind; label: string }[] = [
   { key: "custom", label: "Custom" },
 ];
 
-export function ViewSwitch({ view, anchor }: { view: string; anchor: string }) {
+export function ViewSwitch({ view, anchor, compareHref = "/analytics/compare" }: { view: string; anchor: string; compareHref?: string }) {
   return (
+    <>
     <nav className="pv-switch" aria-label="Analytics view">
       {VIEWS.map((v) => (
         <a key={v.key} href={v.key === "day" ? `/analytics?date=${anchor}` : v.key === "custom" ? "/analytics?view=custom" : `/analytics?view=${v.key}&p=${anchor}`} className={view === v.key ? "on" : ""} aria-current={view === v.key ? "page" : undefined}>
@@ -58,6 +59,8 @@ export function ViewSwitch({ view, anchor }: { view: string; anchor: string }) {
         </a>
       ))}
     </nav>
+    <p className="pv-compare"><a className="btn btn-secondary" href={compareHref}>Compare flocks</a> <span className="muted an-tiny">two flocks or two periods side by side</span></p>
+    </>
   );
 }
 
@@ -679,7 +682,7 @@ export function RangeView({ input, cost, extras, sp, today }: { input: EngineInp
   const segs = chosen ? [...new Set(s.flocks.map((f) => ctx.flockById.get(f.flockId)?.segment ?? null))] : [];
   return (
     <>
-      <ViewSwitch view="custom" anchor={s.lastDate ?? range.to} />
+      <ViewSwitch view="custom" anchor={s.lastDate ?? range.to} compareHref={`/analytics/compare?${new URLSearchParams({ ...(flockLabels[0] ? { a: flockLabels[0] } : {}), af: range.from, at: range.to, bf: range.from, bt: range.to }).toString()}`} />
       <RangePicker ctx={ctx} range={range} flockIds={flockIds} today={today} />
       {choice.notes.length > 0 && <div className="flag-banner" role="status">{choice.notes.map((n, i) => <p key={i} style={{ margin: 0 }}>{n}</p>)}</div>}
       <h2 style={{ margin: "0.6rem 0 0.2rem" }}>{range.label} <span className="muted" style={{ fontWeight: 400 }}>· {range.days} day{range.days === 1 ? "" : "s"}{chosen ? ` · ${flockLabels.join(", ")}` : " · all flocks"}</span></h2>

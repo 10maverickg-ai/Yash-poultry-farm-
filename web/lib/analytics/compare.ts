@@ -50,6 +50,15 @@ export function ageWhy(ctx: Ctx, flockId: string | null): string {
   return "";
 }
 
+/** The weeks of age a flock has daily rows for (null = age unknown or no rows). */
+export function dataWeeks(ctx: Ctx, flockId: string): { from: number; to: number } | null {
+  const rs = ctx.byFlock.get(flockId) ?? [];
+  if (rs.length === 0) return null;
+  const a = ageOn(ctx, flockId, rs[0].date);
+  const b = ageOn(ctx, flockId, rs[rs.length - 1].date);
+  return a && b ? { from: Math.max(0, a.weeks), to: b.weeks } : null;
+}
+
 /** The dates of weeks `wf`..`wt` of age (inclusive) for a flock: week w = days 7w..7w+6 after placement. */
 export function weeksToRange(ctx: Ctx, flockId: string, wf: number, wt: number): PeriodRange | null {
   const f = ctx.flockById.get(flockId);
@@ -102,11 +111,14 @@ export function readCompare(ctx: Ctx, sp: SP, today: string): CompareState {
     const n = (p: Param) => { const v = Number(one(p)); return Number.isInteger(v) && v >= 0 && v <= 200 ? v : null; };
     let wf = n(sp.wf);
     let wt = n(sp.wt);
+    const spanA = a.id ? dataWeeks(ctx, a.id) : null;
+    const spanB = b.id ? dataWeeks(ctx, b.id) : null;
+    const common = spanA && spanB && Math.max(spanA.from, spanB.from) <= Math.min(spanA.to, spanB.to) ? { from: Math.max(spanA.from, spanB.from), to: Math.min(spanA.to, spanB.to) } : null;
     if (wf == null && wt == null) {
-      // default: the last 6 weeks A has reached
-      const ageA = a.id ? ageOn(ctx, a.id, ctx.dates[ctx.dates.length - 1] ?? today) : null;
-      wt = ageA ? ageA.weeks : 30;
-      wf = Math.max(0, wt - 5);
+      // default: the last 6 weeks of age that BOTH flocks have data for (else the last 6 weeks A has data for)
+      const span = common ?? spanA;
+      wt = span ? span.to : 30;
+      wf = Math.max(span ? span.from : 0, wt - 5);
     }
     wf ??= wt!;
     wt ??= wf;
@@ -119,6 +131,10 @@ export function readCompare(ctx: Ctx, sp: SP, today: string): CompareState {
       notes.push("At most 52 weeks of age can be compared, so it starts at week " + wf + ".");
     }
     weeks = { from: wf, to: wt };
+    const lbl = (id: string | null) => (id ? (ctx.flockById.get(id)?.label ?? id) : "");
+    if (spanA && (wf < spanA.from || wt > spanA.to)) aNotes.push(`${lbl(a.id)} has daily rows for weeks ${spanA.from}–${spanA.to} of age only.`);
+    if (spanB && (wf < spanB.from || wt > spanB.to)) bNotes.push(`${lbl(b.id)} has daily rows for weeks ${spanB.from}–${spanB.to} of age only.`);
+    if (spanA && spanB && a.id !== b.id) notes.push(common ? `Weeks of age both flocks have data for: ${common.from}–${common.to}.` : `${lbl(a.id)} and ${lbl(b.id)} have no week of age in common in the data (weeks ${spanA.from}–${spanA.to} and ${spanB.from}–${spanB.to}).`);
     const aw = a.id ? weeksToRange(ctx, a.id, wf, wt) : null;
     const bw = b.id ? weeksToRange(ctx, b.id, wf, wt) : null;
     if (!aw) aNotes.push(`Align by age needs one flock with a real placement date (${ageWhy(ctx, a.id)}), so this column uses the dates instead.`);

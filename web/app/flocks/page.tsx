@@ -58,6 +58,7 @@ export default async function FlocksPage() {
                   <div><dt>Breed</dt><dd>{f.breed ?? "—"}</dd></div>
                   <div><dt>Shed</dt><dd>{f.current_shed ?? "—"}</dd></div>
                 </dl>
+                <p className="flock-compare"><Link href={`/analytics/compare?a=${encodeURIComponent(f.display_label)}`} className="btn btn-secondary">Compare flocks</Link></p>
                 <form action={setFlockSegment.bind(null, f.flock_internal_id)} className="seg-form">
                   <label className="field" style={{ flex: 1, margin: 0 }}>
                     <span>Group</span>

@@ -960,3 +960,6 @@ main:focus { outline: none; }
   .cmp-row .cmp-tag { display: none; }
   .cmp-row-head { display: grid; font-weight: 700; font-size: 0.85rem; color: var(--muted); padding: 0 0.9rem; border: 0; }
 }
+.pv-compare { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; margin: 0 0 0.7rem; }
+.pv-compare .btn, .flock-compare .btn { min-height: 44px; display: inline-flex; align-items: center; }
+.flock-compare { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0.4rem 0; }
