@@ -648,3 +648,18 @@ Branch `claude/v14` from main after V13 was merged (PR #24) and reverted (PR #25
 - Entering with the register photo through to storage (no storage keys in the sandbox): the photo field is unchanged from V12.
 - The live site: migrations 0049 to 0051 were applied through the connector and read back; the pages were run against the local copy of the live data, not on Vercel.
 - The Vercel cron / deployment logs (connector not approved).
+
+# V15 — custom date range and flock comparison in Analytics (12 Nov 2026)
+
+Branch `claude/v15` from main after V14 was merged (PR #26). No migration (none needed), no RLS or login change, `READER_V2_ENABLED` not set, no Anthropic credit spent. The login stays deferred (V13 revert untouched).
+
+| Item | Status | What / how checked |
+|---|---|---|
+| R1 range selector (Custom tab) | built | `lib/analytics/period.ts`: ONE engine `summarizeRange(range, {segment, flocks})` for any from..to; `summarizePeriod` (week / month / year) is now a one-line wrapper. `customRange` (swap when From is after To, future days left out, at most 366 days, each with a sentence), `rangeCoverage` ("data starts 2 Jul 2026 …" / "the last entered day is …"), `precedingRange` (same length just before), `partsWithin` (weeks up to 120 days, then months), `quickRanges`. `lib/analytics/rangeParams.ts` reads the address (`?view=custom&from=…&to=…`). Analytics gets a fifth tab "Custom": two date boxes, chips Last 7 days / Last 14 / Last 30 / This month / Last month / Since 1 Aug; default = the last 14 days with data; the Month-view blocks (headline cards, eggs bars + HD % line, deaths and feed charts, day table with tap-through to the Day screen, week-by-week table, per-flock table, sales by buyer and grade, costs with the missing list, alerts, what can go wrong next) are the same components; comparison with the range of the same length just before, with a "not like for like" line when either side has missing days. Before/after check: all 81 V7 summaries (every week, month and the year × whole farm, main, young) are identical after the change. |
+| R2 flock filter | todo | |
+| R3 Compare screen | todo | |
+| R4 comparison charts | todo | |
+| R5 entry points and URL state | todo | |
+| R6 export | todo | |
+| R7 tests | todo | |
+| R8 docs | todo | |

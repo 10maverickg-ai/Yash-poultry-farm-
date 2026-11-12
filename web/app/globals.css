@@ -904,3 +904,20 @@ main:focus { outline: none; }
 
 /* a link that is a card's title (Knowledge topics, flock names on the medicines screens) is a full-height tap target */
 .card h3 > a { display: inline-flex; align-items: center; min-height: 44px; }
+
+/* V15 custom range */
+.pv-switch { grid-template-columns: repeat(5, 1fr); }
+.pv-switch a { font-size: 0.95rem; padding: 0 0.15rem; }
+.pv-range form { display: grid; gap: 0.5rem; }
+.pv-dates { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
+.pv-dates .field { margin: 0; min-width: 0; }
+.pv-dates input[type="date"] { width: 100%; min-width: 0; min-height: 44px; box-sizing: border-box; }
+.pv-flocks summary { min-height: 44px; display: flex; align-items: center; gap: 0.3rem; flex-wrap: wrap; cursor: pointer; }
+.pv-flock-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr)); gap: 0.3rem; }
+.pv-check { display: flex; align-items: center; gap: 0.45rem; min-height: 44px; padding: 0.2rem 0.4rem; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
+.pv-check input { width: 22px; height: 22px; flex: none; margin: 0; }
+.pv-check > span { display: flex; flex-direction: column; min-width: 0; overflow-wrap: anywhere; }
+.pv-show { min-height: 44px; }
+.pv-chips { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.6rem; }
+.pv-chip { min-height: 44px; display: inline-flex; align-items: center; padding: 0 0.75rem; border-radius: 999px; border: 1px solid var(--line); background: #fff; color: var(--ink); text-decoration: none; font-weight: 600; font-size: 0.9rem; }
+.pv-chip.on { background: var(--accent); color: #fff; border-color: var(--accent); }

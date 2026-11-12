@@ -306,8 +306,9 @@ export function ledgerSegment(ctx: Ctx, section: string, date: string): Segment 
 
 export type SegFilter = Segment | "all";
 const inSeg = (ctx: Ctx, r: { flockId: string; date: string }, seg: SegFilter) => seg === "all" || segmentOn(ctx, r.flockId, r.date) === seg;
-export function rowsOn(ctx: Ctx, date: string, seg: SegFilter = "all"): ProdRow[] {
-  return (ctx.byDate.get(date) ?? []).filter((r) => inSeg(ctx, r, seg));
+/** The rows of a day for a segment; `only` (V15) keeps just the chosen flocks. */
+export function rowsOn(ctx: Ctx, date: string, seg: SegFilter = "all", only?: ReadonlySet<string>): ProdRow[] {
+  return (ctx.byDate.get(date) ?? []).filter((r) => inSeg(ctx, r, seg) && (!only || only.has(r.flockId)));
 }
 
 /** First day with eggs for this flock, or null when it was already laying before the data starts. */
@@ -466,8 +467,8 @@ export interface DayTotals {
   feedRecorded: boolean; // false when no row of this group has a feed figure (left-page flocks)
   flocks: number;
 }
-export function dayTotals(ctx: Ctx, date: string, seg: SegFilter = "all"): DayTotals | null {
-  const rs = rowsOn(ctx, date, seg);
+export function dayTotals(ctx: Ctx, date: string, seg: SegFilter = "all", only?: ReadonlySet<string>): DayTotals | null {
+  const rs = rowsOn(ctx, date, seg, only);
   if (rs.length === 0) return null;
   const eggs = rs.reduce((s, r) => s + (r.eggs ?? 0), 0);
   const birds = rs.reduce((s, r) => s + (r.pop ?? 0), 0);
