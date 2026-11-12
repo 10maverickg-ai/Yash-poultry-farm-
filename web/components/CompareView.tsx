@@ -5,8 +5,9 @@ import { buildFarmCtx } from "@/lib/analytics/ctx";
 import type { EngineInput } from "@/lib/analytics/engine";
 import type { PeriodExtras } from "@/lib/analytics/period";
 import type { CostInput } from "@/lib/costs/engine";
-import { compareRows, compareSide, presets, readCompare, type CompareRow, type Fmt, type SideResult } from "@/lib/analytics/compare";
+import { compareRows, compareSide, overlaySeries, presets, readCompare, type CompareRow, type Fmt, type SideResult } from "@/lib/analytics/compare";
 import { flockOptions, type FlockOption, type Param } from "@/lib/analytics/rangeParams";
+import { OverlayChart } from "@/components/PeriodCharts";
 import { dmy, inr, n0, n1, n2 } from "@/lib/format";
 
 const fmtVal = (f: Fmt, v: number | string | null): string => {
@@ -89,9 +90,17 @@ export function CompareView({ input, cost, extras, sp, today }: { input: EngineI
   const B = compareSide(ctx, cost, extras, st.b);
   const rows = compareRows(A, B);
   const opts = flockOptions(ctx);
+  const sa = overlaySeries(A);
+  const sb = overlaySeries(B);
+  const n = Math.min(sa.length, sb.length);
+  const xLabels = Array.from({ length: n }, (_, i) => (st.age && st.weeks ? `wk ${st.weeks.from + Math.floor(i / 7)}` : `day ${i + 1}`));
+  const every = st.age ? 7 : n <= 7 ? 1 : Math.ceil(n / 6);
+  const sideA = { name: sideTitle(A), dates: sa.map((p) => dmy(p.date)) };
+  const sideB = { name: sideTitle(B), dates: sb.map((p) => dmy(p.date)) };
   const groups = [...new Set(rows.map((r) => r.group))];
   const weekOpts = Array.from({ length: 131 }, (_, i) => i);
   const identical = st.a.flockId === st.b.flockId && st.a.range.from === st.b.range.from && st.a.range.to === st.b.range.to;
+  const lengthNote = sa.length !== sb.length ? `A covers ${sa.length} day${sa.length === 1 ? "" : "s"} and B ${sb.length}: the charts draw the first ${n} days of each, so the shorter range is drawn in full and the longer one is cut. The table below uses every day of both.` : "";
   const both = [A, B];
 
   return (
@@ -146,6 +155,37 @@ export function CompareView({ input, cost, extras, sp, today }: { input: EngineI
         ))}
       </section>
       {identical && <p className="card an-sub">A and B are the same flock and the same dates, so every difference is 0.</p>}
+
+      <section className="card" aria-label="Charts">
+        <OverlayChart title={st.age ? "Hen-day % by week of age" : "Hen-day % by day of the range"} unit="% of birds" a={{ ...sideA, values: sa.slice(0, n).map((p) => p.hd) }} b={{ ...sideB, values: sb.slice(0, n).map((p) => p.hd) }} xLabels={xLabels} labelEvery={every} fmt={(v) => `${n1(v)}`} />
+        <OverlayChart title={st.age ? "Eggs per day by week of age" : "Eggs per day by day of the range"} unit="eggs" a={{ ...sideA, values: sa.slice(0, n).map((p) => p.eggs) }} b={{ ...sideB, values: sb.slice(0, n).map((p) => p.eggs) }} xLabels={xLabels} labelEvery={every} zero />
+        <p className="muted an-foot">
+          {st.age ? "Both flocks start at the same age: day 1 is the first day of week " + (st.weeks?.from ?? "") + " of each flock. " : "Day 1 is the first day of each range: "}
+          {!st.age && <>A day 1 = {dmy(st.a.range.from)}, B day 1 = {dmy(st.b.range.from)}. </>}
+          A gap means no data that day. {lengthNote}
+        </p>
+        <details>
+          <summary>Day by day with the real dates</summary>
+          <div className="an-scroll" style={{ padding: 0 }}>
+            <table className="an-table no-stack" style={{ minWidth: 0 }}>
+              <thead><tr><th>{st.age ? "Age" : "Day"}</th><th>A date</th><th className="num">A HD %</th><th className="num">A eggs</th><th>B date</th><th className="num">B HD %</th><th className="num">B eggs</th></tr></thead>
+              <tbody>
+                {Array.from({ length: Math.max(sa.length, sb.length) }, (_, i) => (
+                  <tr key={i}>
+                    <td>{st.age && st.weeks ? `wk ${st.weeks.from + Math.floor(i / 7)} d${(i % 7) + 1}` : i + 1}</td>
+                    <td>{sa[i] ? <Link href={`/day?date=${sa[i].date}`}>{dmy(sa[i].date)}</Link> : ""}</td>
+                    <td className="num">{sa[i]?.hd != null ? n1(sa[i].hd) : "–"}</td>
+                    <td className="num">{sa[i]?.eggs != null ? n0(sa[i].eggs) : "–"}</td>
+                    <td>{sb[i] ? <Link href={`/day?date=${sb[i].date}`}>{dmy(sb[i].date)}</Link> : ""}</td>
+                    <td className="num">{sb[i]?.hd != null ? n1(sb[i].hd) : "–"}</td>
+                    <td className="num">{sb[i]?.eggs != null ? n0(sb[i].eggs) : "–"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </details>
+      </section>
 
       <section aria-label="Side by side" className="cmp-table">
         <div className="cmp-row cmp-row-head" aria-hidden="true">
