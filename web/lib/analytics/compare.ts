@@ -321,9 +321,11 @@ export function compareRows(A: SideResult, B: SideResult): CompareRow[] {
 
   // feed
   const fed = (x: SideResult) => x.s.feed.recorded;
-  const FN = "feed not recorded (left page)";
+  const FN = "feed not recorded (no feed figure in the register for these days)";
   add({ key: "feedBags", group: "Feed", label: "Feed (bags, total)", fmt: "int", a: fed(A) ? A.s.feed.bags : null, b: fed(B) ? B.s.feed.bags : null, aNote: fed(A) ? undefined : FN, bNote: fed(B) ? undefined : FN, direction: "none", totals: true });
-  add({ key: "feedG", group: "Feed", label: "Feed g / bird / day", fmt: "int", a: A.s.feed.gPerBirdDay, b: B.s.feed.gPerBirdDay, aNote: fed(A) ? undefined : FN, bNote: fed(B) ? undefined : FN, direction: "none", note: "More or less feed per bird is not good or bad on its own (moult, age, season); read it with the eggs." });
+  add({ key: "feedBagsDay", group: "Feed", label: "Feed, average bags a day", fmt: "num1", a: A.s.feed.bagsPerDay, b: B.s.feed.bagsPerDay, aNote: fed(A) ? undefined : FN, bNote: fed(B) ? undefined : FN, direction: "none" });
+  const partial = [A, B].filter((x) => x.s.feed.recorded && x.s.feed.daysRecorded < x.s.daysWithData).map((x) => `${x.side.key.toUpperCase()}: feed recorded on ${x.s.feed.daysRecorded} of ${x.s.daysWithData} days`);
+  add({ key: "feedG", group: "Feed", label: "Feed g / bird a day (average)", fmt: "int", a: A.s.feed.gPerBirdDay, b: B.s.feed.gPerBirdDay, aNote: fed(A) ? undefined : FN, bNote: fed(B) ? undefined : FN, direction: "none", note: `More or less feed per bird is not good or bad on its own (moult, age, season); read it with the eggs.${partial.length ? ` ${partial.join("; ")}: totals and averages use those days only.` : ""}` });
   add({ key: "feed100", group: "Feed", label: "Feed kg per 100 eggs", fmt: "num1", a: A.s.feed.kgPer100Eggs, b: B.s.feed.kgPer100Eggs, aNote: fed(A) ? undefined : FN, bNote: fed(B) ? undefined : FN, direction: "lower" });
 
   // egg ledger (farm-level)

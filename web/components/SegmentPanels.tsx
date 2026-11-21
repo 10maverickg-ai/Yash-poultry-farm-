@@ -36,17 +36,20 @@ function trend(now: number | null, prev: number | null): string | undefined {
  * Feed as two labelled tiles (V16): the board day's own bags and g/bird first, then the last 7 days (total, average a day,
  * average g/bird a day). A number never appears without its period; a missing figure says why, never a bare "–".
  */
-export function FeedCells({ f, daysLeft, dayWord = "today" }: { f: FeedPair; daysLeft?: number | null; dayWord?: string }) {
+export function FeedCells({ f, daysLeft, onDay = false }: { f: FeedPair; daysLeft?: number | null; onDay?: boolean }) {
   const d = f.day;
   const w = f.week;
+  // the board says "today" (the board day); the Day screen names the date
+  const dayTitle = onDay ? `Feed on ${dm(d.date)}` : `Feed today (${dm(d.date)})`;
+  const dayWord = onDay ? "that day" : "today";
   if (w.daysRecorded === 0) {
-    return <Cell title={`Feed ${dayWord} (${dm(d.date)})`} value="feed not recorded" sub={`the register has no feed figure for this group on ${dm(d.date)} or in the ${w.days > 1 ? `${w.days} days before` : "days before"}`} />;
+    return <Cell title={dayTitle} value="feed not recorded" sub={`the register has no feed figure for this group on ${dm(d.date)} or in the ${w.days > 1 ? `${w.days - 1} days before` : "days before"}`} />;
   }
   const stock = daysLeft != null ? `feed stock left: ${n1(daysLeft)} days` : "";
   return (
     <>
       <Cell
-        title={`Feed ${dayWord} (${dm(d.date)})`}
+        title={dayTitle}
         value={d.recorded ? `${n0(d.bags!)} bags` : "feed not recorded"}
         sub={[d.recorded ? (d.gPerBird != null ? `${n0(d.gPerBird)} g/bird ${dayWord}` : "") : `the register has no feed figure for this group on ${dm(d.date)}`, stock].filter(Boolean).join(" · ")}
       />
