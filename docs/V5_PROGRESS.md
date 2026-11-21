@@ -688,3 +688,16 @@ Nothing blocking. After it deploys: try **Custom 1–15 Oct** and **Compare BAB-
 - The screens against the live database: they ran against the local copy (data to 28 Oct); live has data to 10 Nov. The owner's two test cases were checked against live with read-only SQL.
 - A real iPhone Safari and Android Chrome (Chromium at 360, 390 and 820 px with touch emulation only); the native date picker of iOS.
 - The downloaded files opened in Excel or Numbers on a phone (read back with exceljs only).
+
+# V16 — feed numbers on Analytics, for the day and for 7 days, each labelled (21 Nov 2026)
+
+Branch `claude/v16` from main after V15 was merged (PR #27). No migration, no RLS or login change, `READER_V2_ENABLED` not set, no Anthropic credit spent. The local copy of the live data was rebuilt for this version (new container): the repo's migrations, then every live table copied read-only (1,424 production rows, data to 19 Nov 2026).
+
+Owner's report (21 Nov): the Main flocks card "as of 19 Nov" showed "Feed 157 bags/day, 107 g/bird/day" next to single-day tiles; 157.4 is the 7-day average (13–19 Nov = 1,102 bags ÷ 7), the register says 154 for 19 Nov, and the day's own g/bird was shown nowhere.
+
+| Item | Status | What / how checked |
+|---|---|---|
+| F1 Main flocks feed tile | built | `lib/analytics/feed.ts` (pure): `feedPair` / `segmentFeed` / `flockFeed` build the board day's own feed and the last 7 days with rows (the same window as the other 7-day tiles) from the existing per-day totals (`dayTotals`: bags of the rows that record feed and the birds of those rows) and the existing bag weight `BAG_KG` (45 kg); g/bird = bags × 45 kg ÷ birds. The board card now has two tiles: **"Feed today (19 Nov)": 154 bags, "105 g/bird today"**, then **"Feed, last 7 days (13 Nov – 19 Nov)": 1,102 bags, "average 157 bags a day · 107 g/bird a day"** (and "feed recorded on N of these 7 days, averages over those only" when some days have no feed). "Feed stock left: N days" stays on the day tile, its calculation untouched. The Deaths tile is now "Deaths today" with "last 7 days: … a day on average". Browser (production build, live copy): 19 Nov 154 / 105 and 1,102 / 157 / 107; 18 Nov 163 / 111 and 1,095 / 156 / 107. |
+| F2 every other feed number | todo | |
+| F3 days of stock left unchanged | todo | |
+| F4 tests | todo | |
