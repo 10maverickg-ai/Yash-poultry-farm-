@@ -93,7 +93,7 @@ export default async function DayPage({ searchParams }: { searchParams: Promise<
                   <div className="an-metric"><div className="an-metric-title">Eggs</div><div className="an-metric-value">{n0(x.eggs)}</div><div className="an-metric-cmp">{n0(Math.round(x.eggs / 30))} trays</div></div>
                   <div className="an-metric"><div className="an-metric-title">Birds</div><div className="an-metric-value">{n0(x.birds)}</div></div>
                   <div className="an-metric"><div className="an-metric-title">Deaths</div><div className="an-metric-value">{n0(x.mort)}</div></div>
-                  {x.pair ? <FeedCells f={x.pair} onDay /> : <div className="an-metric"><div className="an-metric-title">Feed on this day</div><div className="an-metric-value">{x.fed ? `${n0(x.feed)} bags` : "feed not recorded"}</div></div>}
+                  {x.pair ? <FeedCells f={x.pair} onDay /> : <div className="an-metric"><div className="an-metric-title">Feed on this day</div><div className={`an-metric-value${x.fed ? "" : " an-metric-words"}`}>{x.fed ? `${n0(x.feed)} bags` : "feed not recorded"}</div></div>}
                 </div>
               </div>
             ))}

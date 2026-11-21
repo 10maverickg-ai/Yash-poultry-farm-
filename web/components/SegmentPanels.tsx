@@ -16,11 +16,11 @@ const WHAT: Record<Segment, string> = {
   young: `Left page: young flocks still climbing to peak, small eggs. Feed is shown on the days the register records it for this group. Each flock is "ramping up" for its first ${RAMP_DAYS} days of lay.`,
 };
 
-function Cell({ title, value, sub }: { title: string; value: string; sub?: string }) {
+function Cell({ title, value, sub, words }: { title: string; value: string; sub?: string; words?: boolean }) {
   return (
     <div className="an-metric">
       <div className="an-metric-title">{title}</div>
-      <div className="an-metric-value">{value}</div>
+      <div className={`an-metric-value${words ? " an-metric-words" : ""}`}>{value}</div>
       {sub && <div className="an-metric-cmp">{sub}</div>}
     </div>
   );
@@ -43,7 +43,7 @@ export function FeedCells({ f, daysLeft, onDay = false }: { f: FeedPair; daysLef
   const dayTitle = onDay ? `Feed on ${dm(d.date)}` : `Feed today (${dm(d.date)})`;
   const dayWord = onDay ? "that day" : "today";
   if (w.daysRecorded === 0) {
-    return <Cell title={dayTitle} value="feed not recorded" sub={`the register has no feed figure for this group on ${dm(d.date)} or in the ${w.days > 1 ? `${w.days - 1} days before` : "days before"}`} />;
+    return <Cell title={dayTitle} value="feed not recorded" words sub={`the register has no feed figure for this group on ${dm(d.date)} or in the ${w.days > 1 ? `${w.days - 1} days before` : "days before"}`} />;
   }
   const stock = daysLeft != null ? `feed stock left: ${n1(daysLeft)} days` : "";
   return (
@@ -51,6 +51,7 @@ export function FeedCells({ f, daysLeft, onDay = false }: { f: FeedPair; daysLef
       <Cell
         title={dayTitle}
         value={d.recorded ? `${n0(d.bags!)} bags` : "feed not recorded"}
+        words={!d.recorded}
         sub={[d.recorded ? (d.gPerBird != null ? `${n0(d.gPerBird)} g/bird ${dayWord}` : "") : `the register has no feed figure for this group on ${dm(d.date)}`, stock].filter(Boolean).join(" · ")}
       />
       <Cell
