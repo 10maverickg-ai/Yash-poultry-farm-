@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { BoardEff } from "@/lib/analytics/feedEfficiency";
+import { EffTrendChart } from "@/components/PeriodCharts";
 import { SEGMENT_NAME, RAMP_DAYS, type Segment } from "@/lib/analytics/engine";
 import type { SegmentPanel } from "@/lib/analytics/segments";
 
@@ -56,6 +57,12 @@ export function SegmentPanelView({ p, detailHref }: { p: SegmentPanel; detailHre
           )}
           <Cell title={p.segment === "main" ? "Big eggs in stock" : "Small eggs in stock"} value={p.stock ? `${n1(p.stock.days)} days` : "–"} sub={p.stock ? `${n0(p.stock.closing)} eggs` : "no ledger row"} />
           <EggsPerKgCell e={p.eff} />
+        </div>
+      )}
+      {t && p.effTrend.length > 0 && (
+        <div className="eff-trend">
+          <EffTrendChart points={p.effTrend} title={`Eggs per kg feed, last 30 days (${dayMon(p.effTrend[0].date)} – ${dayMon(p.effTrend[p.effTrend.length - 1].date)})`} />
+          <p className="muted an-tiny" style={{ margin: 0 }}>A gap means the register has no feed figure that day. Higher is better: more eggs from each kg of feed.</p>
         </div>
       )}
       <p className="an-foot" style={{ marginBottom: 0 }}>

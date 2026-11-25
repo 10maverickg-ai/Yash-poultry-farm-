@@ -973,3 +973,4 @@ main:focus { outline: none; }
 .eff-lines { flex-direction: column; gap: 0.15rem; }
 .an-metric-value.an-metric-words { white-space: normal; font-size: 1.05rem; overflow-wrap: anywhere; }
 .an-grid .an-metric-wide { grid-column: span 2; }
+.eff-trend { margin-top: 0.6rem; max-width: 520px; }

@@ -220,3 +220,61 @@ export function OverlayChart({ title, unit, a, b, xLabels, labelEvery, fmt, zero
     </figure>
   );
 }
+
+// ---- V17: eggs per kg of feed, last 30 days (Main flocks card) ----------------------------------
+// Each day a solid blue line with dots (a gap where the register has no feed), the 7-day pooled value a dashed
+// orange line; both named in the legend, so colour is never the only signal (the pair passes the colour-blind check).
+const EFF_DAY = "#2a78d6";
+const EFF_AVG = "#eb6834";
+
+export function EffTrendChart({ points, title }: { points: { date: string; value: number | null; avg7: number | null }[]; title: string }) {
+  const vals = points.flatMap((p) => [p.value, p.avg7]).filter((v): v is number => v != null);
+  if (vals.length === 0) return <p className="muted an-tiny">{title}: no feed recorded in these days, nothing to draw.</p>;
+  const lo = Math.floor(Math.min(...vals) * 2) / 2 - 0.5;
+  const hi = Math.ceil(Math.max(...vals) * 2) / 2 + 0.5;
+  const n = points.length;
+  const iw = W - L - R;
+  const ih = H - T - B;
+  const x = (i: number) => L + (n === 1 ? iw / 2 : (i / (n - 1)) * iw);
+  const y = (v: number) => T + ih - ((v - lo) / (hi - lo)) * ih;
+  const path = (get: (p: (typeof points)[number]) => number | null) => {
+    const out: string[] = [];
+    let cur = "";
+    points.forEach((p, i) => {
+      const v = get(p);
+      if (v == null) { if (cur) out.push(cur); cur = ""; } else cur += `${cur ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)}`;
+    });
+    if (cur) out.push(cur);
+    return out;
+  };
+  const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const lab = (d: string) => `${Number(d.slice(8, 10))} ${MON[Number(d.slice(5, 7)) - 1]}`;
+  const every = Math.max(1, Math.ceil(n / 5));
+  const ticks = [lo, (lo + hi) / 2, hi];
+  const f2 = (v: number) => v.toFixed(2);
+  const summary = `${title}. Each day: ${points.map((p) => (p.value == null ? `${lab(p.date)} no feed` : `${lab(p.date)} ${f2(p.value)}`)).join(", ")}. Last 7-day value ${points[n - 1].avg7 != null ? f2(points[n - 1].avg7!) : "none"}.`;
+  return (
+    <figure className="pc-fig">
+      <figcaption className="pc-cap">{title}</figcaption>
+      <div className="cmp-legend" aria-hidden="true">
+        <span><svg width="26" height="10"><line x1="1" x2="25" y1="5" y2="5" stroke={EFF_DAY} strokeWidth="2.5" /></svg> each day</span>
+        <span><svg width="26" height="10"><line x1="1" x2="25" y1="5" y2="5" stroke={EFF_AVG} strokeWidth="2.5" strokeDasharray="5 3" /></svg> 7-day value (all eggs ÷ all feed kg of the last 7 days)</span>
+      </div>
+      <svg viewBox={`0 0 ${W} ${H}`} width="100%" role="img" aria-label={summary} className="pc-svg">
+        {ticks.map((t, i) => (
+          <g key={i}>
+            <line x1={L} x2={W - R} y1={y(t)} y2={y(t)} className="pc-grid" />
+            <text x={L - 4} y={y(t) + 3} textAnchor="end" className="pc-tick">{t.toFixed(1)}</text>
+          </g>
+        ))}
+        {path((p) => p.avg7).map((d, i) => <path key={`a${i}`} d={d} fill="none" stroke={EFF_AVG} strokeWidth="2" strokeDasharray="5 3" />)}
+        {path((p) => p.value).map((d, i) => <path key={`d${i}`} d={d} fill="none" stroke={EFF_DAY} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />)}
+        {points.map((p, i) => (p.value == null ? null : (
+          <circle key={i} cx={x(i)} cy={y(p.value)} r={2.2} fill={EFF_DAY} stroke="#fff" strokeWidth="0.8"><title>{`${lab(p.date)}: ${f2(p.value)} eggs per kg${p.avg7 != null ? `; 7-day ${f2(p.avg7)}` : ""}`}</title></circle>
+        )))}
+        {points.map((p, i) => (p.value == null && p.avg7 == null ? <text key={`g${i}`} x={x(i)} y={y(lo) - 3} textAnchor="middle" className="pc-tick">–</text> : null))}
+        {points.map((p, i) => (i % every === 0 || i === n - 1) && (i === n - 1 || n - 1 - i >= every) ? <text key={`l${i}`} x={x(i)} y={H - 10} textAnchor={i === n - 1 ? "end" : i === 0 ? "start" : "middle"} className="pc-tick">{lab(p.date)}</text> : null)}
+      </svg>
+    </figure>
+  );
+}
