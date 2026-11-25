@@ -7,7 +7,7 @@ import { monthsWithin, rangeCoverage, rangeOf, summarizeRange, summarizePeriod, 
 import { readRange, type Param } from "@/lib/analytics/rangeParams";
 import { compareRows, compareSide, readCompare, type CompareRow } from "@/lib/analytics/compare";
 import { SEGMENT_NAME, type SegFilter } from "@/lib/analytics/engine";
-import { dayEconomics, type CostInput } from "@/lib/costs/engine";
+import { BAG_KG, dayEconomics, type CostInput } from "@/lib/costs/engine";
 import type { Dataset } from "./types";
 
 // Read-only week / month / year / custom-range summaries and the Compare table for Excel and CSV.
@@ -27,6 +27,35 @@ async function loadAll() {
 
 const HD_NOTE = "HD % = eggs ÷ bird-days × 100. The totals row pools it (total eggs ÷ total bird-days); it is not an average of daily percentages.";
 const MONEY_NOTE = "Revenue = priced egg sales only. Cost and profit are ESTIMATES (feed exact; electricity, labour and packing spread; diesel and medicines on the day bought).";
+
+const letter = (i: number) => String.fromCharCode(65 + i);
+/**
+ * V17: "Eggs of flocks with feed" and "Eggs per kg feed" as the last two columns. Eggs per kg is a formula
+ * (eggs of the flocks with a feed figure ÷ (feed bags × the bag weight)); the totals row pools it, never an
+ * average of the rows. A row without a feed figure stays empty ("feed not recorded"), never 0.
+ */
+function withEggsPerKg(ds: Dataset, eggsFed: (number | null)[]): Dataset {
+  const n = ds.columns.length;
+  const feedCol = letter(ds.columns.findIndex((c) => c.key === "feed"));
+  const fedCol = letter(n);
+  const columns: Dataset["columns"] = [
+    ...ds.columns,
+    { key: "eggsFed", header: "Eggs of flocks with feed", type: "int", width: 14, total: true },
+    { key: "eggsPerKg", header: `Eggs per kg feed (bags × ${BAG_KG} kg)`, type: "num", width: 15, totalFormula: (f, l) => `IF(SUM(${feedCol}${f}:${feedCol}${l})>0,SUM(${fedCol}${f}:${fedCol}${l})/(SUM(${feedCol}${f}:${feedCol}${l})*${BAG_KG}),"")` },
+  ];
+  const rows = ds.rows.map((r, i) => {
+    const feed = typeof r.feed === "number" ? r.feed : null;
+    const fed = eggsFed[i];
+    return { ...r, eggsFed: feed != null ? fed : null, eggsPerKg: feed != null && feed > 0 && fed != null ? fed / (feed * BAG_KG) : null };
+  });
+  return {
+    ...ds,
+    columns,
+    rows,
+    notes: [...ds.notes, `Eggs per kg feed = eggs of the flocks that have a feed figure ÷ (feed bags × ${BAG_KG} kg); the totals row pools it (all those eggs ÷ all that feed). A row with no feed figure is left empty: feed not recorded.`],
+    formulas: { ...(ds.formulas ?? {}), eggsPerKg: (row) => `IF(AND(ISNUMBER(${feedCol}${row}),${feedCol}${row}>0),${fedCol}${row}/(${feedCol}${row}*${BAG_KG}),"")` },
+  };
+}
 
 /** Day-by-day rows of any range (week, month or custom), for a segment or chosen flocks. One builder for all of them. */
 function dayRowsDataset(ctx: Ctx, cost: CostInput, extras: PeriodExtras, range: PeriodRange, filter: RangeFilter, head: { name: string; title: string; who: string; extraNotes?: string[] }): Dataset {
@@ -73,7 +102,11 @@ function dayRowsDataset(ctx: Ctx, cost: CostInput, extras: PeriodExtras, range: 
     const revenue = split ? e!.revenue : dayRevenue(d.date);
     return { ...base, revenue, cost: e ? e.cost.total : null, profit: e && e.revenue ? e.revenue - e.cost.total : null };
   });
-  return { name: head.name, title: head.title, columns, rows, notes, formulas };
+  const eggsFed = s.series.map((d) => {
+    const fed = rowsOn(ctx, d.date, seg, only).filter((r) => r.feed != null);
+    return fed.length ? fed.reduce((t, r) => t + (r.eggs ?? 0), 0) : null;
+  });
+  return withEggsPerKg({ name: head.name, title: head.title, columns, rows, notes, formulas }, eggsFed);
 }
 
 export async function periodDataset(kind: PeriodKind, p: string, seg: SegFilter = "all"): Promise<Dataset> {
@@ -115,7 +148,12 @@ export async function periodDataset(kind: PeriodKind, p: string, seg: SegFilter 
     profit: m.money.costSplit ? m.money.profit : null,
   }));
   // year columns: month, days, then the common ones (letters shift by one)
-  return {
+  const monthEggsFed = rows.map((r) => {
+    const m = String(r.month).slice(0, 7);
+    const fed = ctx.input.prod.filter((x) => x.date.startsWith(m) && x.feed != null && (seg === "all" || segmentOn(ctx, x.flockId, x.date) === seg));
+    return fed.length ? fed.reduce((t, x) => t + (x.eggs ?? 0), 0) : null;
+  });
+  return withEggsPerKg({
     name: "Year summary",
     title: `Year ${p} — month by month — ${who}`,
     columns: [
@@ -129,7 +167,7 @@ export async function periodDataset(kind: PeriodKind, p: string, seg: SegFilter 
       hd: (r) => `IF(D${r}>0,C${r}/D${r}*100,"")`,
       ...(seg === "all" ? { profit: (r: number) => `IF(H${r}>0,H${r}-I${r},"")` } : {}),
     },
-  };
+  }, monthEggsFed);
 }
 
 /** V15: the Custom range exactly as the screen shows it (same address: from, to, f). */

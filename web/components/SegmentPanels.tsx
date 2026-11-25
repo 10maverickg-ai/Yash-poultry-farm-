@@ -1,4 +1,6 @@
 import Link from "next/link";
+import type { BoardEff } from "@/lib/analytics/feedEfficiency";
+import { EffTrendChart } from "@/components/PeriodCharts";
 import { SEGMENT_NAME, RAMP_DAYS, type Segment } from "@/lib/analytics/engine";
 import type { SegmentPanel } from "@/lib/analytics/segments";
 import type { FeedPair } from "@/lib/analytics/feed";
@@ -82,6 +84,14 @@ export function SegmentPanelView({ p, detailHref }: { p: SegmentPanel; detailHre
           <Cell title="Deaths today" value={n0(t.mort)} sub={p.deathsPerDay7 != null ? `last 7 days: ${n1(p.deathsPerDay7)} a day on average · ${p.mortPct7 != null ? p.mortPct7.toFixed(2) : "–"}% of birds` : undefined} />
           <FeedCells f={p.feed.pair} daysLeft={p.feed.daysLeft} />
           <Cell title={p.segment === "main" ? "Big eggs in stock" : "Small eggs in stock"} value={p.stock ? `${n1(p.stock.days)} days` : "–"} sub={p.stock ? `${n0(p.stock.closing)} eggs` : "no ledger row"} />
+          <EggsPerKgCell e={p.eff} />
+          <HenHousedCell p={p} />
+        </div>
+      )}
+      {t && p.effTrend.length > 0 && (
+        <div className="eff-trend">
+          <EffTrendChart points={p.effTrend} title={`Eggs per kg feed, last 30 days (${dayMon(p.effTrend[0].date)} – ${dayMon(p.effTrend[p.effTrend.length - 1].date)})`} />
+          <p className="muted an-tiny" style={{ margin: 0 }}>A gap means the register has no feed figure that day. Higher is better: more eggs from each kg of feed.</p>
         </div>
       )}
       <p className="an-foot" style={{ marginBottom: 0 }}>
@@ -108,5 +118,69 @@ export function FarmLine({ panels, eggs, birds, hd, unassigned, ok }: { panels: 
       {ok ? "Check: groups add up to the farm total ✓." : unassigned > 0 ? `${unassigned} flock row${unassigned === 1 ? " has" : "s have"} no segment set, so the groups do not add up to the total — set it on the Flocks screen.` : "Check: groups do not add up to the farm total."}
       {panels.length === 0 ? "" : ""}
     </p>
+  );
+}
+
+// ---- V17: eggs per kg of feed ------------------------------------------------------------
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const dayMon = (d: string) => `${Number(d.slice(8, 10))} ${MONTHS[Number(d.slice(5, 7)) - 1]}`;
+const fromTo = (a: string | null, b: string | null) => (a && b ? (a === b ? dayMon(a) : `${dayMon(a)} – ${dayMon(b)}`) : "");
+const n2 = (x: number) => x.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+/**
+ * "Eggs per kg feed": the board day as the big number, then the last 7 days, each with its period in the words,
+ * and an arrow + "better" / "worse" against the 7 days before (more eggs per kg = better); colour is never the only signal.
+ */
+export function EggsPerKgCell({ e }: { e: BoardEff }) {
+  const d = e.day;
+  const w = e.week;
+  const c = e.change;
+  if (w.eggsPerKg == null && d.eggsPerKg == null) {
+    return (
+      <div className="an-metric an-metric-wide">
+        <div className="an-metric-title">Eggs per kg feed today ({dayMon(e.date)})</div>
+        <div className="an-metric-value an-metric-words">feed not recorded</div>
+        <div className="an-metric-cmp">the register has no feed figure for this group on {dayMon(e.date)} or in the days before, so eggs per kg cannot be worked out</div>
+      </div>
+    );
+  }
+  return (
+    <div className="an-metric an-metric-wide">
+      <div className="an-metric-title">Eggs per kg feed today ({dayMon(e.date)})</div>
+      <div className={`an-metric-value${d.eggsPerKg == null ? " an-metric-words" : ""}`}>{d.eggsPerKg != null ? n2(d.eggsPerKg) : "feed not recorded"}</div>
+      <div className="an-metric-cmp eff-lines">
+        <span>{d.eggsPerKg != null ? `today: ${n1(d.kgPer100Eggs ?? 0)} kg feed per 100 eggs` : `no feed figure on ${dayMon(e.date)}`}</span>
+        <span>
+          7-day ({fromTo(w.from, w.to)}): <b>{w.eggsPerKg != null ? n2(w.eggsPerKg) : "–"}</b> eggs per kg{w.kgPer100Eggs != null ? ` · ${n1(w.kgPer100Eggs)} kg per 100 eggs` : ""}
+          {w.daysWithFeed < w.days ? ` · ${w.daysWithFeed} of ${w.days} days with feed` : ""}
+        </span>
+        {c ? (
+          <span className={c.good == null ? "" : c.good ? "pv-good" : "pv-bad"}>
+            {c.abs > 0 ? "▲" : c.abs < 0 ? "▼" : "="} {c.abs >= 0 ? "+" : "−"}{n2(Math.abs(c.abs))} ({c.pct >= 0 ? "+" : "−"}{Math.abs(c.pct).toFixed(1)}%) vs the 7 days before ({fromTo(e.prevWeek.from, e.prevWeek.to)}){c.good == null ? " — no change" : c.good ? " — better" : " — worse"}
+          </span>
+        ) : (
+          <span>no earlier 7 days with feed to compare</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * V17 hen-housed % over the last 7 days next to the hen-day %: eggs ÷ hens housed (birds moved in or out counted,
+ * deaths, culls and sales not), so the gap between the two is what deaths and sales cost. Stand-ins are named.
+ */
+export function HenHousedCell({ p }: { p: SegmentPanel }) {
+  const h = p.hh;
+  if (h.hhPct == null) return null;
+  return (
+    <div className="an-metric an-metric-wide">
+      <div className="an-metric-title">Hen-housed %, last 7 days ({fromTo(h.from, h.to)})</div>
+      <div className="an-metric-value">{n1(h.hhPct)}%</div>
+      <div className="an-metric-cmp eff-lines">
+        <span>eggs ÷ hens housed{p.hd7 != null ? ` · hen-day % for the same days: ${n1(p.hd7)} (eggs ÷ birds alive)` : ""}</span>
+        <span>{h.standins.length === 0 ? "hens housed counted on the flocks' first day in the register" : h.standins.length === h.flocks ? "stand-in: the number housed is not known for these flocks, so the birds on 2 Jul 2026 are used" : `stand-in (birds on 2 Jul 2026) for ${h.standins.join(", ")}`}</span>
+      </div>
+    </div>
   );
 }

@@ -65,7 +65,7 @@ export function loadInput(dir: string): EngineInput {
     farmfreshBySection: existsSync(`${dir}/farmfresh_sec.json`) ? j("farmfresh_sec") : undefined,
     moulting: existsSync(`${dir}/moulting.json`) ? j("moulting").map((m: any) => ({ flockId: m.flock_internal_id, start: m.start_date, end: m.end_date, confirmed: m.confirmed_by_owner })) : [],
     chick: j("chick").map((c: any) => ({ date: c.date, deaths: Number(c.d) })),
-    std: j("bv").map((b: any) => ({ age: b.age_weeks, hdp: Number(b.std_hdp_percent), feedG: num(b.feed_per_day_g), cumDepl: num(b.cumulative_depletion_percent) })),
+    std: j("bv").map((b: any) => ({ age: b.age_weeks, hdp: Number(b.std_hdp_percent), feedG: num(b.feed_per_day_g), cumDepl: num(b.cumulative_depletion_percent), hhWeek: num(b.cur_hhp_percent), cumHh: num(b.cum_hhp_eggs) })),
     realisticOverrides: existsSync(`${dir}/overrides.json`) ? j("overrides").map((o: any) => ({ group: o.grp, metric: o.metric, bandStart: o.band_start, ratioPct: Number(o.ratio_pct), note: o.note ?? null })) : [],
     };
 }

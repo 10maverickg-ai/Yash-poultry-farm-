@@ -971,3 +971,8 @@ main:focus { outline: none; }
 
 /* V16: a tile whose value is words ("feed not recorded") wraps instead of running out of the tile */
 .an-metric-value.an-metric-words { white-space: normal; font-size: 1.05rem; overflow-wrap: anywhere; }
+
+/* V17 eggs per kg of feed */
+.eff-lines { flex-direction: column; gap: 0.15rem; }
+.an-grid .an-metric-wide { grid-column: span 2; }
+.eff-trend { margin-top: 0.6rem; max-width: 520px; }

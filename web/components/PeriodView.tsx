@@ -39,6 +39,7 @@ const KIND_LABEL: Record<AlertKind, string> = {
   feed_anomaly: "Feed anomaly",
   missing_day: "Missing data",
   flock_health: "Flock may be sick",
+  feed_efficiency: "Feed giving fewer eggs",
 };
 
 const VIEWS: { key: "day" | RangeKind; label: string }[] = [
@@ -67,13 +68,31 @@ export function ViewSwitch({ view, anchor, compareHref = "/analytics/compare" }:
 function Delta({ c, digits = 0, money = false }: { c: Change | undefined; digits?: number; money?: boolean }) {
   if (!c || c.abs == null) return <span className="muted pv-chg">no earlier period to compare</span>;
   if (c.good == null) return <span className="muted pv-chg">no change</span>;
-  const f = money ? (x: number) => inr(Math.abs(x)) : digits ? (x: number) => n1(Math.abs(x)) : (x: number) => n0(Math.abs(x));
+  const f = money ? (x: number) => inr(Math.abs(x)) : digits === 2 ? (x: number) => n2(Math.abs(x)) : digits ? (x: number) => n1(Math.abs(x)) : (x: number) => n0(Math.abs(x));
   return (
     <span className={`pv-chg ${c.good ? "pv-good" : "pv-bad"}`}>
       {c.abs > 0 ? "▲" : "▼"} {f(c.abs)}
       {c.pct != null ? ` (${c.abs > 0 ? "+" : "−"}${Math.abs(c.pct).toFixed(1)}%)` : ""} — {c.good ? "better" : "worse"}
     </span>
   );
+}
+
+/** V17: hen-housed % in a table cell, "*" when the number housed is a stand-in, the book beside it when it is real. */
+function HHValue({ f }: { f: PeriodSummary["flocks"][number] }) {
+  if (f.henHousedPct == null) return <>–</>;
+  return (
+    <>
+      {n1(f.henHousedPct)}
+      {f.housedSource === "standin" ? "*" : ""}
+      {f.bookHenHousedPct != null ? <span className="muted an-tiny"> (book {n1(f.bookHenHousedPct)})</span> : null}
+    </>
+  );
+}
+
+/** V17: eggs per kg of feed in a table cell: the value (2 decimals), "N of M days" when some days have no feed, or why it is empty. */
+function EffValue({ v, why, days, of }: { v: number | null; why: string | null; days: number; of: number }) {
+  if (v == null) return <span className="muted an-tiny">{why?.startsWith("feed not recorded") ? "feed not recorded" : (why ?? "–")}</span>;
+  return <>{n2(v)}{days < of ? <span className="muted an-tiny"> ({days} of {of} days with feed)</span> : null}</>;
 }
 
 function Card({ title, value, sub, c, digits, money }: { title: string; value: string; sub?: string; c?: Change; digits?: number; money?: boolean }) {
@@ -112,7 +131,7 @@ function FlockTable({ s }: { s: PeriodSummary }) {
     <div className="card an-scroll">
       <table className="an-table">
         <thead>
-          <tr><th>Flock</th><th className="num">Days</th><th className="num">Eggs</th><th className="num">Share of eggs</th><th className="num">Eggs per 100 birds</th><th className="num">Breeder&apos;s target (book)</th><th className="num">Our realistic target</th><th className="num">Gap to book</th><th className="num">Deaths</th><th className="num">Deaths %</th><th className="num">Feed g/bird a day (average)</th></tr>
+          <tr><th>Flock</th><th className="num">Days</th><th className="num">Eggs</th><th className="num">Share of eggs</th><th className="num">Eggs per 100 birds</th><th className="num">Breeder&apos;s target (book)</th><th className="num">Our realistic target</th><th className="num">Gap to book</th><th className="num">Deaths</th><th className="num">Deaths %</th><th className="num">Feed g/bird a day (average)</th><th className="num">Eggs per kg feed</th><th className="num">Hen-housed %</th></tr>
         </thead>
         <tbody>
           {s.flocks.map((f) => (
@@ -132,16 +151,19 @@ function FlockTable({ s }: { s: PeriodSummary }) {
               <td className="num">{n0(f.deaths)}</td>
               <td className="num">{f.deathsPct != null ? f.deathsPct.toFixed(2) : "–"}</td>
               <td className="num">{f.feedGPerBird != null ? n0(f.feedGPerBird) : "–"}</td>
+              <td className="num"><EffValue v={f.eggsPerKgFeed} why={f.eggsPerKgWhy} days={f.daysWithFeed} of={f.days} /></td>
+              <td className="num"><HHValue f={f} /></td>
             </tr>
           ))}
         </tbody>
       </table>
+      {s.flocks.some((f) => f.housedSource === "standin") && <p className="muted an-foot">Hen-housed % = eggs ÷ hens housed (birds moved in or out counted; deaths, culls and sales not). * against the birds on 2 Jul 2026 (a stand-in): the number housed is not known for those flocks.</p>}
     </div>
   );
 }
 
 function CompareTable({ changes, vsLabel, lastYear }: { changes: Change[]; vsLabel: string; lastYear: Change[] | null }) {
-  const fmt = (c: Change, v: number | null) => (v == null ? "–" : c.key === "hd" || c.key === "deathsPct" ? `${v.toFixed(c.key === "deathsPct" ? 2 : 1)}%` : c.key.endsWith("Day") && c.key !== "eggsPerDay" ? inr(v) : c.key === "feedG" ? `${n0(v)} g` : n0(v));
+  const fmt = (c: Change, v: number | null) => (v == null ? "–" : c.key === "eggsPerKg" ? n2(v) : c.key === "hd" || c.key === "deathsPct" ? `${v.toFixed(c.key === "deathsPct" ? 2 : 1)}%` : c.key.endsWith("Day") && c.key !== "eggsPerDay" ? inr(v) : c.key === "feedG" ? `${n0(v)} g` : n0(v));
   return (
     <div className="card an-scroll">
       <table className="an-table" style={{ minWidth: 0 }}>
@@ -152,7 +174,7 @@ function CompareTable({ changes, vsLabel, lastYear }: { changes: Change[]; vsLab
               <td>{c.label}</td>
               <td className="num">{fmt(c, c.now)}</td>
               <td className="num">{fmt(c, c.before)}</td>
-              <td><Delta c={c} digits={c.key === "hd" || c.key === "deathsPct" || c.key === "feedG" ? 1 : 0} money={c.key.endsWith("Day") && c.key !== "eggsPerDay"} /></td>
+              <td><Delta c={c} digits={c.key === "eggsPerKg" ? 2 : c.key === "hd" || c.key === "deathsPct" || c.key === "feedG" ? 1 : 0} money={c.key.endsWith("Day") && c.key !== "eggsPerDay"} /></td>
             </tr>
           ))}
         </tbody>
@@ -293,6 +315,11 @@ function Headline({ s, c }: { s: PeriodSummary; c: Change[] }) {
           <Card title={s.money.costComplete ? "Profit (estimate)" : "Profit (incomplete)"} value={s.money.profit != null ? inr(s.money.profit) : "—"} sub={s.money.costComplete ? undefined : "cost inputs missing"} c={g("profitDay")} money />
         ) : (
           <Card title="Cost and profit" value="whole farm" sub="shared costs are not split between groups" />
+        )}
+        {s.feed.eggsPerKg != null ? (
+          <Card title={`Eggs per kg feed, ${periodWord(s)}`} value={n2(s.feed.eggsPerKg)} sub={`all eggs ÷ all feed kg, days with feed only${s.feed.kgPer100Eggs != null ? ` · ${n1(s.feed.kgPer100Eggs)} kg feed per 100 eggs` : ""}${s.feed.daysRecorded < s.daysWithData ? ` · ${s.feed.daysRecorded} of ${s.daysWithData} days with feed` : ""}`} c={g("eggsPerKg")} digits={2} />
+        ) : (
+          <Card title="Eggs per kg feed" value="not available" sub={s.feed.eggsPerKgWhy ?? "feed not recorded"} />
         )}
       </div>
       <details style={{ marginTop: "0.6rem" }}>
@@ -465,7 +492,7 @@ function YearView({ ctx, s, months, input, yearsLabel }: { ctx: Ctx; s: PeriodSu
       <section className="card an-scroll" aria-label="Flocks this year">
         <h2 style={{ marginTop: 0 }}>Flocks this year</h2>
         <table className="an-table">
-          <thead><tr><th>Flock</th><th className="num">Months</th><th className="num">Eggs per 100 birds</th><th className="num">Deaths %</th><th className="num">Birds sold</th></tr></thead>
+          <thead><tr><th>Flock</th><th className="num">Months</th><th className="num">Eggs per 100 birds</th><th className="num">Deaths %</th><th className="num">Birds sold</th><th className="num">Eggs per kg feed</th><th className="num">Hen-housed %</th></tr></thead>
           <tbody>
             {s.flocks.map((f) => (
               <tr key={f.flockId}>
@@ -473,7 +500,9 @@ function YearView({ ctx, s, months, input, yearsLabel }: { ctx: Ctx; s: PeriodSu
                 <td className="num">{monthsOf(f.flockId)}</td>
                 <td className="num">{f.hd != null ? n1(f.hd) : "–"}</td>
                 <td className="num">{f.deathsPct != null ? f.deathsPct.toFixed(2) : "–"}</td>
-                <td className="num">{n0(sold(f.flockId))}</td>
+                <td className="num">{n0(sold(f.flockId) || 0)}</td>
+                <td className="num"><EffValue v={f.eggsPerKgFeed} why={f.eggsPerKgWhy} days={f.daysWithFeed} of={f.days} /></td>
+                <td className="num"><HHValue f={f} /></td>
               </tr>
             ))}
           </tbody>

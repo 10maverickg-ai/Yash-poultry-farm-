@@ -17,6 +17,7 @@
 import type { RealisticModel, RealisticOverride } from "./realisticTypes";
 import type { WeatherDay } from "./weatherTypes";
 import { feedPair, type FeedPair } from "./feed";
+import { feedEfficiency, lastDatesWithRows } from "./feedEfficiency";
 
 // The two groups of the farm. MAIN = right page of the register (big eggs, mature flocks);
 // YOUNG = left page (small eggs, young flocks still climbing to peak). A flock whose segment
@@ -101,6 +102,8 @@ export interface StdRow {
   hdp: number;
   feedG?: number | null; // book feed per bird per day (g), BV300 table
   cumDepl?: number | null; // book cumulative depletion (%), BV300 table
+  hhWeek?: number | null; // V17: book eggs per hen housed in this week of age (BV300 "current HH"), e.g. 6.7 at week 25
+  cumHh?: number | null; // V17: book cumulative eggs per hen housed at the end of this week
 }
 
 export interface EngineInput {
@@ -141,6 +144,8 @@ export const RULES = {
   creepRatio: 1.5, // mortality creeping: 7-day avg >= 1.5x prior 14-day avg
   creepMinDeaths: 1, // ... and at least +1 death/day
   trendWorsenPoints: 2, // trending below: gap grew >= 2 points week on week
+  effDropPct: 8, // V17: eggs per kg of feed, last 7 days more than 8% below the 7 days before (owner, 25 Nov 2026) ...
+  effMinFeedDays: 5, // ... with a feed figure on at least 5 of the 7 days in BOTH windows (fewer days is too thin to judge)
 };
 
 /**
@@ -174,7 +179,8 @@ export type AlertKind =
   | "bird_count_anomaly"
   | "feed_anomaly"
   | "missing_day"
-  | "flock_health"; // V12: deaths above its usual two days running AND eggs falling more than 5% in a week
+  | "flock_health" // V12: deaths above its usual two days running AND eggs falling more than 5% in a week
+  | "feed_efficiency"; // V17: eggs per kg of feed, last 7 days more than 8% below the 7 days before
 
 export interface Alert {
   segment: Segment | null; // which group the alert is about (null = flock without a segment, or farm-wide)
@@ -1130,6 +1136,43 @@ function alertsForRaw(ctx: Ctx, date: string, opts: { includeCleared?: boolean }
         reason: `${SEGMENT_SHORT[seg]} flocks: ${parts.join("; ")}${noSale && !tooMuch ? `; stock is ${fmt(es.closing)} eggs = ${round(es.days)} days` : ""}.`,
       });
     }
+  }
+
+  // V17 feed efficiency, per group: eggs per kg of feed over the last 7 days with rows, pooled, against the 7 days before.
+  // Flocks moulting on a day are left out of both windows (a moult changes feed and eggs on purpose; never flag it).
+  for (const seg of SEGMENTS) {
+    if (!dayTotals(ctx, date, seg)) continue;
+    const last7 = lastDatesWithRows(ctx, date, seg, 7);
+    const prev7 = last7.length ? lastDatesWithRows(ctx, last7[last7.length - 1], seg, 7, true) : [];
+    const moulting = new Set<string>();
+    const effOf = (dates: string[]) =>
+      feedEfficiency(
+        dates.flatMap((d) =>
+          rowsOn(ctx, d, seg)
+            .filter((r) => (moultOn(ctx, r.flockId, d) ? (moulting.add(flockName(ctx, r.flockId, r.label)), false) : true))
+            .map((r) => ({ date: d, eggs: r.eggs, feed: r.feed }))
+        )
+      );
+    const now = effOf(last7);
+    const before = effOf(prev7);
+    if (now.eggsPerKg == null || before.eggsPerKg == null || before.eggsPerKg <= 0) continue;
+    if (now.daysWithFeed < RULES.effMinFeedDays || before.daysWithFeed < RULES.effMinFeedDays) continue;
+    const pct = ((now.eggsPerKg - before.eggsPerKg) / before.eggsPerKg) * 100;
+    if (pct >= -RULES.effDropPct) continue;
+    const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const dm = (d: string) => `${Number(d.slice(8, 10))} ${MON[Number(d.slice(5, 7)) - 1]}`;
+    const span = (ds: string[]) => `${dm(ds[ds.length - 1])} – ${dm(ds[0])}`;
+    out.push({
+      kind: "feed_efficiency",
+      segment: seg,
+      date,
+      flockId: null,
+      flockLabel: null,
+      registerLabel: null,
+      flockTag: null,
+      source: null,
+      reason: `${SEGMENT_SHORT[seg]} flocks: feed is giving fewer eggs: ${now.eggsPerKg.toFixed(2)} eggs per kg of feed now (last 7 days, ${span(last7)}) vs ${before.eggsPerKg.toFixed(2)} before (${span(prev7)}), ${Math.abs(pct).toFixed(1)}% lower (alert above ${RULES.effDropPct}%).${moulting.size ? ` ${[...moulting].join(", ")} (moulting) left out.` : ""} Likely checks: feed waste (spilt feed, feeder level, rats or birds), a change in feed quality or the mill's mix, disease (deaths, droppings, birds off feed), heat.`,
+    });
   }
 
   // missing day

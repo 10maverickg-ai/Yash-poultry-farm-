@@ -41,6 +41,8 @@ import {
   type SegFilter,
 } from "./engine";
 import { BAG_KG, dayEconomics, type CostInput } from "../costs/engine";
+import { feedEfficiency } from "./feedEfficiency";
+import { henHousedFor, type HousedSource } from "./henHoused";
 
 export type PeriodKind = "week" | "month" | "year";
 /** A week / month / year, or any from..to the owner picked (V15). */
@@ -210,6 +212,15 @@ export interface FlockPeriod {
   deaths: number;
   deathsPct: number | null; // of the flock's first-day bird count
   feedGPerBird: number | null;
+  eggsPerKgFeed: number | null; // V17: pooled eggs ÷ feed kg over the flock's days with feed
+  eggsPerKgWhy: string | null; // why eggsPerKgFeed is empty ("feed not recorded on these days")
+  daysWithFeed: number;
+  /** V17 hen-housed over the period: eggs ÷ the flock's hens housed each day (moved birds counted, deaths not) × 100. */
+  henHousedPct: number | null;
+  eggsPerHenHoused: number | null; // eggs per hen housed laid in the period
+  hensHoused: number | null; // hens housed, average over the period's days (= the number housed when no birds were moved)
+  housedSource: HousedSource | null; // "register" / "owner" = real; "standin" = the 2 Jul count, labelled
+  bookHenHousedPct: number | null; // the breeder's hen-housed % for the same days (only when the number housed is real)
   birdsAtEnd: number | null;
 }
 
@@ -258,7 +269,9 @@ export interface PeriodSummary {
     daysRecorded: number; // V16: days of the period on which feed is recorded (totals and averages use only these)
     bagsPerDay: number | null; // V16: average bags a day over those days
     gPerBirdDay: number | null;
-    kgPer100Eggs: number | null;
+    kgPer100Eggs: number | null; // the same totals as eggsPerKg the other way round (V17), so the two always agree
+    eggsPerKg: number | null; // V17: pooled eggs ÷ feed kg, only flock-days with a feed figure; null = see eggsPerKgWhy
+    eggsPerKgWhy: string | null;
     daysLeftAtEnd: number | null;
     eggStockDaysAtEnd: number | null;
   };
@@ -326,6 +339,7 @@ export function summarizeRange(ctx: Ctx, cost: CostInput, extras: PeriodExtras, 
   const bags = sum(feedRows.map((r) => r.feed ?? 0));
   const feedBirdDays = sum(feedRows.map((r) => r.pop ?? 0));
   const kg = bags * BAG_KG;
+  const eff = feedEfficiency(rows.map((r) => ({ date: r.date, eggs: r.eggs, feed: r.feed })));
   const firstDate = dates[0] ?? null;
   const lastDate = dates[dates.length - 1] ?? null;
   const n = dates.length;
@@ -486,6 +500,13 @@ export function summarizeRange(ctx: Ctx, cost: CostInput, extras: PeriodExtras, 
       deaths: d,
       deathsPct: first.pop != null ? pct(d, first.pop + (first.mort ?? 0)) : null,
       feedGPerBird: fbd > 0 ? (fd * BAG_KG * 1000) / fbd : null,
+      ...(() => { const e = feedEfficiency(rs.map((r) => ({ date: r.date, eggs: r.eggs, feed: r.feed }))); return { eggsPerKgFeed: e.eggsPerKg, eggsPerKgWhy: e.why, daysWithFeed: e.daysWithFeed }; })(),
+      ...(() => {
+        const h = henHousedFor(ctx, flockId, rs[rs.length - 1].date, rs[0].date);
+        return h
+          ? { henHousedPct: h.hhPct, eggsPerHenHoused: h.perHen, hensHoused: Math.round(h.henDays / h.days), housedSource: h.housed.source, bookHenHousedPct: h.book.hhPct }
+          : { henHousedPct: null, eggsPerHenHoused: null, hensHoused: null, housedSource: null, bookHenHousedPct: null };
+      })(),
       birdsAtEnd: last.pop,
     });
   }
@@ -546,7 +567,9 @@ export function summarizeRange(ctx: Ctx, cost: CostInput, extras: PeriodExtras, 
       daysRecorded: series.filter((p) => p.feedRecorded).length,
       bagsPerDay: series.some((p) => p.feedRecorded) ? bags / series.filter((p) => p.feedRecorded).length : null,
       gPerBirdDay: feedBirdDays > 0 ? (kg * 1000) / feedBirdDays : null,
-      kgPer100Eggs: feedRows.length > 0 && eggsTotal > 0 ? (kg / sum(feedRows.map((r) => r.eggs ?? 0))) * 100 : null,
+      kgPer100Eggs: feedRows.length > 0 && eggsTotal > 0 ? eff.kgPer100Eggs : null,
+      eggsPerKg: eff.eggsPerKg,
+      eggsPerKgWhy: eff.why,
       daysLeftAtEnd: lastDate && seg !== "young" && farmLevel ? (feedDaysLeft(ctx, lastDate)?.days ?? null) : null,
       eggStockDaysAtEnd: lastDate && farmLevel ? (eggStockDays(ctx, lastDate, seg)?.days ?? null) : null,
     },
@@ -574,6 +597,7 @@ const METRICS: { key: string; label: string; unit: string; higherIsBetter: boole
   { key: "hd", label: "HD % (pooled)", unit: " pts", higherIsBetter: true, get: (s) => s.eggs.hdPooled },
   { key: "deathsPct", label: "Deaths % of opening birds", unit: " pts", higherIsBetter: false, get: (s) => s.birds.deathsPct },
   { key: "feedG", label: "Feed g / bird a day (average)", unit: " g", higherIsBetter: false, get: (s) => s.feed.gPerBirdDay },
+  { key: "eggsPerKg", label: "Eggs per kg of feed (pooled)", unit: "", higherIsBetter: true, get: (s) => s.feed.eggsPerKg },
   { key: "revenueDay", label: "Revenue per day", unit: "", higherIsBetter: true, get: (s) => (s.daysWithData ? s.money.revenue / s.daysWithData : null) },
   { key: "costDay", label: "Cost per day (so far)", unit: "", higherIsBetter: false, get: (s) => (s.money.costSplit && s.daysWithData ? s.money.cost.total / s.daysWithData : null) },
   { key: "profitDay", label: "Profit per day (estimate)", unit: "", higherIsBetter: true, get: (s) => (s.money.profit != null && s.daysWithData ? s.money.profit / s.daysWithData : null) },
