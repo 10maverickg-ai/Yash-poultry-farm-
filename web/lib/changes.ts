@@ -8,6 +8,16 @@ export interface Change {
 
 export const CHANGES: Change[] = [
   {
+    date: "2026-11-25",
+    title: "Eggs per kg of feed",
+    points: [
+      "Each group card on Analytics and Today has a new tile “Eggs per kg feed”: the day's figure in big numbers (19 Nov, Main flocks: 7.35 eggs from each kg of feed), the last 7 days (7.01) and whether that is better or worse than the 7 days before. It is all the eggs divided by all the feed (bags × 45 kg), using only days on which feed is written. A day without a feed figure says “feed not recorded”.",
+      "The Main flocks card shows the last 30 days as a small line: each day, and the 7-day figure dashed.",
+      "Every flock card, the per-flock tables (Day, Week, Month, Year, Custom), the Compare screen and the Excel/CSV downloads have eggs per kg of feed too.",
+      "New alert “Feed is giving fewer eggs” when the last 7 days give more than 8% fewer eggs per kg than the 7 days before, with what to check: feed waste, a change in the feed or the mill's mix, sick birds, heat. Moulting flocks are left out.",
+    ],
+  },
+  {
     date: "2026-11-12",
     title: "Analytics for any dates, and compare two flocks side by side",
     points: [
