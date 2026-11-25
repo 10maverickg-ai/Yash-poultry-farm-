@@ -303,6 +303,15 @@ export function compareRows(A: SideResult, B: SideResult): CompareRow[] {
   add({ key: "hd", group: "Eggs", label: "HD % (all eggs ÷ all bird-days)", fmt: "pct1", a: A.s.eggs.hdPooled, b: B.s.eggs.hdPooled, direction: "higher" });
   add({ key: "book", group: "Eggs", label: "Breeder's standard HD % for the age and breed", fmt: "pct1", a: A.book.hd, b: B.book.hd, aNote: A.book.hd == null ? A.book.why : undefined, bNote: B.book.hd == null ? B.book.why : undefined, direction: "none", note: A.book.moultDays || B.book.moultDays ? `Moulting days in the range: A ${A.book.moultDays}, B ${B.book.moultDays}. The book assumes no moult.` : undefined });
   add({ key: "gap", group: "Eggs", label: "Points below the standard (same days)", fmt: "num1", a: A.book.gap, b: B.book.gap, direction: "lower" });
+  // V17 hen-housed (breeder's definition), one flock per column: each flock has its own number housed
+  const fp = (x: SideResult) => (x.side.flockId ? x.s.flocks.find((f) => f.flockId === x.side.flockId) ?? null : null);
+  const hhNote = (x: SideResult) => (!x.side.flockId ? "per flock only (each flock has its own number housed)" : fp(x)?.henHousedPct == null ? "no rows in this range" : undefined);
+  const stand = [A, B].filter((x) => fp(x)?.housedSource === "standin").map((x) => x.side.key.toUpperCase());
+  const hhCommon = `Hen-housed = eggs ÷ hens housed (birds moved in or out counted; deaths, culls and sales not).${stand.length ? ` ${stand.join(" and ")}: stand-in, the birds on 2 Jul 2026 (the number housed is not known).` : ""}`;
+  add({ key: "hensHoused", group: "Hen-housed", label: "Hens housed (average over the days)", fmt: "int", a: fp(A)?.hensHoused ?? null, b: fp(B)?.hensHoused ?? null, aNote: hhNote(A), bNote: hhNote(B), direction: "none", note: hhCommon });
+  add({ key: "hhPct", group: "Hen-housed", label: "Hen-housed % (eggs ÷ hens housed)", fmt: "pct1", a: fp(A)?.henHousedPct ?? null, b: fp(B)?.henHousedPct ?? null, aNote: hhNote(A), bNote: hhNote(B), direction: "higher" });
+  add({ key: "eggsPerHH", group: "Hen-housed", label: "Eggs per hen housed (in the range)", fmt: "num1", a: fp(A)?.eggsPerHenHoused ?? null, b: fp(B)?.eggsPerHenHoused ?? null, aNote: hhNote(A), bNote: hhNote(B), direction: "higher", totals: true });
+  add({ key: "bookHH", group: "Hen-housed", label: "Breeder's hen-housed % for the same days", fmt: "pct1", a: fp(A)?.bookHenHousedPct ?? null, b: fp(B)?.bookHenHousedPct ?? null, aNote: fp(A)?.housedSource === "standin" ? "not shown for a stand-in" : hhNote(A), bNote: fp(B)?.housedSource === "standin" ? "not shown for a stand-in" : hhNote(B), direction: "none" });
   add({ key: "peak", group: "Eggs", label: "Best day HD %", fmt: "pct1", a: A.s.eggs.best?.hd ?? null, b: B.s.eggs.best?.hd ?? null, direction: "higher" });
   add({ key: "peakDay", group: "Eggs", label: "Best day", fmt: "date", a: A.s.eggs.best?.date ?? null, b: B.s.eggs.best?.date ?? null, direction: "none" });
 

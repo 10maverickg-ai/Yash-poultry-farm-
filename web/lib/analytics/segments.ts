@@ -21,6 +21,7 @@ import { BAG_KG } from "../costs/engine";
 import { segmentFeed, type FeedPair } from "./feed";
 import type { PeriodExtras } from "./period";
 import { boardEff, effTrend, type BoardEff } from "./feedEfficiency";
+import { groupHenHoused } from "./henHoused";
 
 export interface SegmentPanel {
   segment: Segment;
@@ -42,6 +43,8 @@ export interface SegmentPanel {
   eff: BoardEff;
   /** V17: the last 30 days, one value a day (null = no feed that day) and the 7-day pooled line (Main card chart). */
   effTrend: { date: string; value: number | null; avg7: number | null }[];
+  /** V17: hen-housed % over the same last 7 days (each flock's eggs ÷ its hens housed), with the stand-ins named. */
+  hh: { hhPct: number | null; from: string | null; to: string | null; standins: string[]; flocks: number };
 }
 
 const sum = (xs: number[]) => xs.reduce((s, x) => s + x, 0);
@@ -113,6 +116,12 @@ export function segmentPanel(ctx: Ctx, extras: PeriodExtras, asOf: string, seg: 
     flocks: rows.length,
     ramping: rows.filter((r) => rampingUp(ctx, r.flockId, asOf)).length,
     eff: boardEff(ctx, asOf, seg),
+    hh: (() => {
+      const ids = [...new Set(last7.flatMap((d) => rowsOn(ctx, d, seg).map((r) => r.flockId)))];
+      const from = last7[last7.length - 1] ?? null;
+      const g = from ? groupHenHoused(ctx, ids, from, asOf) : null;
+      return { hhPct: g?.hhPct ?? null, from, to: last7[0] ?? null, standins: g?.standins ?? [], flocks: g?.flocks ?? 0 };
+    })(),
     effTrend: seg === "main" ? effTrend(ctx, asOf, seg, 30) : [],
   };
 }

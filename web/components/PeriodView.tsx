@@ -77,6 +77,18 @@ function Delta({ c, digits = 0, money = false }: { c: Change | undefined; digits
   );
 }
 
+/** V17: hen-housed % in a table cell, "*" when the number housed is a stand-in, the book beside it when it is real. */
+function HHValue({ f }: { f: PeriodSummary["flocks"][number] }) {
+  if (f.henHousedPct == null) return <>–</>;
+  return (
+    <>
+      {n1(f.henHousedPct)}
+      {f.housedSource === "standin" ? "*" : ""}
+      {f.bookHenHousedPct != null ? <span className="muted an-tiny"> (book {n1(f.bookHenHousedPct)})</span> : null}
+    </>
+  );
+}
+
 /** V17: eggs per kg of feed in a table cell: the value (2 decimals), "N of M days" when some days have no feed, or why it is empty. */
 function EffValue({ v, why, days, of }: { v: number | null; why: string | null; days: number; of: number }) {
   if (v == null) return <span className="muted an-tiny">{why?.startsWith("feed not recorded") ? "feed not recorded" : (why ?? "–")}</span>;
@@ -119,7 +131,7 @@ function FlockTable({ s }: { s: PeriodSummary }) {
     <div className="card an-scroll">
       <table className="an-table">
         <thead>
-          <tr><th>Flock</th><th className="num">Days</th><th className="num">Eggs</th><th className="num">Share of eggs</th><th className="num">Eggs per 100 birds</th><th className="num">Breeder&apos;s target (book)</th><th className="num">Our realistic target</th><th className="num">Gap to book</th><th className="num">Deaths</th><th className="num">Deaths %</th><th className="num">Feed g/bird a day (average)</th><th className="num">Eggs per kg feed</th></tr>
+          <tr><th>Flock</th><th className="num">Days</th><th className="num">Eggs</th><th className="num">Share of eggs</th><th className="num">Eggs per 100 birds</th><th className="num">Breeder&apos;s target (book)</th><th className="num">Our realistic target</th><th className="num">Gap to book</th><th className="num">Deaths</th><th className="num">Deaths %</th><th className="num">Feed g/bird a day (average)</th><th className="num">Eggs per kg feed</th><th className="num">Hen-housed %</th></tr>
         </thead>
         <tbody>
           {s.flocks.map((f) => (
@@ -140,10 +152,12 @@ function FlockTable({ s }: { s: PeriodSummary }) {
               <td className="num">{f.deathsPct != null ? f.deathsPct.toFixed(2) : "–"}</td>
               <td className="num">{f.feedGPerBird != null ? n0(f.feedGPerBird) : "–"}</td>
               <td className="num"><EffValue v={f.eggsPerKgFeed} why={f.eggsPerKgWhy} days={f.daysWithFeed} of={f.days} /></td>
+              <td className="num"><HHValue f={f} /></td>
             </tr>
           ))}
         </tbody>
       </table>
+      {s.flocks.some((f) => f.housedSource === "standin") && <p className="muted an-foot">Hen-housed % = eggs ÷ hens housed (birds moved in or out counted; deaths, culls and sales not). * against the birds on 2 Jul 2026 (a stand-in): the number housed is not known for those flocks.</p>}
     </div>
   );
 }
@@ -478,7 +492,7 @@ function YearView({ ctx, s, months, input, yearsLabel }: { ctx: Ctx; s: PeriodSu
       <section className="card an-scroll" aria-label="Flocks this year">
         <h2 style={{ marginTop: 0 }}>Flocks this year</h2>
         <table className="an-table">
-          <thead><tr><th>Flock</th><th className="num">Months</th><th className="num">Eggs per 100 birds</th><th className="num">Deaths %</th><th className="num">Birds sold</th><th className="num">Eggs per kg feed</th></tr></thead>
+          <thead><tr><th>Flock</th><th className="num">Months</th><th className="num">Eggs per 100 birds</th><th className="num">Deaths %</th><th className="num">Birds sold</th><th className="num">Eggs per kg feed</th><th className="num">Hen-housed %</th></tr></thead>
           <tbody>
             {s.flocks.map((f) => (
               <tr key={f.flockId}>
@@ -488,6 +502,7 @@ function YearView({ ctx, s, months, input, yearsLabel }: { ctx: Ctx; s: PeriodSu
                 <td className="num">{f.deathsPct != null ? f.deathsPct.toFixed(2) : "–"}</td>
                 <td className="num">{n0(sold(f.flockId) || 0)}</td>
                 <td className="num"><EffValue v={f.eggsPerKgFeed} why={f.eggsPerKgWhy} days={f.daysWithFeed} of={f.days} /></td>
+                <td className="num"><HHValue f={f} /></td>
               </tr>
             ))}
           </tbody>

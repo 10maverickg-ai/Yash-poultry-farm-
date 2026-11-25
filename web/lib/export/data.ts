@@ -4,6 +4,9 @@ import { ACTIVE_FARM } from "@/lib/farm";
 import { compareLabels } from "@/lib/naturalSort";
 import { loadCostInput } from "@/lib/costs/load";
 import { BAG_KG, dayEconomics, monthEconomics } from "@/lib/costs/engine";
+import { loadEngineInput } from "@/lib/analytics/load";
+import { buildCtx } from "@/lib/analytics/engine";
+import { hensHoused, housedOn } from "@/lib/analytics/henHoused";
 import type { Dataset } from "./types";
 
 // Read-only datasets for the Excel / CSV export. Same sources the screens use;
@@ -19,7 +22,7 @@ export const validMonth = (m: string) => /^\d{4}-(0[1-9]|1[0-2])$/.test(m);
 export async function productionDataset(month: string): Promise<Dataset> {
   const { from, to } = bounds(month);
   const { rows } = await pool.query(
-    `SELECT dp.date, f.display_label AS flock, f.segment, dp.display_label_as_written AS reg, dp.bird_population AS birds,
+    `SELECT dp.date, dp.flock_internal_id AS fid, f.display_label AS flock, f.segment, dp.display_label_as_written AS reg, dp.bird_population AS birds,
             dp.mortality, dp.feed_bags, dp.eggs_total
        FROM daily_production dp JOIN flocks f USING (flock_internal_id)
       WHERE dp.farm_code = $1 AND dp.deleted_at IS NULL AND dp.date BETWEEN $2 AND $3
@@ -27,6 +30,14 @@ export async function productionDataset(month: string): Promise<Dataset> {
     [ACTIVE_FARM, from, to]
   );
   rows.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : compareLabels(a.flock, b.flock)));
+  // V17: hens housed per flock-day (the breeder's definition; birds moved in or out counted, deaths, culls and sales not)
+  const ctx = buildCtx(await loadEngineInput());
+  const housed = new Map<string, ReturnType<typeof hensHoused>>();
+  const housedFor = (fid: string, d: string) => {
+    if (!housed.has(fid)) housed.set(fid, hensHoused(ctx, fid));
+    const h = housed.get(fid);
+    return h && d >= h.date ? { n: housedOn(ctx, h, d), standin: h.source === "standin" } : null;
+  };
   return {
     name: "Daily production",
     title: `Daily production ${month}`,
@@ -42,14 +53,21 @@ export async function productionDataset(month: string): Promise<Dataset> {
       { key: "hd", header: "HD % (eggs ÷ birds)", type: "pct", width: 18 },
       // V17: eggs per kg of feed for the row; the totals row pools only the rows that have a feed figure
       { key: "eggsPerKg", header: `Eggs per kg feed (bags × ${BAG_KG} kg)`, type: "num", width: 16, totalFormula: (f, l) => `IF(SUM(G${f}:G${l})>0,SUMIFS(H${f}:H${l},G${f}:G${l},"<>")/(SUM(G${f}:G${l})*${BAG_KG}),"")` },
+      { key: "housed", header: "Hens housed (that day)", type: "int", width: 14 },
+      { key: "hh", header: "Hen-housed % (eggs ÷ hens housed)", type: "pct", width: 18, totalFormula: (f, l) => `IF(SUM(K${f}:K${l})>0,SUMIFS(H${f}:H${l},K${f}:K${l},"<>")/SUM(K${f}:K${l})*100,"")` },
+      { key: "housedFrom", header: "Hens housed from", type: "text", width: 22 },
     ],
     rows: rows.map((r) => ({
       date: String(r.date).slice(0, 10), flock: r.flock, segment: r.segment === "main" ? "Main" : r.segment === "young" ? "Young" : "not set", reg: r.reg, birds: r.birds, mortality: r.mortality, feed: r.feed_bags, eggs: r.eggs_total,
       hd: r.birds ? Math.round(((r.eggs_total ?? 0) / r.birds) * 10000) / 100 : null,
       eggsPerKg: r.feed_bags != null && r.feed_bags > 0 ? Math.round(((r.eggs_total ?? 0) / (r.feed_bags * BAG_KG)) * 100) / 100 : null,
+      ...(() => {
+        const h = housedFor(r.fid, String(r.date).slice(0, 10));
+        return { housed: h?.n ?? null, hh: h && h.n > 0 ? Math.round(((r.eggs_total ?? 0) / h.n) * 10000) / 100 : null, housedFrom: h ? (h.standin ? "stand-in: birds on 2 Jul 2026" : "register / owner") : "" };
+      })(),
     })),
-    notes: ["HD % is calculated as eggs ÷ birds × 100 (not the supervisor's written %).", "Group = Main (big eggs, right page) or Young (small eggs, left page). The totals row adds every flock; filter the Group column for per-group numbers.", "Birds are the end-of-day count from the register.", `Eggs per kg feed = eggs ÷ (feed bags × ${BAG_KG} kg) for that flock and day; empty when the register has no feed figure (feed not recorded). The totals row pools the rows with feed: their eggs ÷ their feed, never an average of the rows.`],
-    formulas: { hd: (row) => `IF(E${row}>0,ROUND(H${row}/E${row}*100,2),"")`, eggsPerKg: (row) => `IF(AND(ISNUMBER(G${row}),G${row}>0),ROUND(H${row}/(G${row}*${BAG_KG}),2),"")` },
+    notes: ["HD % is calculated as eggs ÷ birds × 100 (not the supervisor's written %).", "Group = Main (big eggs, right page) or Young (small eggs, left page). The totals row adds every flock; filter the Group column for per-group numbers.", "Birds are the end-of-day count from the register.", `Eggs per kg feed = eggs ÷ (feed bags × ${BAG_KG} kg) for that flock and day; empty when the register has no feed figure (feed not recorded). The totals row pools the rows with feed: their eggs ÷ their feed, never an average of the rows.`, "Hen-housed % = eggs ÷ hens housed × 100 (the breeder's definition): hens housed are counted on the flock's first day in the register (BAB-9, 10, 11) or given by the owner; for flocks already laying when the app's data starts, the birds on 2 Jul 2026 are a stand-in. Birds moved in or out change the number from that day; deaths, culls and sales do not."],
+    formulas: { hd: (row) => `IF(E${row}>0,ROUND(H${row}/E${row}*100,2),"")`, eggsPerKg: (row) => `IF(AND(ISNUMBER(G${row}),G${row}>0),ROUND(H${row}/(G${row}*${BAG_KG}),2),"")`, hh: (row) => `IF(AND(ISNUMBER(K${row}),K${row}>0),ROUND(H${row}/K${row}*100,2),"")` },
   };
 }
 

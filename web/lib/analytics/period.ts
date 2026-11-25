@@ -42,6 +42,7 @@ import {
 } from "./engine";
 import { BAG_KG, dayEconomics, type CostInput } from "../costs/engine";
 import { feedEfficiency } from "./feedEfficiency";
+import { henHousedFor, type HousedSource } from "./henHoused";
 
 export type PeriodKind = "week" | "month" | "year";
 /** A week / month / year, or any from..to the owner picked (V15). */
@@ -214,6 +215,12 @@ export interface FlockPeriod {
   eggsPerKgFeed: number | null; // V17: pooled eggs ÷ feed kg over the flock's days with feed
   eggsPerKgWhy: string | null; // why eggsPerKgFeed is empty ("feed not recorded on these days")
   daysWithFeed: number;
+  /** V17 hen-housed over the period: eggs ÷ the flock's hens housed each day (moved birds counted, deaths not) × 100. */
+  henHousedPct: number | null;
+  eggsPerHenHoused: number | null; // eggs per hen housed laid in the period
+  hensHoused: number | null; // hens housed, average over the period's days (= the number housed when no birds were moved)
+  housedSource: HousedSource | null; // "register" / "owner" = real; "standin" = the 2 Jul count, labelled
+  bookHenHousedPct: number | null; // the breeder's hen-housed % for the same days (only when the number housed is real)
   birdsAtEnd: number | null;
 }
 
@@ -494,6 +501,12 @@ export function summarizeRange(ctx: Ctx, cost: CostInput, extras: PeriodExtras, 
       deathsPct: first.pop != null ? pct(d, first.pop + (first.mort ?? 0)) : null,
       feedGPerBird: fbd > 0 ? (fd * BAG_KG * 1000) / fbd : null,
       ...(() => { const e = feedEfficiency(rs.map((r) => ({ date: r.date, eggs: r.eggs, feed: r.feed }))); return { eggsPerKgFeed: e.eggsPerKg, eggsPerKgWhy: e.why, daysWithFeed: e.daysWithFeed }; })(),
+      ...(() => {
+        const h = henHousedFor(ctx, flockId, rs[rs.length - 1].date, rs[0].date);
+        return h
+          ? { henHousedPct: h.hhPct, eggsPerHenHoused: h.perHen, hensHoused: Math.round(h.henDays / h.days), housedSource: h.housed.source, bookHenHousedPct: h.book.hhPct }
+          : { henHousedPct: null, eggsPerHenHoused: null, hensHoused: null, housedSource: null, bookHenHousedPct: null };
+      })(),
       birdsAtEnd: last.pop,
     });
   }

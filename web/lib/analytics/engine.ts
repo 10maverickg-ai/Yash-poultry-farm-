@@ -102,6 +102,8 @@ export interface StdRow {
   hdp: number;
   feedG?: number | null; // book feed per bird per day (g), BV300 table
   cumDepl?: number | null; // book cumulative depletion (%), BV300 table
+  hhWeek?: number | null; // V17: book eggs per hen housed in this week of age (BV300 "current HH"), e.g. 6.7 at week 25
+  cumHh?: number | null; // V17: book cumulative eggs per hen housed at the end of this week
 }
 
 export interface EngineInput {

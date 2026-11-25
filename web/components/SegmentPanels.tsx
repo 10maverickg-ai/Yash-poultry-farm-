@@ -85,6 +85,7 @@ export function SegmentPanelView({ p, detailHref }: { p: SegmentPanel; detailHre
           <FeedCells f={p.feed.pair} daysLeft={p.feed.daysLeft} />
           <Cell title={p.segment === "main" ? "Big eggs in stock" : "Small eggs in stock"} value={p.stock ? `${n1(p.stock.days)} days` : "–"} sub={p.stock ? `${n0(p.stock.closing)} eggs` : "no ledger row"} />
           <EggsPerKgCell e={p.eff} />
+          <HenHousedCell p={p} />
         </div>
       )}
       {t && p.effTrend.length > 0 && (
@@ -160,6 +161,25 @@ export function EggsPerKgCell({ e }: { e: BoardEff }) {
         ) : (
           <span>no earlier 7 days with feed to compare</span>
         )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * V17 hen-housed % over the last 7 days next to the hen-day %: eggs ÷ hens housed (birds moved in or out counted,
+ * deaths, culls and sales not), so the gap between the two is what deaths and sales cost. Stand-ins are named.
+ */
+export function HenHousedCell({ p }: { p: SegmentPanel }) {
+  const h = p.hh;
+  if (h.hhPct == null) return null;
+  return (
+    <div className="an-metric an-metric-wide">
+      <div className="an-metric-title">Hen-housed %, last 7 days ({fromTo(h.from, h.to)})</div>
+      <div className="an-metric-value">{n1(h.hhPct)}%</div>
+      <div className="an-metric-cmp eff-lines">
+        <span>eggs ÷ hens housed{p.hd7 != null ? ` · hen-day % for the same days: ${n1(p.hd7)} (eggs ÷ birds alive)` : ""}</span>
+        <span>{h.standins.length === 0 ? "hens housed counted on the flocks' first day in the register" : h.standins.length === h.flocks ? "stand-in: the number housed is not known for these flocks, so the birds on 2 Jul 2026 are used" : `stand-in (birds on 2 Jul 2026) for ${h.standins.join(", ")}`}</span>
       </div>
     </div>
   );

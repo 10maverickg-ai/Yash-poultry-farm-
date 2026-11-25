@@ -12,6 +12,8 @@ import { addStageEvent } from "../life-actions";
 import { loadEngineInput } from "@/lib/analytics/load";
 import { buildFarmCtx } from "@/lib/analytics/ctx";
 import { flockCards, lastDayOfData } from "@/lib/analytics/engine";
+import { flockHenHoused } from "@/lib/analytics/henHoused";
+import { dmy as dmyHH } from "@/lib/format";
 import { chip } from "@/lib/analytics/chips";
 import { TargetLines } from "@/components/TargetLines";
 import { FlockMedicinesCard } from "@/components/FlockMedicinesCard";
@@ -33,9 +35,11 @@ export default async function FlockDetailPage({
   if (!flock) notFound();
   const [history, sheds, stageEvents, movements, sameLabel] = await Promise.all([getLabelHistory(id), listSheds(), getStageHistory(id), getFlockMovements(id), sameLabelFlocks(id, flock.display_label)]);
   let card: ReturnType<typeof flockCards>[number] | null = null;
+  let hh: ReturnType<typeof flockHenHoused> = null;
   try {
     const { ctx } = buildFarmCtx(await loadEngineInput());
     card = flockCards(ctx, lastDayOfData(ctx)).find((c) => c.flockId === id) ?? null;
+    hh = flockHenHoused(ctx, id, lastDayOfData(ctx)); // V17: hen-housed, the breeder's definition
   } catch {
     card = null; // the targets box is extra information; never block the flock page
   }
@@ -75,6 +79,25 @@ export default async function FlockDetailPage({
           <TargetLines c={card} />
           <p className="muted an-tiny">{card.statusNote}</p>
           <p className="an-tiny"><Link href="/analytics/targets">How is this learned? →</Link></p>
+        </section>
+      )}
+
+      {hh && (
+        <section className="card" aria-labelledby="fl-hh-h">
+          <h2 id="fl-hh-h" style={{ marginTop: 0 }}>Hen-housed (breeder&apos;s definition)</h2>
+          <p style={{ margin: "0 0 0.4rem" }}>
+            <b>{hh.since.perHen.toFixed(1)}</b> eggs per hen housed from {dmyHH(hh.since.from)} to {dmyHH(hh.since.to)} ({hh.since.days} days)
+            {hh.since.book.perHen != null ? <>; the breeder&apos;s book for the same weeks of age: <b>{hh.since.book.perHen.toFixed(1)}</b></> : ""}.
+          </p>
+          {hh.last7?.hhPct != null && (
+            <p style={{ margin: "0 0 0.4rem" }}>
+              Last 7 days: <b>{hh.last7.hhPct.toFixed(1)}%</b> of hens housed laid each day{hh.last7.book.hhPct != null ? ` (book ${hh.last7.book.hhPct.toFixed(1)}%)` : ""}; hen-day % for the same days {hh.last7.hdPct != null ? `${hh.last7.hdPct.toFixed(1)}%` : "–"} (eggs ÷ birds alive). The gap is what deaths, culls and sales cost.
+            </p>
+          )}
+          <p className="muted an-tiny" style={{ margin: 0 }}>
+            Hens housed: {hh.since.housed.note}.{hh.since.movedDays > 0 ? ` Birds moved in or out after that change the number from the day they moved (${hh.since.movedDays} of ${hh.since.days} days); deaths, culls and sales do not.` : " Deaths, culls and sales do not change the number housed."}
+            {hh.since.housed.source === "standin" ? " The book is not shown because the eggs before that day are not in the app. Send the real number housed and the date, and it will be used." : hh.since.book.why ? ` ${hh.since.book.why}.` : ""}
+          </p>
         </section>
       )}
 

@@ -33,6 +33,7 @@ import { chip } from "@/lib/analytics/chips";
 import { dmy, n0, n1 } from "@/lib/format";
 import { allSegmentPanels, farmCheck } from "@/lib/analytics/segments";
 import { feedEfficiency, flockEff, effOn, type FeedEff } from "@/lib/analytics/feedEfficiency";
+import { flockHenHoused } from "@/lib/analytics/henHoused";
 import { FarmLine, SegmentPanelView } from "@/components/SegmentPanels";
 import { dayEconomics, monthEconomics, rangeEconomics, flockMonthEconomics } from "@/lib/costs/engine";
 
@@ -316,7 +317,7 @@ export default async function AnalyticsPage({
             <div key={g ?? "none"}>
               <h3 className="an-daystamp">{g ? SEGMENT_NAME[g] : "Segment not set"} · {list.length}</h3>
               <div className="an-cards">
-                {list.map((c) => <FlockCardView key={c.flockId} c={c} eff={flockEff(ctx, c.flockId, asOf)} />)}
+                {list.map((c) => <FlockCardView key={c.flockId} c={c} eff={flockEff(ctx, c.flockId, asOf)} hh={flockHenHoused(ctx, c.flockId, asOf)} />)}
               </div>
             </div>
           );
@@ -487,7 +488,22 @@ function FlockEffLine({ e }: { e: { day: FeedEff; week: FeedEff } }) {
   );
 }
 
-function FlockCardView({ c, eff }: { c: FlockCard; eff: { day: FeedEff; week: FeedEff } }) {
+/** V17: a flock's hen-housed figures: since housing (eggs per hen housed, the book beside it when the number is real) and the last 7 days. */
+function FlockHHLine({ h }: { h: ReturnType<typeof flockHenHoused> }) {
+  if (!h) return null;
+  const s = h.since;
+  const real = s.housed.source !== "standin";
+  return (
+    <div className="muted an-tiny">
+      Hen-housed: <b>{n1(s.perHen)}</b> eggs per hen housed since {s.from.slice(8, 10).replace(/^0/, "")} {["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][Number(s.from.slice(5, 7)) - 1]}
+      {real && s.book.perHen != null ? ` (book ${n1(s.book.perHen)})` : ""}
+      {h.last7?.hhPct != null ? ` · last 7 days ${n1(h.last7.hhPct)}% of hens housed${h.last7.book.hhPct != null ? ` (book ${n1(h.last7.book.hhPct)})` : ""}` : ""}
+      {real ? ` · ${n0(s.housed.count)} housed` : " · stand-in: the 2 Jul count, the number housed is not known"}
+    </div>
+  );
+}
+
+function FlockCardView({ c, eff, hh }: { c: FlockCard; eff: { day: FeedEff; week: FeedEff }; hh: ReturnType<typeof flockHenHoused> }) {
   return (
     <Link href={`/flocks/${c.flockId}`} className={`card an-flock an-${c.status} card-link`}>
       <div className="an-flock-head">
@@ -518,6 +534,7 @@ function FlockCardView({ c, eff }: { c: FlockCard; eff: { day: FeedEff; week: Fe
           </div>
           <FlockFeedLines f={c.feed} />
           <FlockEffLine e={eff} />
+          <FlockHHLine h={hh} />
         </div>
         <Spark values={c.hdSeries} color={SPARK_COLOR[c.status]} />
       </div>
