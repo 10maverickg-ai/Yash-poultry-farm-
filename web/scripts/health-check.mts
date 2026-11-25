@@ -49,8 +49,10 @@ if (dir) {
   attachRealistic(ctx);
   const bab2 = input.flocks.find((f) => f.label === "BAB-2")!.id;
   const lastDay = ctx.dates[ctx.dates.length - 1];
-  const hb = flockHealth(ctx, bab2, lastDay);
-  ok(`live data: BAB-2 on ${lastDay} is flagged (12 and 14 deaths on 27 and 28 Oct, HD down about 10%)`, lastDay < "2026-10-28" || hb != null, hb ? "" : "not flagged");
+  // the episode day itself (the data now runs past it; the episode is over later on)
+  const day = ctx.dates.includes("2026-10-28") ? "2026-10-28" : lastDay;
+  const hb = flockHealth(ctx, bab2, day);
+  ok(`live data: BAB-2 on ${day} is flagged (12 and 14 deaths on 27 and 28 Oct, HD down about 10%)`, day < "2026-10-28" || hb != null, hb ? "" : "not flagged");
   if (hb) console.log("      " + hb.text);
   const allEvents: string[] = [];
   for (const d of ctx.dates) for (const a of alertsFor(ctx, d)) if (a.kind === "flock_health") allEvents.push(`${d} ${a.flockLabel}`);

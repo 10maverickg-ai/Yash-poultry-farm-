@@ -42,6 +42,7 @@ const ACTION: Record<AlertKind, string> = {
   feed_anomaly: "Check the feed figure written for this day.",
   missing_day: "Enter the missing figures for that day.",
   flock_health: "Call the vet today. Walk the shed: look at the dead birds, drinkers and water, feed and shed temperature, and separate any sick birds.",
+  feed_efficiency: "Check for feed waste (spilt feed, feeder level, rats), a change in the feed or the mill's mix, sick birds, and heat in the shed.",
 };
 const KIND_TITLE: Record<AlertKind, string> = {
   production_drop: "is laying fewer eggs than usual",
@@ -52,6 +53,7 @@ const KIND_TITLE: Record<AlertKind, string> = {
   feed_anomaly: "Feed figure looks wrong",
   missing_day: "Figures are missing",
   flock_health: "may be sick: more deaths than usual and fewer eggs",
+  feed_efficiency: "Feed is giving fewer eggs",
 };
 
 const flockHref = (c: Pick<FlockCard, "flockId">) => `/flocks/${c.flockId}`;

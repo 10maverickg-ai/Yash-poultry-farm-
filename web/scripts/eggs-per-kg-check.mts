@@ -4,7 +4,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any -- fixture rows are untyped JSON dumps */
 import { readFileSync } from "node:fs";
 import { loadInput } from "./fixtureInput.mts";
-import { buildCtx, addDays } from "../lib/analytics/engine";
+import { buildCtx, addDays, alertsFor, RULES, type EngineInput } from "../lib/analytics/engine";
 import { boardEff, compareEff, effOn, effTrend, feedEfficiency, flockEff } from "../lib/analytics/feedEfficiency";
 import { makeRange, rangeOf, summarizePeriod, summarizeRange, type PeriodExtras } from "../lib/analytics/period";
 import { BAG_KG, type CostInput } from "../lib/costs/engine";
@@ -110,5 +110,32 @@ if (has("2026-11-19")) {
   ok("trend for the young group: a gap (null) on days without feed", ty[29].value === null && ty.some((x) => x.value != null));
 }
 ok("effOn over no dates = null", effOn(ctx, [], "main").eggsPerKg === null);
+
+// ---- E5 alert: 7-day eggs per kg more than 8% below the 7 days before ----
+ok("the alert threshold is 8% and needs feed on at least 5 of 7 days in both windows", RULES.effDropPct === 8 && RULES.effMinFeedDays === 5);
+const effAlerts = (c: typeof ctx, d: string) => alertsFor(c, d).filter((a) => a.kind === "feed_efficiency");
+if (has("2026-11-18") && has("2026-11-19")) {
+  const a18 = effAlerts(ctx, "2026-11-18");
+  const b18 = boardEff(ctx, "2026-11-18", "main");
+  ok("18 Nov: main raises 'feed is giving fewer eggs' (−8.9%); the numbers in the words are the board's 7-day values", a18.length === 1 && a18[0].segment === "main" && a18[0].reason.includes(b18.week.eggsPerKg!.toFixed(2)) && a18[0].reason.includes(b18.prevWeek.eggsPerKg!.toFixed(2)) && /Likely checks: feed waste/.test(a18[0].reason), a18[0]?.reason.slice(0, 90));
+  ok("19 Nov: no alert (−7.8% is within 8%)", effAlerts(ctx, "2026-11-19").length === 0 && Math.abs(boardEff(ctx, "2026-11-19", "main").change!.pct + 7.79) < 0.05);
+}
+let youngAlerts = 0;
+for (const d of ctx.dates) youngAlerts += effAlerts(ctx, d).filter((a) => a.segment === "young").length;
+ok("young group: no alert (its feed is recorded on too few days, or it did not drop)", youngAlerts === 0);
+const all: string[] = [];
+for (const d of ctx.dates) for (const a of effAlerts(ctx, d)) all.push(a.date);
+ok("never before 1 Sep (the cleared August register) and at most one alert a day per group", all.every((d) => d >= "2026-09-01") && new Set(all).size === all.length, `${all.length} alerts: ${all.join(", ")}`);
+if (has("2026-09-07")) {
+  const s7 = effAlerts(ctx, "2026-09-07");
+  ok("7 Sep: BAB-3 (moulting) is left out of both windows and the words say so", s7.length === 0 || /BAB-3 \(moulting\) left out/.test(s7[0].reason), s7[0]?.reason.slice(0, 160));
+}
+// a made-up drop: the main flocks' eggs on 13-19 Nov cut by 20% -> the alert fires on 19 Nov
+if (has("2026-11-19")) {
+  const cut: EngineInput = { ...input, prod: input.prod.map((r) => (r.date >= "2026-11-13" && r.date <= "2026-11-19" && segOf.get(r.flockId) === "main" && r.eggs != null ? { ...r, eggs: Math.round(r.eggs * 0.8) } : r)) };
+  ok("a made-up 20% egg cut on 13-19 Nov makes the 19 Nov alert fire", effAlerts(buildCtx(cut), "2026-11-19").some((a) => a.segment === "main"));
+  const thin: EngineInput = { ...input, prod: input.prod.map((r) => (r.date >= "2026-11-13" && r.date <= "2026-11-17" && segOf.get(r.flockId) === "main" ? { ...r, feed: null } : r)) };
+  ok("fewer than 5 days with feed in the window: no alert, even after a drop", effAlerts(buildCtx({ ...thin, prod: thin.prod.map((r) => (r.date >= "2026-11-18" && segOf.get(r.flockId) === "main" && r.eggs != null ? { ...r, eggs: Math.round(r.eggs * 0.5) } : r)) }), "2026-11-19").length === 0);
+}
 
 process.exit(bad ? 1 : 0);

@@ -39,6 +39,7 @@ const KIND_LABEL: Record<AlertKind, string> = {
   feed_anomaly: "Feed anomaly",
   missing_day: "Missing data",
   flock_health: "Flock may be sick",
+  feed_efficiency: "Feed giving fewer eggs",
 };
 
 const VIEWS: { key: "day" | RangeKind; label: string }[] = [
