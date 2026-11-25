@@ -3,7 +3,7 @@ import { pool } from "@/lib/db";
 import { ACTIVE_FARM } from "@/lib/farm";
 import { compareLabels } from "@/lib/naturalSort";
 import { loadCostInput } from "@/lib/costs/load";
-import { dayEconomics, monthEconomics } from "@/lib/costs/engine";
+import { BAG_KG, dayEconomics, monthEconomics } from "@/lib/costs/engine";
 import type { Dataset } from "./types";
 
 // Read-only datasets for the Excel / CSV export. Same sources the screens use;
@@ -40,13 +40,16 @@ export async function productionDataset(month: string): Promise<Dataset> {
       { key: "feed", header: "Feed (bags)", type: "int", width: 12, total: true },
       { key: "eggs", header: "Eggs", type: "int", width: 10, total: true },
       { key: "hd", header: "HD % (eggs ÷ birds)", type: "pct", width: 18 },
+      // V17: eggs per kg of feed for the row; the totals row pools only the rows that have a feed figure
+      { key: "eggsPerKg", header: `Eggs per kg feed (bags × ${BAG_KG} kg)`, type: "num", width: 16, totalFormula: (f, l) => `IF(SUM(G${f}:G${l})>0,SUMIFS(H${f}:H${l},G${f}:G${l},"<>")/(SUM(G${f}:G${l})*${BAG_KG}),"")` },
     ],
     rows: rows.map((r) => ({
       date: String(r.date).slice(0, 10), flock: r.flock, segment: r.segment === "main" ? "Main" : r.segment === "young" ? "Young" : "not set", reg: r.reg, birds: r.birds, mortality: r.mortality, feed: r.feed_bags, eggs: r.eggs_total,
       hd: r.birds ? Math.round(((r.eggs_total ?? 0) / r.birds) * 10000) / 100 : null,
+      eggsPerKg: r.feed_bags != null && r.feed_bags > 0 ? Math.round(((r.eggs_total ?? 0) / (r.feed_bags * BAG_KG)) * 100) / 100 : null,
     })),
-    notes: ["HD % is calculated as eggs ÷ birds × 100 (not the supervisor's written %).", "Group = Main (big eggs, right page) or Young (small eggs, left page). The totals row adds every flock; filter the Group column for per-group numbers.", "Birds are the end-of-day count from the register."],
-    formulas: { hd: (row) => `IF(E${row}>0,ROUND(H${row}/E${row}*100,2),"")` },
+    notes: ["HD % is calculated as eggs ÷ birds × 100 (not the supervisor's written %).", "Group = Main (big eggs, right page) or Young (small eggs, left page). The totals row adds every flock; filter the Group column for per-group numbers.", "Birds are the end-of-day count from the register.", `Eggs per kg feed = eggs ÷ (feed bags × ${BAG_KG} kg) for that flock and day; empty when the register has no feed figure (feed not recorded). The totals row pools the rows with feed: their eggs ÷ their feed, never an average of the rows.`],
+    formulas: { hd: (row) => `IF(E${row}>0,ROUND(H${row}/E${row}*100,2),"")`, eggsPerKg: (row) => `IF(AND(ISNUMBER(G${row}),G${row}>0),ROUND(H${row}/(G${row}*${BAG_KG}),2),"")` },
   };
 }
 
