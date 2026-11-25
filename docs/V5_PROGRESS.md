@@ -688,3 +688,20 @@ Nothing blocking. After it deploys: try **Custom 1–15 Oct** and **Compare BAB-
 - The screens against the live database: they ran against the local copy (data to 28 Oct); live has data to 10 Nov. The owner's two test cases were checked against live with read-only SQL.
 - A real iPhone Safari and Android Chrome (Chromium at 360, 390 and 820 px with touch emulation only); the native date picker of iOS.
 - The downloaded files opened in Excel or Numbers on a phone (read back with exceljs only).
+
+# V17 — eggs per kg of feed in Analytics (25 Nov 2026)
+
+Branch `claude/v17` from main. **V16 (PR #28, day vs 7-day feed labels) is not merged yet**, so V17 is built on main as instructed and keeps V16's labelling style (every number says its period); the two PRs touch some of the same files (`SegmentPanels.tsx`, `period.ts`, `engine.ts`, `PeriodView.tsx`) and need a merge when both are accepted. No migration, no RLS or login change, `READER_V2_ENABLED` not set, no Anthropic credit spent. Local copy refreshed read-only from live (data to 19 Nov 2026).
+
+**Definition (owner, 25 Nov):** eggs per kg of feed = eggs laid ÷ (feed bags × 45 kg), for the same flocks and the same days; pooled over a period (total eggs ÷ total feed kg, never the average of daily ratios); only flock-days with a feed figure count (the eggs of a day without feed are left out of both sides, "N of M days with feed"); no feed at all = "feed not recorded", never 0; shown with 2 decimals, with "kg of feed per 100 eggs" (the V15 metric) as the reverse from the same totals.
+
+| Item | Status | What / how checked |
+|---|---|---|
+| E1 engine | built | `lib/analytics/feedEfficiency.ts` (pure): `feedEfficiency(rows)` (eggs per kg, kg per 100 eggs from the same totals, eggs, kg, days, days with feed, a reason when empty), `effOn` (a group or chosen flocks over dates), `boardEff` (the day, the last 7 days with rows, the 7 days before, the change), `flockEff`, `effTrend` (30 days + 7-day line). The period engine returns it for every period (day, week, month, year, custom, chosen flocks): `feed.eggsPerKg`, `feed.eggsPerKgWhy`, `feed.daysWithFeed`, and per flock `eggsPerKgFeed`; `kgPer100Eggs` now comes from the same totals. Main's engine and this branch compared on 93 summaries (every week, month, the year × 3 groups, three flocks 1 Aug–19 Nov): every existing number identical. `scripts/eggs-per-kg-check.mts` (34 checks on the real rows, in `run-all`): 18 Nov main 50,400 eggs ÷ 7,335 kg = 6.87; 19 Nov 50,910 ÷ 6,930 = 7.35; 13–19 Nov 3,47,820 ÷ 49,590 = 7.01 (board, custom range and by hand agree; pooled ≠ mean of days 7.02); week, month and year views; one flock (BAB-5 8.15); BAB-9 13–19 Nov 6 of 7 days with feed (19 Nov left out of both sides); BAB-9 5–15 Oct = null "feed not recorded on these days"; zero bags = null, not infinity. |
+| E2 board tile | todo | |
+| E3 flock cards, tables, Compare | todo | |
+| E4 trend line | todo | |
+| E5 alert | todo | |
+| E6 export | todo | |
+| E7 tests | todo | |
+| E8 docs | todo | |

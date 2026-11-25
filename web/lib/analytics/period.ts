@@ -41,6 +41,7 @@ import {
   type SegFilter,
 } from "./engine";
 import { BAG_KG, dayEconomics, type CostInput } from "../costs/engine";
+import { feedEfficiency } from "./feedEfficiency";
 
 export type PeriodKind = "week" | "month" | "year";
 /** A week / month / year, or any from..to the owner picked (V15). */
@@ -209,6 +210,9 @@ export interface FlockPeriod {
   deaths: number;
   deathsPct: number | null; // of the flock's first-day bird count
   feedGPerBird: number | null;
+  eggsPerKgFeed: number | null; // V17: pooled eggs ÷ feed kg over the flock's days with feed
+  eggsPerKgWhy: string | null; // why eggsPerKgFeed is empty ("feed not recorded on these days")
+  daysWithFeed: number;
   birdsAtEnd: number | null;
 }
 
@@ -255,7 +259,10 @@ export interface PeriodSummary {
     kg: number;
     recorded: boolean; // false when no row of this group records feed (left-page flocks)
     gPerBirdDay: number | null;
-    kgPer100Eggs: number | null;
+    kgPer100Eggs: number | null; // the same totals as eggsPerKg the other way round (V17), so the two always agree
+    eggsPerKg: number | null; // V17: pooled eggs ÷ feed kg, only flock-days with a feed figure; null = see eggsPerKgWhy
+    eggsPerKgWhy: string | null;
+    daysWithFeed: number; // days of the period with a feed figure (the "N of M days with feed" line)
     daysLeftAtEnd: number | null;
     eggStockDaysAtEnd: number | null;
   };
@@ -323,6 +330,7 @@ export function summarizeRange(ctx: Ctx, cost: CostInput, extras: PeriodExtras, 
   const bags = sum(feedRows.map((r) => r.feed ?? 0));
   const feedBirdDays = sum(feedRows.map((r) => r.pop ?? 0));
   const kg = bags * BAG_KG;
+  const eff = feedEfficiency(rows.map((r) => ({ date: r.date, eggs: r.eggs, feed: r.feed })));
   const firstDate = dates[0] ?? null;
   const lastDate = dates[dates.length - 1] ?? null;
   const n = dates.length;
@@ -483,6 +491,7 @@ export function summarizeRange(ctx: Ctx, cost: CostInput, extras: PeriodExtras, 
       deaths: d,
       deathsPct: first.pop != null ? pct(d, first.pop + (first.mort ?? 0)) : null,
       feedGPerBird: fbd > 0 ? (fd * BAG_KG * 1000) / fbd : null,
+      ...(() => { const e = feedEfficiency(rs.map((r) => ({ date: r.date, eggs: r.eggs, feed: r.feed }))); return { eggsPerKgFeed: e.eggsPerKg, eggsPerKgWhy: e.why, daysWithFeed: e.daysWithFeed }; })(),
       birdsAtEnd: last.pop,
     });
   }
@@ -541,7 +550,10 @@ export function summarizeRange(ctx: Ctx, cost: CostInput, extras: PeriodExtras, 
       kg,
       recorded: feedRows.length > 0,
       gPerBirdDay: feedBirdDays > 0 ? (kg * 1000) / feedBirdDays : null,
-      kgPer100Eggs: feedRows.length > 0 && eggsTotal > 0 ? (kg / sum(feedRows.map((r) => r.eggs ?? 0))) * 100 : null,
+      kgPer100Eggs: feedRows.length > 0 && eggsTotal > 0 ? eff.kgPer100Eggs : null,
+      eggsPerKg: eff.eggsPerKg,
+      eggsPerKgWhy: eff.why,
+      daysWithFeed: eff.daysWithFeed,
       daysLeftAtEnd: lastDate && seg !== "young" && farmLevel ? (feedDaysLeft(ctx, lastDate)?.days ?? null) : null,
       eggStockDaysAtEnd: lastDate && farmLevel ? (eggStockDays(ctx, lastDate, seg)?.days ?? null) : null,
     },
