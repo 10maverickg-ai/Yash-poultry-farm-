@@ -968,3 +968,8 @@ main:focus { outline: none; }
 .pv-dl-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.4rem; }
 .pv-dl-list li { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; }
 .pv-dl-list li > span { min-width: 7.5rem; font-weight: 600; }
+
+/* V17 eggs per kg of feed */
+.eff-lines { flex-direction: column; gap: 0.15rem; }
+.an-metric-value.an-metric-words { white-space: normal; font-size: 1.05rem; overflow-wrap: anywhere; }
+.an-grid .an-metric-wide { grid-column: span 2; }
