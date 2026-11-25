@@ -32,6 +32,7 @@ import { DataStamp } from "@/components/DataStamp";
 import { chip } from "@/lib/analytics/chips";
 import { dmy, n0, n1 } from "@/lib/format";
 import { allSegmentPanels, farmCheck } from "@/lib/analytics/segments";
+import { feedEfficiency, flockEff, effOn, type FeedEff } from "@/lib/analytics/feedEfficiency";
 import { FarmLine, SegmentPanelView } from "@/components/SegmentPanels";
 import { dayEconomics, monthEconomics, rangeEconomics, flockMonthEconomics } from "@/lib/costs/engine";
 
@@ -167,6 +168,8 @@ export default async function AnalyticsPage({
   const mv = monthView(ctx, month);
   const monthBySeg = { main: monthView(ctx, month, "main"), young: monthView(ctx, month, "young") };
   const returnTo = `/analytics?date=${asOf}&month=${month}`;
+  // V17: eggs per kg of feed for each flock over the month (its own days with feed)
+  const monthEff = new Map([...ctx.byFlock].map(([id, rs]) => [id, feedEfficiency(rs.filter((r) => r.date.startsWith(month)).map((r) => ({ date: r.date, eggs: r.eggs, feed: r.feed })))]));
 
   return (
     <>
@@ -312,7 +315,7 @@ export default async function AnalyticsPage({
             <div key={g ?? "none"}>
               <h3 className="an-daystamp">{g ? SEGMENT_NAME[g] : "Segment not set"} · {list.length}</h3>
               <div className="an-cards">
-                {list.map((c) => <FlockCardView key={c.flockId} c={c} />)}
+                {list.map((c) => <FlockCardView key={c.flockId} c={c} eff={flockEff(ctx, c.flockId, asOf)} />)}
               </div>
             </div>
           );
@@ -348,12 +351,12 @@ export default async function AnalyticsPage({
           return (
             <div key={g}>
               <h3 className="an-daystamp">{SEGMENT_NAME[g]}</h3>
-              <MonthTable mv={m} monthMoney={monthMoney} flockMoney={flockMoney} />
+              <MonthTable mv={m} monthMoney={monthMoney} flockMoney={flockMoney} effByFlock={monthEff} effTotal={effOn(ctx, ctx.dates.filter((d) => d.startsWith(month)), g)} />
             </div>
           );
         })}
         <h3 className="an-daystamp">Whole farm (sum of the groups; mixes mature and young birds)</h3>
-        <MonthTable mv={mv} monthMoney={monthMoney} flockMoney={flockMoney} totalOnly />
+        <MonthTable mv={mv} monthMoney={monthMoney} flockMoney={flockMoney} totalOnly effByFlock={monthEff} effTotal={effOn(ctx, ctx.dates.filter((d) => d.startsWith(month)), "all")} />
         <p className="muted an-foot">
           Deaths % = deaths ÷ birds at the start of the flock&apos;s first day in the month. Chick-shed deaths this month: {n0(mv.chickDeaths)} (not in the table).
           {monthMoney.revenue ? ` Farm: revenue ₹${n0(monthMoney.revenue)}, cost ₹${n0(monthMoney.cost.total)}, estimated profit ₹${n0(monthMoney.profit)}${monthMoney.revenuePerEgg != null && monthMoney.costPerEgg != null ? `; revenue per egg ₹${monthMoney.revenuePerEgg.toFixed(2)} vs cost per egg ₹${monthMoney.costPerEgg.toFixed(2)}` : ""}. Per-flock profit is an estimate (feed exact, other costs by bird count, revenue by eggs laid).` : " Revenue and profit are left out for this month: no BAFTA rates have been entered, so nothing is priced."}
@@ -364,7 +367,13 @@ export default async function AnalyticsPage({
   );
 }
 
-function MonthTable({ mv, monthMoney, flockMoney, totalOnly }: { mv: ReturnType<typeof monthView>; monthMoney: ReturnType<typeof monthEconomics>; flockMoney: Map<string, { profit: number }>; totalOnly?: boolean }) {
+function MonthEff({ e }: { e: FeedEff | undefined }) {
+  if (!e) return <>–</>;
+  if (e.eggsPerKg == null) return <span className="muted an-tiny">feed not recorded</span>;
+  return <>{n2(e.eggsPerKg)}{e.daysWithFeed < e.days ? <span className="muted an-tiny"> ({e.daysWithFeed} of {e.days} days)</span> : null}</>;
+}
+
+function MonthTable({ mv, monthMoney, flockMoney, totalOnly, effByFlock, effTotal }: { mv: ReturnType<typeof monthView>; monthMoney: ReturnType<typeof monthEconomics>; flockMoney: Map<string, { profit: number }>; totalOnly?: boolean; effByFlock: Map<string, FeedEff>; effTotal: FeedEff }) {
   return (
         <div className="card an-scroll">
           <table className="an-table">
@@ -378,6 +387,7 @@ function MonthTable({ mv, monthMoney, flockMoney, totalOnly }: { mv: ReturnType<
                 <th className="num">Deaths</th>
                 <th className="num">Deaths %</th>
                 <th className="num">Est. profit ₹</th>
+                <th className="num">Eggs per kg feed (month)</th>
               </tr>
             </thead>
             <tbody>
@@ -395,6 +405,7 @@ function MonthTable({ mv, monthMoney, flockMoney, totalOnly }: { mv: ReturnType<
                   <td className="num">{n0(r.mort)}</td>
                   <td className="num">{r.mortPct != null ? r.mortPct.toFixed(2) : "–"}</td>
                   <td className="num">{r.flockId && monthMoney.revenue && flockMoney.get(r.flockId) ? n0(flockMoney.get(r.flockId)!.profit) : "–"}</td>
+                  <td className="num"><MonthEff e={r.flockId ? effByFlock.get(r.flockId) : undefined} /></td>
                 </tr>
               ))}
             </tbody>
@@ -408,6 +419,7 @@ function MonthTable({ mv, monthMoney, flockMoney, totalOnly }: { mv: ReturnType<
                 <th className="num">{n0(mv.total.mort)}</th>
                 <th className="num">–</th>
                 <th className="num">{monthMoney.revenue && mv.total.label === "Farm total" ? n0(monthMoney.profit) : "–"}</th>
+                <th className="num"><MonthEff e={effTotal} /></th>
               </tr>
             </tfoot>
           </table>
@@ -450,7 +462,20 @@ function AlertCard({ a, returnTo, compact, verdict }: { a: Alert; returnTo: stri
   );
 }
 
-function FlockCardView({ c }: { c: FlockCard }) {
+const n2 = (x: number) => x.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+/** V17: a flock's eggs per kg of feed on the board day and over its last 7 rows, each labelled. */
+function FlockEffLine({ e }: { e: { day: FeedEff; week: FeedEff } }) {
+  if (e.week.eggsPerKg == null) return <div className="muted an-tiny">Eggs per kg feed: feed not recorded for this flock on these days.</div>;
+  return (
+    <div className="muted an-tiny">
+      Eggs per kg feed: today {e.day.eggsPerKg != null ? <b>{n2(e.day.eggsPerKg)}</b> : "feed not recorded"} · last 7 days {n2(e.week.eggsPerKg)}
+      {e.week.daysWithFeed < e.week.days ? ` (${e.week.daysWithFeed} of ${e.week.days} days with feed)` : ""}
+    </div>
+  );
+}
+
+function FlockCardView({ c, eff }: { c: FlockCard; eff: { day: FeedEff; week: FeedEff } }) {
   return (
     <Link href={`/flocks/${c.flockId}`} className={`card an-flock an-${c.status} card-link`}>
       <div className="an-flock-head">
@@ -480,6 +505,7 @@ function FlockCardView({ c }: { c: FlockCard }) {
             {c.mort7 != null ? ` · ${n1(c.mort7)} deaths/day` : ""}
             {c.feed7 != null ? ` · ${n1(c.feed7)} bags/day` : ""}
           </div>
+          <FlockEffLine e={eff} />
         </div>
         <Spark values={c.hdSeries} color={SPARK_COLOR[c.status]} />
       </div>

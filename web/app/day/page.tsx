@@ -3,6 +3,7 @@ import { listProductionDates, loadDay, hdOf } from "@/lib/day/load";
 import { ExportLinks } from "@/components/ExportLinks";
 import { dmy } from "@/lib/format";
 import { SEGMENT_NAME } from "@/lib/analytics/engine";
+import { feedEfficiency } from "@/lib/analytics/feedEfficiency";
 
 export const dynamic = "force-dynamic";
 
@@ -41,7 +42,7 @@ export default async function DayPage({ searchParams }: { searchParams: Promise<
       const e = rs.reduce((t, r) => t + (r.eggs ?? 0), 0);
       const b = rs.reduce((t, r) => t + (r.birds ?? 0), 0);
       const fedRows = rs.filter((r) => r.feed != null);
-      return { g, rs, eggs: e, birds: b, mort: rs.reduce((t, r) => t + (r.mortality ?? 0), 0), feed: fedRows.reduce((t, r) => t + (r.feed ?? 0), 0), fed: fedRows.length > 0, hd: hdOf(rs.length ? e : null, b) };
+      return { g, rs, eggs: e, birds: b, mort: rs.reduce((t, r) => t + (r.mortality ?? 0), 0), feed: fedRows.reduce((t, r) => t + (r.feed ?? 0), 0), fed: fedRows.length > 0, hd: hdOf(rs.length ? e : null, b), eff: feedEfficiency(rs.map((r) => ({ date, eggs: r.eggs, feed: r.feed }))) };
     })
     .filter((x) => x.rs.length > 0);
 
@@ -77,6 +78,7 @@ export default async function DayPage({ searchParams }: { searchParams: Promise<
                   <div className="an-metric"><div className="an-metric-title">Birds</div><div className="an-metric-value">{n0(x.birds)}</div></div>
                   <div className="an-metric"><div className="an-metric-title">Deaths</div><div className="an-metric-value">{n0(x.mort)}</div></div>
                   <div className="an-metric"><div className="an-metric-title">Feed (bags)</div><div className="an-metric-value">{x.fed ? n0(x.feed) : "not recorded"}</div></div>
+                  <div className="an-metric"><div className="an-metric-title">Eggs per kg feed (that day)</div><div className={`an-metric-value${x.eff.eggsPerKg == null ? " an-metric-words" : ""}`}>{x.eff.eggsPerKg != null ? x.eff.eggsPerKg.toFixed(2) : "feed not recorded"}</div>{x.eff.eggsPerKg != null && x.eff.kgPer100Eggs != null ? <div className="an-metric-cmp">{x.eff.kgPer100Eggs.toFixed(1)} kg feed per 100 eggs</div> : null}</div>
                 </div>
               </div>
             ))}
@@ -113,6 +115,7 @@ export default async function DayPage({ searchParams }: { searchParams: Promise<
             <span><b>{n0(r.birds)}</b> birds</span>
             <span><b>{n0(r.mortality)}</b> deaths</span>
             <span><b>{n0(r.feed)}</b> bags</span>
+            <span>{(() => { const e = feedEfficiency([{ date, eggs: r.eggs, feed: r.feed }]); return e.eggsPerKg != null ? <><b>{e.eggsPerKg.toFixed(2)}</b> eggs per kg feed</> : "eggs per kg: feed not recorded"; })()}</span>
           </div>
           {r.hdWritten != null && <div className="muted an-tiny">Supervisor wrote {r.hdWritten}%</div>}
           {r.flagged && !r.reviewed && r.flagReason && <div className="flag-banner">{r.flagReason}</div>}

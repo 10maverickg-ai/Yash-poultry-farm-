@@ -324,6 +324,10 @@ export function compareRows(A: SideResult, B: SideResult): CompareRow[] {
   const FN = "feed not recorded (left page)";
   add({ key: "feedBags", group: "Feed", label: "Feed (bags, total)", fmt: "int", a: fed(A) ? A.s.feed.bags : null, b: fed(B) ? B.s.feed.bags : null, aNote: fed(A) ? undefined : FN, bNote: fed(B) ? undefined : FN, direction: "none", totals: true });
   add({ key: "feedG", group: "Feed", label: "Feed g / bird / day", fmt: "int", a: A.s.feed.gPerBirdDay, b: B.s.feed.gPerBirdDay, aNote: fed(A) ? undefined : FN, bNote: fed(B) ? undefined : FN, direction: "none", note: "More or less feed per bird is not good or bad on its own (moult, age, season); read it with the eggs." });
+  // V17: eggs per kg of feed, pooled over each column's days with feed (more = better)
+  const effNote = (x: SideResult) => (x.s.feed.eggsPerKg == null ? (x.s.feed.eggsPerKgWhy ?? "feed not recorded") : undefined);
+  const effPart = [A, B].filter((x) => x.s.feed.eggsPerKg != null && x.s.feed.daysWithFeed < x.s.daysWithData).map((x) => `${x.side.key.toUpperCase()}: ${x.s.feed.daysWithFeed} of ${x.s.daysWithData} days with feed`);
+  add({ key: "eggsPerKg", group: "Feed", label: "Eggs per kg of feed", fmt: "num2", a: A.s.feed.eggsPerKg, b: B.s.feed.eggsPerKg, aNote: effNote(A), bNote: effNote(B), direction: "higher", note: `All eggs ÷ all feed kg (bags × 45 kg) over the days with feed only.${effPart.length ? ` ${effPart.join("; ")}.` : ""}` });
   add({ key: "feed100", group: "Feed", label: "Feed kg per 100 eggs", fmt: "num1", a: A.s.feed.kgPer100Eggs, b: B.s.feed.kgPer100Eggs, aNote: fed(A) ? undefined : FN, bNote: fed(B) ? undefined : FN, direction: "lower" });
 
   // egg ledger (farm-level)
