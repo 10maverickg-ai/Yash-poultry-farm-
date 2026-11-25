@@ -15,6 +15,7 @@ export const CHANGES: Change[] = [
       "The Main flocks card shows the last 30 days as a small line: each day, and the 7-day figure dashed.",
       "Every flock card, the per-flock tables (Day, Week, Month, Year, Custom), the Compare screen and the Excel/CSV downloads have eggs per kg of feed too.",
       "New alert “Feed is giving fewer eggs” when the last 7 days give more than 8% fewer eggs per kg than the 7 days before, with what to check: feed waste, a change in the feed or the mill's mix, sick birds, heat. Moulting flocks are left out.",
+      "Hen-housed: each flock now shows eggs per hen housed since it was housed and the hen-housed % (eggs ÷ the hens put into the laying house), next to the usual hen-day %. The gap between the two is what deaths, culls and sales cost. BAB-9, 10 and 11 are counted from their first day in the register (4 Oct) and compared with the BV300 book. For BAB-1 to 8 the app does not know how many hens were housed, so it uses the birds on 2 Jul as a stand-in and says so: send the real numbers and they will be used.",
     ],
   },
   {
