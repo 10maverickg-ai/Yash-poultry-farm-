@@ -18,6 +18,7 @@ import {
   type Segment,
 } from "./engine";
 import { BAG_KG } from "../costs/engine";
+import { segmentFeed, type FeedPair } from "./feed";
 import type { PeriodExtras } from "./period";
 import { boardEff, effTrend, type BoardEff } from "./feedEfficiency";
 
@@ -31,7 +32,7 @@ export interface SegmentPanel {
   hdPrev7: number | null; // the 7 days before those
   deathsPerDay7: number | null;
   mortPct7: number | null; // deaths over the 7 days / average birds
-  feed: { recorded: boolean; daysRecorded: number; daysInWindow: number; bagsPerDay7: number | null; gPerBird7: number | null; daysLeft: number | null };
+  feed: { recorded: boolean; daysRecorded: number; daysInWindow: number; bagsPerDay7: number | null; gPerBird7: number | null; daysLeft: number | null; pair: FeedPair };
   stock: { days: number; closing: number; perDay: number } | null;
   revenue: { dayBig: number; daySmall: number; day: number; weekBig: number; weekSmall: number; week: number; pricedEggsWeek: number; unpricedEggsWeek: number };
   alerts: Alert[];
@@ -95,6 +96,7 @@ export function segmentPanel(ctx: Ctx, extras: PeriodExtras, asOf: string, seg: 
       bagsPerDay7: feedDays.length ? feedBags / feedDays.length : null,
       gPerBird7: feedBirdDays > 0 ? (feedBags * BAG_KG * 1000) / feedBirdDays : null,
       daysLeft: seg === "main" ? (feedDaysLeft(ctx, asOf)?.days ?? null) : null,
+      pair: segmentFeed(ctx, asOf, seg), // V16: the board day's own feed AND the last 7 days, each labelled on screen
     },
     stock: stock ? { days: stock.days, closing: stock.closing, perDay: stock.perDay } : null,
     revenue: {

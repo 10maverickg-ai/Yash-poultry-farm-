@@ -384,7 +384,7 @@ function MonthTable({ mv, monthMoney, flockMoney, totalOnly, effByFlock, effTota
                 <th className="num">Days</th>
                 <th className="num">Eggs</th>
                 <th className="num">Eggs per 100 birds</th>
-                <th className="num">Feed bags</th>
+                <th className="num">Feed bags (month total)</th>
                 <th className="num">Deaths</th>
                 <th className="num">Deaths %</th>
                 <th className="num">Est. profit ₹</th>
@@ -402,7 +402,7 @@ function MonthTable({ mv, monthMoney, flockMoney, totalOnly, effByFlock, effTota
                   <td className="num">{r.days}</td>
                   <td className="num">{n0(r.eggs)}</td>
                   <td className="num">{r.hd != null ? n1(r.hd) : "–"}</td>
-                  <td className="num">{n0(r.feed)}</td>
+                  <td className="num">{r.feedDays === 0 ? "not recorded" : `${n0(r.feed)}${r.feedDays < r.days ? ` (feed on ${r.feedDays} of ${r.days} days)` : ""}`}</td>
                   <td className="num">{n0(r.mort)}</td>
                   <td className="num">{r.mortPct != null ? r.mortPct.toFixed(2) : "–"}</td>
                   <td className="num">{r.flockId && monthMoney.revenue && flockMoney.get(r.flockId) ? n0(flockMoney.get(r.flockId)!.profit) : "–"}</td>
@@ -416,7 +416,7 @@ function MonthTable({ mv, monthMoney, flockMoney, totalOnly, effByFlock, effTota
                 <th className="num">{mv.total.days}</th>
                 <th className="num">{n0(mv.total.eggs)}</th>
                 <th className="num">{mv.total.hd != null ? n1(mv.total.hd) : "–"}</th>
-                <th className="num">{n0(mv.total.feed)}</th>
+                <th className="num">{mv.total.feedDays === 0 ? "not recorded" : `${n0(mv.total.feed)}${mv.total.feedDays < mv.total.days ? ` (feed on ${mv.total.feedDays} of ${mv.total.days} days)` : ""}`}</th>
                 <th className="num">{n0(mv.total.mort)}</th>
                 <th className="num">–</th>
                 <th className="num">{monthMoney.revenue && mv.total.label === "Farm total" ? n0(monthMoney.profit) : "–"}</th>
@@ -463,6 +463,17 @@ function AlertCard({ a, returnTo, compact, verdict }: { a: Alert; returnTo: stri
   );
 }
 
+/** V16: a flock's feed on the board day and over its last 7 rows, each with its period in the words. */
+function FlockFeedLines({ f }: { f: FlockCard["feed"] }) {
+  if (f.week.daysRecorded === 0) return <div className="muted an-tiny">Feed: not recorded for this flock (the register has no feed figure on these days).</div>;
+  return (
+    <div className="muted an-tiny an-feedlines">
+      <div>Feed today: {f.day.recorded ? <><b>{n0(f.day.bags)}</b> bags{f.day.gPerBird != null ? ` · ${n0(f.day.gPerBird)} g/bird` : ""}</> : "feed not recorded"}</div>
+      <div>Feed, last 7 days: {n1(f.week.bagsPerDay)} bags a day on average · {f.week.gPerBird != null ? `${n0(f.week.gPerBird)} g/bird a day` : "–"}{f.week.daysRecorded < f.week.days ? ` (feed on ${f.week.daysRecorded} of ${f.week.days} days)` : ""}</div>
+    </div>
+  );
+}
+
 const n2 = (x: number) => x.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 /** V17: a flock's eggs per kg of feed on the board day and over its last 7 rows, each labelled. */
@@ -502,10 +513,10 @@ function FlockCardView({ c, eff }: { c: FlockCard; eff: { day: FeedEff; week: Fe
           </div>
           <TargetLines c={c} />
           <div className="muted an-tiny">
-            {c.birds != null ? `${n0(c.birds)} birds` : ""}
-            {c.mort7 != null ? ` · ${n1(c.mort7)} deaths/day` : ""}
-            {c.feed7 != null ? ` · ${n1(c.feed7)} bags/day` : ""}
+            {c.birds != null ? `${n0(c.birds)} birds today` : ""}
+            {c.mort7 != null ? ` · last 7 days: ${n1(c.mort7)} deaths a day on average` : ""}
           </div>
+          <FlockFeedLines f={c.feed} />
           <FlockEffLine e={eff} />
         </div>
         <Spark values={c.hdSeries} color={SPARK_COLOR[c.status]} />

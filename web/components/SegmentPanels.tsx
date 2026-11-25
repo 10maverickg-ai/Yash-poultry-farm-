@@ -3,6 +3,11 @@ import type { BoardEff } from "@/lib/analytics/feedEfficiency";
 import { EffTrendChart } from "@/components/PeriodCharts";
 import { SEGMENT_NAME, RAMP_DAYS, type Segment } from "@/lib/analytics/engine";
 import type { SegmentPanel } from "@/lib/analytics/segments";
+import type { FeedPair } from "@/lib/analytics/feed";
+
+const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const dm = (d: string) => `${Number(d.slice(8, 10))} ${MON[Number(d.slice(5, 7)) - 1]}`;
+const span = (from: string | null, to: string | null) => (from && to ? (from === to ? dm(to) : `${dm(from)} – ${dm(to)}`) : "");
 
 const n0 = (x: number) => Math.round(x).toLocaleString("en-IN");
 const n1 = (x: number) => (Math.round(x * 10) / 10).toLocaleString("en-IN");
@@ -10,14 +15,14 @@ const inr = (x: number) => `₹${n0(x)}`;
 
 const WHAT: Record<Segment, string> = {
   main: "Right page of the register: mature flocks, big eggs. Feed is recorded for this group (the one feed box covers these flocks).",
-  young: `Left page: young flocks still climbing to peak, small eggs. Feed is not normally recorded for this group. Each flock is "ramping up" for its first ${RAMP_DAYS} days of lay.`,
+  young: `Left page: young flocks still climbing to peak, small eggs. Feed is shown on the days the register records it for this group. Each flock is "ramping up" for its first ${RAMP_DAYS} days of lay.`,
 };
 
-function Cell({ title, value, sub }: { title: string; value: string; sub?: string }) {
+function Cell({ title, value, sub, words }: { title: string; value: string; sub?: string; words?: boolean }) {
   return (
     <div className="an-metric">
       <div className="an-metric-title">{title}</div>
-      <div className="an-metric-value">{value}</div>
+      <div className={`an-metric-value${words ? " an-metric-words" : ""}`}>{value}</div>
       {sub && <div className="an-metric-cmp">{sub}</div>}
     </div>
   );
@@ -27,6 +32,37 @@ function trend(now: number | null, prev: number | null): string | undefined {
   if (now == null || prev == null) return undefined;
   const d = now - prev;
   return `${d >= 0 ? "▲ up" : "▼ down"} ${n1(Math.abs(d))} from the 7 days before`;
+}
+
+/**
+ * Feed as two labelled tiles (V16): the board day's own bags and g/bird first, then the last 7 days (total, average a day,
+ * average g/bird a day). A number never appears without its period; a missing figure says why, never a bare "–".
+ */
+export function FeedCells({ f, daysLeft, onDay = false }: { f: FeedPair; daysLeft?: number | null; onDay?: boolean }) {
+  const d = f.day;
+  const w = f.week;
+  // the board says "today" (the board day); the Day screen names the date
+  const dayTitle = onDay ? `Feed on ${dm(d.date)}` : `Feed today (${dm(d.date)})`;
+  const dayWord = onDay ? "that day" : "today";
+  if (w.daysRecorded === 0) {
+    return <Cell title={dayTitle} value="feed not recorded" words sub={`the register has no feed figure for this group on ${dm(d.date)} or in the ${w.days > 1 ? `${w.days - 1} days before` : "days before"}`} />;
+  }
+  const stock = daysLeft != null ? `feed stock left: ${n1(daysLeft)} days` : "";
+  return (
+    <>
+      <Cell
+        title={dayTitle}
+        value={d.recorded ? `${n0(d.bags!)} bags` : "feed not recorded"}
+        words={!d.recorded}
+        sub={[d.recorded ? (d.gPerBird != null ? `${n0(d.gPerBird)} g/bird ${dayWord}` : "") : `the register has no feed figure for this group on ${dm(d.date)}`, stock].filter(Boolean).join(" · ")}
+      />
+      <Cell
+        title={`Feed, last 7 days (${span(w.from, w.to)})`}
+        value={`${n0(w.bags!)} bags`}
+        sub={`average ${n0(w.bagsPerDay!)} bags a day · ${w.gPerBird != null ? n0(w.gPerBird) : "–"} g/bird a day${w.daysRecorded < w.days ? ` · feed recorded on ${w.daysRecorded} of these ${w.days} days, averages over those only` : ""}`}
+      />
+    </>
+  );
 }
 
 export function SegmentPanelView({ p, detailHref }: { p: SegmentPanel; detailHref?: string }) {
@@ -45,16 +81,8 @@ export function SegmentPanelView({ p, detailHref }: { p: SegmentPanel; detailHre
           <Cell title="Eggs per 100 birds (HD %), last 7 days" value={p.hd7 != null ? n1(p.hd7) : "–"} sub={trend(p.hd7, p.hdPrev7) ?? (t.hd != null ? `today ${n1(t.hd)}` : undefined)} />
           <Cell title="Eggs laid today" value={n0(t.eggs)} sub={p.eggsAvg7 != null ? `usual: ${n0(p.eggsAvg7)} a day` : undefined} />
           <Cell title="Birds" value={n0(t.birds)} sub={`${t.flocks} flock${t.flocks === 1 ? "" : "s"}`} />
-          <Cell title="Deaths" value={n0(t.mort)} sub={p.deathsPerDay7 != null ? `${n1(p.deathsPerDay7)}/day · ${p.mortPct7 != null ? p.mortPct7.toFixed(2) : "–"}% in 7 days` : undefined} />
-          {p.feed.recorded ? (
-            <Cell
-              title="Feed"
-              value={`${p.feed.bagsPerDay7 != null ? n0(p.feed.bagsPerDay7) : "–"} bags/day`}
-              sub={`${p.feed.gPerBird7 != null ? n0(p.feed.gPerBird7) : "–"} g/bird/day${p.feed.daysLeft != null ? ` · ${n1(p.feed.daysLeft)} days left` : ""}${p.feed.daysRecorded < p.feed.daysInWindow ? ` · recorded on ${p.feed.daysRecorded} of ${p.feed.daysInWindow} days` : ""}`}
-            />
-          ) : (
-            <Cell title="Feed" value="not recorded" sub="feed is not recorded for this group" />
-          )}
+          <Cell title="Deaths today" value={n0(t.mort)} sub={p.deathsPerDay7 != null ? `last 7 days: ${n1(p.deathsPerDay7)} a day on average · ${p.mortPct7 != null ? p.mortPct7.toFixed(2) : "–"}% of birds` : undefined} />
+          <FeedCells f={p.feed.pair} daysLeft={p.feed.daysLeft} />
           <Cell title={p.segment === "main" ? "Big eggs in stock" : "Small eggs in stock"} value={p.stock ? `${n1(p.stock.days)} days` : "–"} sub={p.stock ? `${n0(p.stock.closing)} eggs` : "no ledger row"} />
           <EggsPerKgCell e={p.eff} />
         </div>

@@ -2,7 +2,10 @@ import Link from "next/link";
 import { listProductionDates, loadDay, hdOf } from "@/lib/day/load";
 import { ExportLinks } from "@/components/ExportLinks";
 import { dmy } from "@/lib/format";
-import { SEGMENT_NAME } from "@/lib/analytics/engine";
+import { SEGMENT_NAME, buildCtx } from "@/lib/analytics/engine";
+import { loadEngineInput } from "@/lib/analytics/load";
+import { flockFeed, segmentFeed } from "@/lib/analytics/feed";
+import { FeedCells } from "@/components/SegmentPanels";
 import { feedEfficiency } from "@/lib/analytics/feedEfficiency";
 
 export const dynamic = "force-dynamic";
@@ -22,12 +25,26 @@ const TYPE: Record<string, string> = {
 
 export const metadata = { title: "Daily production (day view)" };
 
+/** V16: the flock's feed over its last 7 rows, labelled as such (nothing when it has no feed in that window). */
+function FlockWeekFeed({ w }: { w: ReturnType<typeof flockFeed>["week"] | undefined }) {
+  if (!w || w.daysRecorded === 0) return null;
+  return (
+    <div className="muted an-tiny">
+      Feed, last 7 days: {(Math.round((w.bagsPerDay ?? 0) * 10) / 10).toLocaleString("en-IN")} bags a day on average · {w.gPerBird != null ? `${Math.round(w.gPerBird)} g/bird a day` : "–"}
+      {w.daysRecorded < w.days ? ` (feed on ${w.daysRecorded} of ${w.days} days)` : ""}
+    </div>
+  );
+}
+
 export default async function DayPage({ searchParams }: { searchParams: Promise<{ date?: string }> }) {
   const sp = await searchParams;
   const dates = await listProductionDates();
   if (dates.length === 0) return (<><h1>Daily production</h1><p className="card muted">No days saved yet. Upload a register photo first.</p></>);
   const date = iso.test(sp.date ?? "") ? sp.date! : dates[dates.length - 1];
-  const d = await loadDay(date);
+  // V16: feed on the day AND over the last 7 days, from the same engine as Analytics (one read of the rows)
+  const [d, engineInput] = await Promise.all([loadDay(date), loadEngineInput()]);
+  const ctx = buildCtx(engineInput);
+  const flockFeeds = new Map(d.rows.map((r) => [r.id, flockFeed(ctx, r.flockId, date)]));
 
   const eggs = d.rows.reduce((s, r) => s + (r.eggs ?? 0), 0);
   const birds = d.rows.reduce((s, r) => s + (r.birds ?? 0), 0);
@@ -42,7 +59,7 @@ export default async function DayPage({ searchParams }: { searchParams: Promise<
       const e = rs.reduce((t, r) => t + (r.eggs ?? 0), 0);
       const b = rs.reduce((t, r) => t + (r.birds ?? 0), 0);
       const fedRows = rs.filter((r) => r.feed != null);
-      return { g, rs, eggs: e, birds: b, mort: rs.reduce((t, r) => t + (r.mortality ?? 0), 0), feed: fedRows.reduce((t, r) => t + (r.feed ?? 0), 0), fed: fedRows.length > 0, hd: hdOf(rs.length ? e : null, b), eff: feedEfficiency(rs.map((r) => ({ date, eggs: r.eggs, feed: r.feed }))) };
+      return { g, rs, eggs: e, birds: b, mort: rs.reduce((t, r) => t + (r.mortality ?? 0), 0), feed: fedRows.reduce((t, r) => t + (r.feed ?? 0), 0), fed: fedRows.length > 0, hd: hdOf(rs.length ? e : null, b), pair: g ? segmentFeed(ctx, date, g) : null, eff: feedEfficiency(rs.map((r) => ({ date, eggs: r.eggs, feed: r.feed }))) };
     })
     .filter((x) => x.rs.length > 0);
 
@@ -77,13 +94,13 @@ export default async function DayPage({ searchParams }: { searchParams: Promise<
                   <div className="an-metric"><div className="an-metric-title">Eggs</div><div className="an-metric-value">{n0(x.eggs)}</div><div className="an-metric-cmp">{n0(Math.round(x.eggs / 30))} trays</div></div>
                   <div className="an-metric"><div className="an-metric-title">Birds</div><div className="an-metric-value">{n0(x.birds)}</div></div>
                   <div className="an-metric"><div className="an-metric-title">Deaths</div><div className="an-metric-value">{n0(x.mort)}</div></div>
-                  <div className="an-metric"><div className="an-metric-title">Feed (bags)</div><div className="an-metric-value">{x.fed ? n0(x.feed) : "not recorded"}</div></div>
+                  {x.pair ? <FeedCells f={x.pair} onDay /> : <div className="an-metric"><div className="an-metric-title">Feed on this day</div><div className={`an-metric-value${x.fed ? "" : " an-metric-words"}`}>{x.fed ? `${n0(x.feed)} bags` : "feed not recorded"}</div></div>}
                   <div className="an-metric"><div className="an-metric-title">Eggs per kg feed (that day)</div><div className={`an-metric-value${x.eff.eggsPerKg == null ? " an-metric-words" : ""}`}>{x.eff.eggsPerKg != null ? x.eff.eggsPerKg.toFixed(2) : "feed not recorded"}</div>{x.eff.eggsPerKg != null && x.eff.kgPer100Eggs != null ? <div className="an-metric-cmp">{x.eff.kgPer100Eggs.toFixed(1)} kg feed per 100 eggs</div> : null}</div>
                 </div>
               </div>
             ))}
             <p className="muted an-sub" style={{ marginBottom: 0 }}>
-              <b>Whole farm</b> (sum of the groups; it mixes mature and young birds, so its HD % describes neither): {n0(eggs)} eggs · {n0(birds)} birds · {n0(mort)} deaths · {n0(feed)} bags · HD {hd != null ? `${hd.toFixed(1)}%` : "–"}.
+              <b>Whole farm</b> (sum of the groups; it mixes mature and young birds, so its HD % describes neither): {n0(eggs)} eggs · {n0(birds)} birds · {n0(mort)} deaths · {groups.some((x) => x.fed) ? `feed ${n0(feed)} bags that day${groups.some((x) => !x.fed) ? ` (groups that record feed: ${groups.filter((x) => x.fed).map((x) => (x.g ? SEGMENT_NAME[x.g].split(" (")[0].toLowerCase() : "segment not set")).join(", ")})` : ""}` : "feed not recorded"} · HD {hd != null ? `${hd.toFixed(1)}%` : "–"}.
             </p>
           </>
         )}
@@ -114,9 +131,10 @@ export default async function DayPage({ searchParams }: { searchParams: Promise<
             <span><b>{n0(r.eggs)}</b> eggs</span>
             <span><b>{n0(r.birds)}</b> birds</span>
             <span><b>{n0(r.mortality)}</b> deaths</span>
-            <span><b>{n0(r.feed)}</b> bags</span>
+            <span>{r.feed != null ? <><b>{n0(r.feed)}</b> bags{flockFeeds.get(r.id)?.day.gPerBird != null ? ` · ${n0(Math.round(flockFeeds.get(r.id)!.day.gPerBird!))} g/bird that day` : ""}</> : "feed not recorded"}</span>
             <span>{(() => { const e = feedEfficiency([{ date, eggs: r.eggs, feed: r.feed }]); return e.eggsPerKg != null ? <><b>{e.eggsPerKg.toFixed(2)}</b> eggs per kg feed</> : "eggs per kg: feed not recorded"; })()}</span>
           </div>
+          <FlockWeekFeed w={flockFeeds.get(r.id)?.week} />
           {r.hdWritten != null && <div className="muted an-tiny">Supervisor wrote {r.hdWritten}%</div>}
           {r.flagged && !r.reviewed && r.flagReason && <div className="flag-banner">{r.flagReason}</div>}
         </div>

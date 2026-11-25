@@ -83,7 +83,7 @@ const b9 = idOf("BAB-9");
 const f9 = summarizeRange(ctx, cost, extras, makeRange("2026-11-13", "2026-11-19"), { flocks: [b9] });
 const h9 = byHand((r) => r.flock_internal_id === b9 && r.date >= "2026-11-13" && r.date <= "2026-11-19");
 near("BAB-9 13-19 Nov: the eggs of 19 Nov (no feed) are left out of both sides", f9.feed.eggsPerKg, h9.value);
-ok("BAB-9 13-19 Nov: 6 of 7 days with feed", f9.feed.daysWithFeed === 6 && f9.daysWithData === 7, `${f9.feed.daysWithFeed} of ${f9.daysWithData}`);
+ok("BAB-9 13-19 Nov: 6 of 7 days with feed", f9.feed.daysRecorded === 6 && f9.daysWithData === 7, `${f9.feed.daysRecorded} of ${f9.daysWithData}`);
 const d9 = flockEff(ctx, b9, "2026-11-19").day;
 ok("BAB-9 on 19 Nov alone: null with the reason 'feed not recorded', never 0", d9.eggsPerKg === null && /feed not recorded/.test(d9.why ?? ""));
 const y19 = boardEff(ctx, "2026-11-19", "young");
@@ -91,7 +91,7 @@ ok("Young group board 19 Nov: the day is 'feed not recorded'; the 7 days use the
 
 // ---- a range with no feed at all ----
 const none = summarizeRange(ctx, cost, extras, makeRange("2026-10-05", "2026-10-15"), { flocks: [b9] });
-ok("a range with no feed at all (BAB-9, 5-15 Oct): null with a reason", none.feed.eggsPerKg === null && /feed not recorded/.test(none.feed.eggsPerKgWhy ?? "") && none.feed.daysWithFeed === 0 && none.daysWithData > 0, none.feed.eggsPerKgWhy ?? "");
+ok("a range with no feed at all (BAB-9, 5-15 Oct): null with a reason", none.feed.eggsPerKg === null && /feed not recorded/.test(none.feed.eggsPerKgWhy ?? "") && none.feed.daysRecorded === 0 && none.daysWithData > 0, none.feed.eggsPerKgWhy ?? "");
 ok("a range before the data: null with a reason", summarizeRange(ctx, cost, extras, makeRange("2026-06-01", "2026-06-10")).feed.eggsPerKg === null);
 
 // ---- the pure function ----

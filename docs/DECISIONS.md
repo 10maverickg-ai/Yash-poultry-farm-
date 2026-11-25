@@ -2619,6 +2619,11 @@ change is NOT reflected here.
 - No migration, no RLS or login change.
 
 
+## V16 — feed numbers say which period they are (21 Nov 2026)
+- **Feed is always a labelled pair: the day, then the last 7 days.** A board, Day screen or flock card shows the day's own bags and g/bird first ("Feed today (19 Nov): 154 bags, 105 g/bird today"), then "Feed, last 7 days (13 Nov – 19 Nov)" with the total, the average bags a day and the average g/bird a day. A 7-day average is never shown next to single-day tiles without its label.
+- **One helper, the existing numbers.** `lib/analytics/feed.ts` builds the pair from the existing per-day totals (`dayTotals`) and the existing 45 kg bag (`BAG_KG`): g/bird = bags × 45 kg ÷ the birds of the rows that record feed. The 7 days are the last 7 days with rows up to the board day (the same window as the other 7-day tiles); totals and averages use only the days that record feed and say "feed recorded on N of 7 days" when some do not.
+- **A day without a feed figure is "feed not recorded", with the reason, never 0 and never a bare "–".** Week / month / range day tables say "not recorded" for such a day and the feed chart leaves a gap.
+- **Days of feed stock left is unchanged** (feed box closing ÷ average box consumption over the last 7 box days); only its wording names the 7-day average.
 ## V17 — eggs per kg of feed (25 Nov 2026)
 - **Eggs per kg = pooled eggs ÷ pooled feed kg, only days with feed.** Eggs laid ÷ (feed bags × 45 kg, the same `BAG_KG` the app uses for g/bird), for the same flocks and the same days. Over any period it is total eggs ÷ total kg, never the average of daily ratios. A flock-day without a feed figure is left out of both sides and the screens say "N of M days with feed"; no feed at all is "feed not recorded" with the reason, never 0. A day written as 0 bags counts as recorded.
 - **One engine.** `lib/analytics/feedEfficiency.ts` (pure) and the period engine (`summarizeRange` → `feed.eggsPerKg`, per flock `eggsPerKgFeed`) serve the board, the flock cards, every per-flock table, Week / Month / Year / Custom, Compare and the exports. "kg of feed per 100 eggs" is the same two totals the other way round, so the two always agree (100 ÷ one = the other).

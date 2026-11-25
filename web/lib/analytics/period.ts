@@ -188,7 +188,8 @@ export interface DayPoint {
   eggs: number;
   hd: number | null;
   deaths: number;
-  feedBags: number;
+  feedBags: number; // bags of the rows that record feed (0 when none does: read feedRecorded)
+  feedRecorded: boolean; // V16: false = the register has no feed figure for these flocks that day (never shown as 0)
   birds: number;
 }
 
@@ -258,11 +259,12 @@ export interface PeriodSummary {
     bags: number;
     kg: number;
     recorded: boolean; // false when no row of this group records feed (left-page flocks)
+    daysRecorded: number; // V16: days of the period on which feed is recorded (totals and averages use only these)
+    bagsPerDay: number | null; // V16: average bags a day over those days
     gPerBirdDay: number | null;
     kgPer100Eggs: number | null; // the same totals as eggsPerKg the other way round (V17), so the two always agree
     eggsPerKg: number | null; // V17: pooled eggs ÷ feed kg, only flock-days with a feed figure; null = see eggsPerKgWhy
     eggsPerKgWhy: string | null;
-    daysWithFeed: number; // days of the period with a feed figure (the "N of M days with feed" line)
     daysLeftAtEnd: number | null;
     eggStockDaysAtEnd: number | null;
   };
@@ -316,7 +318,7 @@ export function summarizeRange(ctx: Ctx, cost: CostInput, extras: PeriodExtras, 
   const dates = ctx.dates.filter((d) => d >= from && d <= to && dayTotals(ctx, d, seg, only) != null);
   const series: DayPoint[] = dates.map((d) => {
     const t = dayTotals(ctx, d, seg, only)!;
-    return { date: d, eggs: t.eggs, hd: t.hd, deaths: t.mort, feedBags: t.feed, birds: t.birds };
+    return { date: d, eggs: t.eggs, hd: t.hd, deaths: t.mort, feedBags: t.feed, feedRecorded: t.feedRecorded, birds: t.birds };
   });
   const maxTemps: Record<string, number> = {};
   for (const [d, w] of ctx.weatherByDate) if (d >= from && d <= to && w.tempMax != null) maxTemps[d] = w.tempMax;
@@ -549,11 +551,12 @@ export function summarizeRange(ctx: Ctx, cost: CostInput, extras: PeriodExtras, 
       bags,
       kg,
       recorded: feedRows.length > 0,
+      daysRecorded: series.filter((p) => p.feedRecorded).length,
+      bagsPerDay: series.some((p) => p.feedRecorded) ? bags / series.filter((p) => p.feedRecorded).length : null,
       gPerBirdDay: feedBirdDays > 0 ? (kg * 1000) / feedBirdDays : null,
       kgPer100Eggs: feedRows.length > 0 && eggsTotal > 0 ? eff.kgPer100Eggs : null,
       eggsPerKg: eff.eggsPerKg,
       eggsPerKgWhy: eff.why,
-      daysWithFeed: eff.daysWithFeed,
       daysLeftAtEnd: lastDate && seg !== "young" && farmLevel ? (feedDaysLeft(ctx, lastDate)?.days ?? null) : null,
       eggStockDaysAtEnd: lastDate && farmLevel ? (eggStockDays(ctx, lastDate, seg)?.days ?? null) : null,
     },
@@ -580,7 +583,7 @@ const METRICS: { key: string; label: string; unit: string; higherIsBetter: boole
   { key: "eggsPerDay", label: "Eggs per day", unit: "", higherIsBetter: true, get: (s) => s.eggs.perDay },
   { key: "hd", label: "HD % (pooled)", unit: " pts", higherIsBetter: true, get: (s) => s.eggs.hdPooled },
   { key: "deathsPct", label: "Deaths % of opening birds", unit: " pts", higherIsBetter: false, get: (s) => s.birds.deathsPct },
-  { key: "feedG", label: "Feed g / bird / day", unit: " g", higherIsBetter: false, get: (s) => s.feed.gPerBirdDay },
+  { key: "feedG", label: "Feed g / bird a day (average)", unit: " g", higherIsBetter: false, get: (s) => s.feed.gPerBirdDay },
   { key: "eggsPerKg", label: "Eggs per kg of feed (pooled)", unit: "", higherIsBetter: true, get: (s) => s.feed.eggsPerKg },
   { key: "revenueDay", label: "Revenue per day", unit: "", higherIsBetter: true, get: (s) => (s.daysWithData ? s.money.revenue / s.daysWithData : null) },
   { key: "costDay", label: "Cost per day (so far)", unit: "", higherIsBetter: false, get: (s) => (s.money.costSplit && s.daysWithData ? s.money.cost.total / s.daysWithData : null) },

@@ -178,7 +178,7 @@ export function buildToday(
       soon.push({ id: `stock-high-${g}`, title: `${g === "main" ? "Big" : "Small"} eggs are building up: ${n1(p.stock.days)} days of laying in stock.`, detail: `${n0(p.stock.closing)} eggs. Sell or collect soon.`, href: `/egg-stock?date=${asOf}`, group: g });
     }
     if (g === "main" && p.feed.daysLeft != null && p.feed.daysLeft < 1) {
-      soon.push({ id: "feed-low", title: `Feed will run out in about ${n1(p.feed.daysLeft)} days without a delivery.`, detail: `${n0(p.feed.bagsPerDay7)} bags a day are used.`, href: "/feed-bag-stock", group: g });
+      soon.push({ id: "feed-low", title: `Feed will run out in about ${n1(p.feed.daysLeft)} days without a delivery.`, detail: `About ${n0(p.feed.bagsPerDay7)} bags a day are used (average of the last 7 days).`, href: "/feed-bag-stock", group: g });
     }
   }
 
