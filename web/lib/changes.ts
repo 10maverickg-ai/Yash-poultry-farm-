@@ -8,6 +8,15 @@ export interface Change {
 
 export const CHANGES: Change[] = [
   {
+    date: "2026-11-21",
+    title: "Feed on Analytics: the day's own figure first, the 7-day average labelled",
+    points: [
+      "The Main flocks card now shows “Feed today” with the bags the register says for that day and the grams per bird for that day (19 Nov: 154 bags, 105 g/bird). Next to it, “Feed, last 7 days” gives the total, the average bags a day and the average grams per bird a day (13–19 Nov: 1,102 bags, 157 a day, 107 g/bird). Before, the 157 average stood among the day's numbers without saying it was an average.",
+      "The same on the Young flocks card, on Today, on the Day screen and on every flock card. When the register has no feed for a day it says “feed not recorded”, never 0.",
+      "Week, month, year and custom views say “total” and “average a day” for feed, and a day without a feed figure is “not recorded” in the day table.",
+    ],
+  },
+  {
     date: "2026-11-12",
     title: "Analytics for any dates, and compare two flocks side by side",
     points: [

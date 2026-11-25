@@ -16,6 +16,7 @@
 
 import type { RealisticModel, RealisticOverride } from "./realisticTypes";
 import type { WeatherDay } from "./weatherTypes";
+import { feedPair, type FeedPair } from "./feed";
 
 // The two groups of the farm. MAIN = right page of the register (big eggs, mature flocks);
 // YOUNG = left page (small eggs, young flocks still climbing to peak). A flock whose segment
@@ -543,7 +544,8 @@ export interface FlockCard {
   death: RealisticDeathTarget | null; // deaths this week against OUR usual level (V11); null when the model is not attached
   birds: number | null;
   mort7: number | null; // deaths/day, last 7 rows
-  feed7: number | null; // bags/day, last 7 rows
+  feed7: number | null; // bags/day, last 7 rows (average; shown only with its label)
+  feed: FeedPair; // V16: the flock's own feed on the as-of day and over its last 7 rows
   hdSeries: number[]; // last 14 rows, for the sparkline
   lastDate: string;
 }
@@ -693,6 +695,7 @@ export function flockCards(ctx: Ctx, asOf: string): FlockCard[] {
       birds: last.pop,
       mort7: mean(win.map((r) => r.mort).filter((x): x is number => x != null)),
       feed7: mean(win.map((r) => r.feed).filter((x): x is number => x != null)),
+      feed: feedPair(win.map((r) => ({ date: r.date, bags: r.feed, birds: r.pop ?? 0 })), asOf),
       hdSeries: lastRows(ctx, flockId, asOf, 14).map((r) => r.hd ?? 0),
       lastDate: last.date,
     });
@@ -710,6 +713,7 @@ export interface MonthRow {
   days: number;
   eggs: number;
   feed: number;
+  feedDays: number; // V16: days with a feed figure (0 = feed not recorded; the total covers only these days)
   mort: number;
   mortPct: number | null; // deaths / birds at start of the first day
   hd: number | null; // eggs / sum of daily bird counts
@@ -738,6 +742,7 @@ export function monthView(ctx: Ctx, month: string, seg: SegFilter = "all"): { ro
       days: m.length,
       eggs,
       feed: m.reduce((s, r) => s + (r.feed ?? 0), 0),
+      feedDays: m.filter((r) => r.feed != null).length,
       mort,
       mortPct: start ? (mort / start) * 100 : null,
       hd: pops > 0 ? (eggs / pops) * 100 : null,
@@ -757,6 +762,7 @@ export function monthView(ctx: Ctx, month: string, seg: SegFilter = "all"): { ro
     days: new Set(ctx.dates.filter((d) => inMonth(d) && rowsOn(ctx, d, seg).length > 0)).size,
     eggs,
     feed: rows.reduce((s, r) => s + r.feed, 0),
+    feedDays: new Set(ctx.dates.filter((d) => inMonth(d) && rowsOn(ctx, d, seg).some((r) => r.feed != null))).size,
     mort,
     mortPct: null,
     hd: popDays > 0 ? (eggs / popDays) * 100 : null,
@@ -1020,7 +1026,7 @@ function alertsForRaw(ctx: Ctx, date: string, opts: { includeCleared?: boolean }
       out.push({
         ...base,
         kind: "feed_anomaly",
-        reason: `No feed (0 bags) was written for ${fmt(r.pop!)} live birds; its usual is ${round(mean(prior.map((p) => p.feed).filter((x): x is number => x != null)) ?? 0)} bags a day, and the flock is not moulting.`,
+        reason: `No feed (0 bags) was written for ${fmt(r.pop!)} live birds; its average over its previous 7 days is ${round(mean(prior.map((p) => p.feed).filter((x): x is number => x != null)) ?? 0)} bags a day, and the flock is not moulting.`,
       });
     }
 
@@ -1074,7 +1080,7 @@ function alertsForRaw(ctx: Ctx, date: string, opts: { includeCleared?: boolean }
       registerLabel: null,
       flockTag: null,
       source: null,
-      reason: `${fmt(fd.closing)} bags in stock at ${round(fd.perDay)} bags/day = ${round(fd.days, 2)} days (alert under ${RULES.feedDaysMin}).`,
+      reason: `${fmt(fd.closing)} bags in stock; ${round(fd.perDay)} bags a day used on average over the last 7 days, so ${round(fd.days, 2)} days of feed (alert under ${RULES.feedDaysMin}).`,
     });
   }
   const short: string[] = [];
@@ -1232,7 +1238,7 @@ export function watchList(ctx: Ctx, asOf: string, seg: SegFilter = "all"): Watch
       kind: "feed_days",
       flockId: null,
       label: null,
-      text: `Feed: ${fmt(fd.closing)} bags = ${round(fd.days)} days at ${round(fd.perDay)} bags/day — runs out about ${addDays(asOf, Math.floor(fd.days))} without a delivery.`,
+      text: `Feed: ${fmt(fd.closing)} bags in stock = ${round(fd.days)} days at ${round(fd.perDay)} bags a day (average used over the last 7 days) — runs out about ${addDays(asOf, Math.floor(fd.days))} without a delivery.`,
     });
   }
   return items;

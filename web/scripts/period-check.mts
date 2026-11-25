@@ -96,7 +96,8 @@ const lastWeekDays = new Set(dpAll.filter((r) => r.date >= lastWeekFrom && r.dat
 const part = S(rangeOf("week", lastDate));
 ok(`partial week (Mon ${lastWeekFrom} onward) says ${lastWeekDays} of 7 days have data`, part.daysWithData === lastWeekDays && part.partial === (lastWeekDays < 7) && part.dataNote === `${lastWeekDays} of 7 days have data`, part.dataNote);
 near("partial-week average uses only days with data", part.eggs.perDay, part.eggs.total / lastWeekDays, 1e-9);
-const empty = S(rangeOf("week", "2026-11-10"));
+// a week after the last day of data (derived, so the check holds on any refresh date)
+const empty = S(rangeOf("week", new Date(Date.parse(lastDate + "T00:00:00Z") + 14 * 86400000).toISOString().slice(0, 10)));
 ok("a week with no data says so and has no invented numbers", empty.daysWithData === 0 && empty.eggs.perDay == null && empty.eggs.hdPooled == null && empty.money.profit == null, empty.dataNote);
 
 // ---- comparison
@@ -129,7 +130,8 @@ for (const [m, seg, days, eggs, bd, deaths, feed] of expectRows) {
 const months = monthsWithin(rangeOf("year", "2026-01-01")).map(S);
 ok("year months add up", months.reduce((s, m) => s + m.eggs.total, 0) === yr.eggs.total);
 const rr = runRate(months.filter((m) => m.daysWithData > 0));
-ok("run rate appears with 2 full months and is last month × 12", rr != null && rr.eggsYear === sep.eggs.total * 12, rr ? rr.month : "none");
+const lastFull = months.filter((m) => m.daysWithData > 0 && m.daysWithData === m.range.days).pop()!;
+ok(`run rate appears with 2 full months and is the last full month (${lastFull.range.label}) × 12`, rr != null && rr.eggsYear === lastFull.eggs.total * 12 && rr.month === lastFull.range.label, rr ? rr.month : "none");
 ok("no run rate with only one full month", runRate(months.filter((m) => m.range.from === "2026-09-01")) == null);
 
 // ---- alerts grouped

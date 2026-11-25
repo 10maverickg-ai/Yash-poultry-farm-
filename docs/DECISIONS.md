@@ -2617,3 +2617,10 @@ change is NOT reflected here.
 - **State in the URL, no local storage.** `?view=custom&from=…&to=…&f=BAB-3&f=BAB-5` and `/analytics/compare?a=BAB-3&af=…&at=…&b=BAB-5&bf=…&bt=…&age=0` (`&wf=&wt=` for age). Links use the real flock names; the same reader (`readRange`, `readCompare`) serves the screen and the Excel/CSV download, so a file always matches the screen.
 - **Charts for two ranges** draw both over the shorter length (day 1..N), A solid blue, B dashed orange (colour-blind checked), names in the legend and at the line ends, with a table of the real dates underneath.
 - No migration, no RLS or login change.
+
+
+## V16 — feed numbers say which period they are (21 Nov 2026)
+- **Feed is always a labelled pair: the day, then the last 7 days.** A board, Day screen or flock card shows the day's own bags and g/bird first ("Feed today (19 Nov): 154 bags, 105 g/bird today"), then "Feed, last 7 days (13 Nov – 19 Nov)" with the total, the average bags a day and the average g/bird a day. A 7-day average is never shown next to single-day tiles without its label.
+- **One helper, the existing numbers.** `lib/analytics/feed.ts` builds the pair from the existing per-day totals (`dayTotals`) and the existing 45 kg bag (`BAG_KG`): g/bird = bags × 45 kg ÷ the birds of the rows that record feed. The 7 days are the last 7 days with rows up to the board day (the same window as the other 7-day tiles); totals and averages use only the days that record feed and say "feed recorded on N of 7 days" when some do not.
+- **A day without a feed figure is "feed not recorded", with the reason, never 0 and never a bare "–".** Week / month / range day tables say "not recorded" for such a day and the feed chart leaves a gap.
+- **Days of feed stock left is unchanged** (feed box closing ÷ average box consumption over the last 7 box days); only its wording names the 7-day average.

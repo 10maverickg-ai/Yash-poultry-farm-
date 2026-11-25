@@ -968,3 +968,6 @@ main:focus { outline: none; }
 .pv-dl-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.4rem; }
 .pv-dl-list li { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; }
 .pv-dl-list li > span { min-width: 7.5rem; font-weight: 600; }
+
+/* V16: a tile whose value is words ("feed not recorded") wraps instead of running out of the tile */
+.an-metric-value.an-metric-words { white-space: normal; font-size: 1.05rem; overflow-wrap: anywhere; }

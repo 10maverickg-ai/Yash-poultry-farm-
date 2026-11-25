@@ -112,7 +112,7 @@ function FlockTable({ s }: { s: PeriodSummary }) {
     <div className="card an-scroll">
       <table className="an-table">
         <thead>
-          <tr><th>Flock</th><th className="num">Days</th><th className="num">Eggs</th><th className="num">Share of eggs</th><th className="num">Eggs per 100 birds</th><th className="num">Breeder&apos;s target (book)</th><th className="num">Our realistic target</th><th className="num">Gap to book</th><th className="num">Deaths</th><th className="num">Deaths %</th><th className="num">Feed g/bird</th></tr>
+          <tr><th>Flock</th><th className="num">Days</th><th className="num">Eggs</th><th className="num">Share of eggs</th><th className="num">Eggs per 100 birds</th><th className="num">Breeder&apos;s target (book)</th><th className="num">Our realistic target</th><th className="num">Gap to book</th><th className="num">Deaths</th><th className="num">Deaths %</th><th className="num">Feed g/bird a day (average)</th></tr>
         </thead>
         <tbody>
           {s.flocks.map((f) => (
@@ -261,6 +261,9 @@ function Next({ ctx, s }: { ctx: Ctx; s: PeriodSummary }) {
   );
 }
 
+/** "this week" / "this month" / "this year" / "in this range": every period number says which period it is. */
+const periodWord = (s: PeriodSummary) => (s.range.kind === "custom" ? "in this range" : `this ${s.range.kind}`);
+
 function Headline({ s, c }: { s: PeriodSummary; c: Change[] }) {
   const g = (k: string) => c.find((x) => x.key === k);
   return (
@@ -271,9 +274,15 @@ function Headline({ s, c }: { s: PeriodSummary; c: Change[] }) {
         <Card title="Eggs per 100 birds (HD %)" value={s.eggs.hdPooled != null ? `${n1(s.eggs.hdPooled)}%` : "–"} sub="all eggs ÷ all bird-days × 100" c={g("hd")} digits={1} />
         <Card title="Deaths" value={n0(s.birds.deaths)} sub={s.birds.deathsPct != null ? `${s.birds.deathsPct.toFixed(2)}% of opening birds · ${s.birds.deathsPer1000!.toFixed(1)} per 1,000` : undefined} c={g("deathsPct")} digits={1} />
         {s.feed.recorded ? (
-          <Card title="Feed g / bird / day" value={s.feed.gPerBirdDay != null ? n0(s.feed.gPerBirdDay) : "–"} sub={`${n0(s.feed.bags)} bags · ${s.feed.kgPer100Eggs != null ? n1(s.feed.kgPer100Eggs) : "–"} kg per 100 eggs`} c={g("feedG")} digits={1} />
+          <Card
+            title={`Feed g/bird a day, average ${periodWord(s)}`}
+            value={s.feed.gPerBirdDay != null ? n0(s.feed.gPerBirdDay) : "–"}
+            sub={`total ${n0(s.feed.bags)} bags · average ${s.feed.bagsPerDay != null ? n0(s.feed.bagsPerDay) : "–"} bags a day · ${s.feed.kgPer100Eggs != null ? n1(s.feed.kgPer100Eggs) : "–"} kg per 100 eggs${s.feed.daysRecorded < s.daysWithData ? ` · feed recorded on ${s.feed.daysRecorded} of ${s.daysWithData} days, totals and averages over those only` : ""}`}
+            c={g("feedG")}
+            digits={1}
+          />
         ) : (
-          <Card title="Feed g / bird / day" value="not recorded" sub="feed is not recorded for this group" />
+          <Card title={`Feed ${periodWord(s)}`} value="not recorded" sub="the register has no feed figure for these flocks in this period" />
         )}
         {!s.farmLevel ? (
           <Card title="Sales, cost and profit" value="farm-level" sub="not split by flock: choose All flocks to see them" />
@@ -296,7 +305,7 @@ function Headline({ s, c }: { s: PeriodSummary; c: Change[] }) {
             <li>Breakage and labour take: written in the egg ledger for the whole page, not split by flock.</li>
           )}
           {s.eggs.best && s.eggs.worst && <li>Best day {pretty(s.eggs.best.date)} ({n1(s.eggs.best.hd)}%), worst day {pretty(s.eggs.worst.date)} ({n1(s.eggs.worst.hd)}%).</li>}
-          <li>{s.feed.recorded ? `Feed ${n0(s.feed.kg)} kg.` : "Feed is not recorded for these flocks."} {s.farmLevel ? <>Feed left at period end: {s.feed.daysLeftAtEnd != null ? `${n1(s.feed.daysLeftAtEnd)} days` : "–"}. Egg stock: {s.feed.eggStockDaysAtEnd != null ? `${n1(s.feed.eggStockDaysAtEnd)} days` : "–"}.</> : "Feed stock and egg stock are kept for the whole farm, not per flock."}</li>
+          <li>{s.feed.recorded ? `Feed ${periodWord(s)}: ${n0(s.feed.kg)} kg in total (${n0(s.feed.bags)} bags of 45 kg).` : "Feed is not recorded for these flocks."} {s.farmLevel ? <>Feed left at period end: {s.feed.daysLeftAtEnd != null ? `${n1(s.feed.daysLeftAtEnd)} days` : "–"}. Egg stock: {s.feed.eggStockDaysAtEnd != null ? `${n1(s.feed.eggStockDaysAtEnd)} days` : "–"}.</> : "Feed stock and egg stock are kept for the whole farm, not per flock."}</li>
           {s.eggs.hdMeanOfDaily != null && s.eggs.hdPooled != null && <li>Mean of the daily percentages would be {n1(s.eggs.hdMeanOfDaily)}%; the pooled figure above is the correct one.</li>}
         </ul>
       </details>
@@ -320,7 +329,8 @@ function SeriesBlock({ s, every }: { s: PeriodSummary; every?: number }) {
       const n = rs.length;
       const eggs = rs.reduce((t, p) => t + p.eggs, 0);
       const birds = rs.reduce((t, p) => t + p.birds, 0);
-      return { label: shortDay(w.from), eggs: n ? eggs / n : null, hd: birds > 0 ? (eggs / birds) * 100 : null, deaths: n ? rs.reduce((t, p) => t + p.deaths, 0) / n : null, feed: n ? rs.reduce((t, p) => t + p.feedBags, 0) / n : null, temp: null };
+      const fed = rs.filter((p) => p.feedRecorded);
+      return { label: shortDay(w.from), eggs: n ? eggs / n : null, hd: birds > 0 ? (eggs / birds) * 100 : null, deaths: n ? rs.reduce((t, p) => t + p.deaths, 0) / n : null, feed: fed.length ? fed.reduce((t, p) => t + p.feedBags, 0) / fed.length : null, temp: null };
     });
   } else {
     // every day of the period on the axis, with a gap where there is no data
@@ -329,7 +339,7 @@ function SeriesBlock({ s, every }: { s: PeriodSummary; every?: number }) {
     const by = new Map(s.series.map((p) => [p.date, p]));
     pts = days.map((d) => {
       const p = by.get(d);
-      return { label: lab(d), eggs: p ? p.eggs : null, hd: p ? p.hd : null, deaths: p ? p.deaths : null, feed: p ? p.feedBags : null, temp: s.maxTemps[d] ?? null };
+      return { label: lab(d), eggs: p ? p.eggs : null, hd: p ? p.hd : null, deaths: p ? p.deaths : null, feed: p && p.feedRecorded ? p.feedBags : null, temp: s.maxTemps[d] ?? null };
     });
   }
   const pick = (f: (p: P) => number | null) => pts.map((p) => ({ label: p.label, value: f(p) }));
@@ -346,10 +356,10 @@ function SeriesBlock({ s, every }: { s: PeriodSummary; every?: number }) {
       {long && (
         <>
           <SeriesChart title={`Deaths per day${per}`} unit="birds" kind="bar" points={pick((p) => p.deaths)} labelEvery={ev} overlay={temp} />
-          {s.feed.recorded ? <SeriesChart title={`Feed per day${per}`} unit="bags" kind="bar" points={pick((p) => p.feed)} labelEvery={ev} /> : <p className="muted an-tiny">Feed per day: feed is not recorded for these flocks (left page of the register).</p>}
+          {s.feed.recorded ? <SeriesChart title={`Feed, bags each day${per}`} unit="bags" kind="bar" points={pick((p) => p.feed)} labelEvery={ev} /> : <p className="muted an-tiny">Feed per day: feed is not recorded for these flocks (left page of the register).</p>}
         </>
       )}
-      <p className="muted an-foot">{weekly ? "The range is longer than two months, so each point is one Monday–Sunday week; the day table below has every day." : "A blank day means no data was entered for it."}{temp || weekly ? "" : " Weather is not available yet, so no temperature line is drawn."}</p>
+      <p className="muted an-foot">{weekly ? "The range is longer than two months, so each point is one Monday–Sunday week; the day table below has every day." : "A blank day means no data was entered for it (on the feed chart: no feed figure that day)."}{temp || weekly ? "" : " Weather is not available yet, so no temperature line is drawn."}</p>
     </section>
   );
 }
@@ -357,12 +367,12 @@ function SeriesBlock({ s, every }: { s: PeriodSummary; every?: number }) {
 function DayTable({ s }: { s: PeriodSummary }) {
   const table = (
     <table className="an-table" style={{ minWidth: 0 }}>
-      <thead><tr><th>Day</th><th className="num">Eggs</th><th className="num">Eggs per 100 birds</th><th className="num">Deaths</th><th className="num">Feed (bags)</th></tr></thead>
+      <thead><tr><th>Day</th><th className="num">Eggs</th><th className="num">Eggs per 100 birds</th><th className="num">Deaths</th><th className="num">Feed that day (bags)</th></tr></thead>
       <tbody>
         {s.series.map((p) => (
           <tr key={p.date}>
             <td><Link href={`/day?date=${p.date}`}>{pretty(p.date)}</Link></td>
-            <td className="num">{n0(p.eggs)}</td><td className="num">{p.hd != null ? n1(p.hd) : "–"}</td><td className="num">{n0(p.deaths)}</td><td className="num">{s.feed.recorded ? n0(p.feedBags) : "not recorded"}</td>
+            <td className="num">{n0(p.eggs)}</td><td className="num">{p.hd != null ? n1(p.hd) : "–"}</td><td className="num">{n0(p.deaths)}</td><td className="num">{p.feedRecorded ? n0(p.feedBags) : "not recorded"}</td>
           </tr>
         ))}
       </tbody>
@@ -385,7 +395,7 @@ function WeekTable({ weeks, unit = "week" }: { weeks: PeriodSummary[]; unit?: "w
   return (
     <div className="card an-scroll">
       <table className="an-table">
-        <thead><tr><th>{unit === "week" ? "Week" : "Month"}</th><th className="num">Days</th><th className="num">Eggs/day</th><th className="num">Eggs per 100 birds</th><th className="num">Deaths</th><th className="num">Feed g/bird</th><th className="num">Revenue</th></tr></thead>
+        <thead><tr><th>{unit === "week" ? "Week" : "Month"}</th><th className="num">Days</th><th className="num">Eggs/day</th><th className="num">Eggs per 100 birds</th><th className="num">Deaths</th><th className="num">Feed g/bird a day (average)</th><th className="num">Revenue</th></tr></thead>
         <tbody>
           {weeks.map((w) => (
             <tr key={w.range.from}>
@@ -420,7 +430,7 @@ function YearView({ ctx, s, months, input, yearsLabel }: { ctx: Ctx; s: PeriodSu
       <section className="card an-scroll" aria-label="Month by month">
         <h2 style={{ marginTop: 0 }}>Month by month</h2>
         <table className="an-table">
-          <thead><tr><th>Month</th><th className="num">Days</th><th className="num">Eggs/day</th><th className="num">Eggs per 100 birds</th><th className="num">Deaths %</th><th className="num">Feed g/bird</th><th className="num">Revenue</th><th className="num">Cost</th><th className="num">Profit</th></tr></thead>
+          <thead><tr><th>Month</th><th className="num">Days</th><th className="num">Eggs/day</th><th className="num">Eggs per 100 birds</th><th className="num">Deaths %</th><th className="num">Feed g/bird a day (average)</th><th className="num">Revenue</th><th className="num">Cost</th><th className="num">Profit</th></tr></thead>
           <tbody>
             {withData.map((m) => (
               <tr key={m.range.from}>
@@ -443,7 +453,7 @@ function YearView({ ctx, s, months, input, yearsLabel }: { ctx: Ctx; s: PeriodSu
         <SeriesChart title="Eggs per day, by month" unit="eggs" kind="bar" points={pts((m) => m.eggs.perDay)} labelEvery={1} />
         <SeriesChart title="Hen-day %, by month" unit="% of birds" kind="line" points={pts((m) => m.eggs.hdPooled)} labelEvery={1} />
         <SeriesChart title="Deaths, % of opening birds" unit="%" kind="bar" points={pts((m) => m.birds.deathsPct)} labelEvery={1} />
-        <SeriesChart title="Feed per bird per day" unit="g" kind="bar" points={pts((m) => m.feed.gPerBirdDay)} labelEvery={1} />
+        <SeriesChart title="Feed per bird a day (average of each month)" unit="g" kind="bar" points={pts((m) => m.feed.gPerBirdDay)} labelEvery={1} />
         <SeriesChart title="Revenue by month" unit="₹" kind="bar" points={pts((m) => m.money.revenue || null)} labelEvery={1} />
         <SeriesChart title="Cost so far, by month" unit="₹" kind="bar" points={pts((m) => m.money.cost.total)} labelEvery={1} />
         <SeriesChart title="Estimated profit, by month" unit="₹" kind="bar" points={pts((m) => (m.money.profit != null && m.money.profit > 0 ? m.money.profit : null))} labelEvery={1} />
