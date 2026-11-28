@@ -1066,3 +1066,13 @@ main:focus { outline: none; }
 .an-flock-body svg { flex: none; }
 .an-metric-value { white-space: normal; overflow-wrap: anywhere; } /* a big number wraps inside its tile at large text, never out of it */
 .card, .an-metric, .flag-banner { min-width: 0; overflow-wrap: break-word; }
+/* V20: iPhone Safari zooms the page in when a text box under 16 px is tapped, and stays zoomed: the bottom bar is then
+   no longer at the bottom of the screen. Every text box, number box, date and list is at least 16 px. */
+input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="hidden"]), select, textarea { font-size: max(16px, 1em) !important; }
+/* V20: rows that sat side by side wrap instead of running off the screen */
+.td-flock > div { min-width: 0; }
+.td-flock .an-pill { flex: none; }
+.buyer-form { flex-wrap: wrap; }
+.buyer-form input { min-width: 0; flex: 1 1 8rem; }
+.tl { grid-template-columns: minmax(0, 1fr); min-width: 0; }
+.tl > div > * { min-width: 0; overflow-wrap: anywhere; }

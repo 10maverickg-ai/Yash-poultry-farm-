@@ -2658,3 +2658,17 @@ change is NOT reflected here.
 - **Interest, rent and top dressing are "not entered" until the owner enters them** (`interest_month`, `rent_month`, `top_dressing`). They are not counted as missing; the profit says "before interest, rent, top dressing (not entered)".
 - **Monthly costs are counted per calendar day, up to today.** Each day carries 1/(days in the month) of labour, electricity, the diesel average and the miscellaneous average, including a day without register rows. A month still running is charged its days so far, and the screen says so. Nothing is costed before the app's first record (2 Jul 2026) or after today.
 
+## V20 — the phone bottom bar stays at the bottom (28 Nov 2026)
+- **Nothing on any page may be wider than the phone's screen.** On iPhone Safari, a page wider than the screen widens the layout viewport and drags the fixed bottom bar away from the bottom. Every overflow is fixed where it starts. Grid columns are `minmax(0, 1fr)`, never a bare `1fr`, which cannot shrink below its widest word. Flex children that hold text get `min-width: 0`. Long words and codes wrap. A raw database code is never shown to the owner. `overflow-x: clip` on html and body is only the last safety net; `clip`, not `hidden`, so sticky headers keep working.
+- **The bar sizes its items to their labels.** It is a flex row, each item at least 44 px wide, so "Analytics" shows in full at 360 px. A label that still does not fit (with very large text) ends in "…" and never makes the bar wider than the screen. The label is 0.68 rem. The bar is a direct child of `<body>`, so no transformed or clipped parent can move it (no portal needed). Pages keep room under their last card for the bar and the phone's home-bar area.
+- **Every text box, number box, date and list is at least 16 px.** iPhone Safari zooms in when a smaller one is tapped and stays zoomed, which also takes the bar off the bottom. `-webkit-text-size-adjust: 100%` stops Safari enlarging text by itself when the phone is turned.
+- **`scripts/layout-check.mts` guards this.** It opens every page at 360 and 390 px with an iPhone user agent, also with the Share menu open and the Feed formulas ingredient tables open. It fails on any of these:
+  - the page is wider than the screen;
+  - the bar is not at the bottom, at the top, middle or end of the page;
+  - an item is under 44 px, or a label is cut at normal text size;
+  - the bar is inside a transformed or clipped parent;
+  - the end of the page is under the bar;
+  - a field is under 16 px.
+
+  It needs the app running and is listed as skipped otherwise.
+

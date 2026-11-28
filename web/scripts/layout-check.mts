@@ -38,7 +38,8 @@ const DYNAMIC: [string, RegExp][] = [["/flocks", /^\/flocks\/[0-9a-f-]{36}$/], [
 // in-page code as plain JavaScript text (the TypeScript runner adds helpers that do not exist inside the page)
 const MEASURE = `(() => {
   const W = document.documentElement.clientWidth;
-  const vis = (e) => { const s = getComputedStyle(e); const r = e.getBoundingClientRect(); return s.display !== "none" && s.visibility !== "hidden" && r.width > 0 && r.height > 0; };
+  const closed = (e) => { const d = e.closest("details:not([open])"); return !!d && !e.closest("summary"); }; // inside a folded section: laid out, never shown
+  const vis = (e) => { const s = getComputedStyle(e); const r = e.getBoundingClientRect(); return s.display !== "none" && s.visibility !== "hidden" && r.width > 0 && r.height > 0 && !closed(e); };
   const contained = (e) => { for (let a = e.parentElement; a && a !== document.body; a = a.parentElement) { if (getComputedStyle(a).overflowX !== "visible") { const r = a.getBoundingClientRect(); return r.right <= W + 0.5; } } return false; };
   const out = [];
   for (const e of document.querySelectorAll("body *")) {
@@ -76,6 +77,7 @@ const check = async (p: any, label: string, w: number) => {
   }
   const [t, , e] = pos;
   const problems: string[] = [];
+  const text = Number(/text (\d+)%/.exec(label)?.[1] ?? 100);
   if (t.overflow > 0 || t.offenders.length) problems.push(`page ${t.overflow}px wider than the screen: ${t.offenders.join(" ; ")}`);
   if (t.innerW !== w) problems.push(`layout viewport widened to ${t.innerW}px`);
   if (!t.bar) problems.push("no bottom bar shown");
@@ -86,8 +88,9 @@ const check = async (p: any, label: string, w: number) => {
     if (!t.bar.parentIsBody || t.badParent.length) problems.push(`bar inside ${t.badParent.join(", ") || "something other than <body>"}`);
     const narrow = t.items.filter((i: any) => i.w < 44 - 0.5);
     if (narrow.length) problems.push(`bar items under 44px: ${narrow.map((i: any) => `${i.t} ${Math.round(i.w)}`).join(", ")}`);
+    // at the phone's normal text size every label shows in full; with bigger text a label may end in "…" (it never widens the bar)
     const cut = t.items.filter((i: any) => i.cut);
-    if (cut.length) problems.push(`labels cut: ${cut.map((i: any) => i.t).join(", ")}`);
+    if (cut.length && text === 100) problems.push(`labels cut: ${cut.map((i: any) => i.t).join(", ")}`);
     if (e.atEnd && e.lastBottom > e.bar.top + 1) problems.push(`the end of the page (${Math.round(e.lastBottom)}) is under the bar (top ${Math.round(e.bar.top)})`);
   }
   if (t.smallFields.length) problems.push(`fields under 16px (iPhone zooms in when tapped): ${t.smallFields.slice(0, 3).join(", ")}`);
