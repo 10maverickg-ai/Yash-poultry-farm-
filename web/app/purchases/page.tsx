@@ -29,7 +29,6 @@ const TYPE_LABEL: Record<string, string> = {
   medicine_vaccine_in_feed: "Medicines and vaccines are inside the feed price (no separate cost)",
   top_dressing: "Top dressing for a month",
   interest_month: "Interest per month",
-  rent_month: "Rent per month",
 };
 
 function Checklist({ month, items }: { month: string; items: ChecklistItem[] }) {

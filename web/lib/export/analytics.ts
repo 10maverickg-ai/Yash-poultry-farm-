@@ -75,7 +75,7 @@ const rowRatio = (top: string, bottom: string, k = 1) => (r: number, L: Record<s
 const FEED_NOTE = `Feed kg = bags × ${BAG_KG} kg. Feed figures, eggs per kg, feed per egg and FCR use only the flock-days that have a feed figure ("feed not recorded" days are left out, never counted as 0).`;
 const FCR_NOTE = "FCR = feed kg ÷ egg kg (lower is better). Egg kg = eggs × the BV300 standard egg weight for the flock's age (estimated), unless a real weighing is stored; flock-days with no egg-weight reference are left out on both sides. Pooled: all feed kg ÷ all egg kg, never an average of daily FCRs.";
 const MONEY_NOTE = "Revenue = priced egg sales only. Cost and profit are ESTIMATES (feed exact: each shed's bags × the bag weight × its own price that day; electricity, labour and packing spread; diesel and medicines on the day bought). Missing inputs are missing, not zero.";
-const OVERHEAD_NOTE = "Averages (owner, 28 Nov 2026), used where there is no real figure and marked \"average\": electricity ₹40,000 a month for a month without a bill (from Nov 2026), diesel ₹10,000 a month for a month without a diesel entry, miscellaneous ₹30,000 a month (vaccines, repairs, transport, vet, anything else). Monthly costs are spread over the days of the month; a month still running counts its days so far. Medicines and vaccines are inside the feed price from 28 Nov 2026. Interest, rent and top dressing: not entered.";
+const OVERHEAD_NOTE = "Averages (owner, 28 Nov 2026), used where there is no real figure and marked \"average\": electricity ₹40,000 a month for a month without a bill (from Nov 2026), diesel ₹10,000 a month for a month without a diesel entry, miscellaneous ₹30,000 a month (vaccines, repairs, transport, vet, anything else). Monthly costs are spread over the days of the month; a month still running counts its days so far. Medicines and vaccines are inside the feed price from 28 Nov 2026. Interest and top dressing: not entered. The farm pays no rent.";
 /** V19: "Feed price changed on 28 Nov 2026 (new formulas) …" for each formula date inside the file's dates. */
 const priceChangeNotes = (x: { cost: CostInput; c: { range: PeriodRange } }) =>
   feedPriceChanges(x.cost.formulations ?? [], x.c.range.from, x.c.range.to).map((d) => `Feed price changed on ${dmy(d)} (new formulas): from that day each shed's feed costs its formula's delivered price per kg; each day uses its own price.`);
@@ -153,7 +153,7 @@ function summaryRows(x: Ctxs): SumRow[] {
     // costs (whole farm only)
     // V19 D: every cost line with where it came from (bill / average / entered / included in feed price / not entered)
     type K = keyof PeriodSummary["money"]["cost"];
-    const line = (k: K, l: string, src?: "electricity" | "labour" | "diesel" | "miscellaneous" | "medicine" | "topDressing" | "interest" | "rent") =>
+    const line = (k: K, l: string, src?: "electricity" | "labour" | "diesel" | "miscellaneous" | "medicine" | "topDressing" | "interest") =>
       add("costs", `Cost: ${l}`, "₹", "num", (s, col) => {
         if (farmOnly(col)) return { v: null, why: farmOnly(col) };
         if (!src) return { v: s.money.cost[k] };
@@ -175,7 +175,6 @@ function summaryRows(x: Ctxs): SumRow[] {
     line("chicks", "Chicks");
     line("topDressing", "Top dressing", "topDressing");
     line("interest", "Interest", "interest");
-    line("rent", "Rent", "rent");
     add("costs", "Total cost so far (estimate)", "₹", "num", (s, col) => (farmOnly(col) ? { v: null, why: farmOnly(col) } : { v: s.money.cost.total, why: null }));
     add("costs", "Profit (estimate: egg revenue − cost)", "₹", "num", (s, col) => (farmOnly(col) ? { v: null, why: farmOnly(col) } : { v: s.money.profit, why: "no priced egg sales in these dates" }));
     add("costs", "Cost per egg laid (estimate)", "₹", "num", (s, col) => (farmOnly(col) ? { v: null, why: farmOnly(col) } : { v: s.money.costPerEgg, why: "no eggs" }));
@@ -425,8 +424,8 @@ function costsSheet(x: Ctxs, s: PeriodSummary): Dataset {
   // a line that is not entered (or inside the feed price) stays empty, never 0
   const blank = (k: K, d: DayEconomics) =>
     (k === "medicine" && d.sources.medicine.source === "in_feed" && d.cost.medicine === 0) || (k === "miscellaneous" && d.sources.miscellaneous.source === "not_entered") ||
-    (k === "topDressing" && d.sources.topDressing.source === "not_entered") || (k === "interest" && d.sources.interest.source === "not_entered") || (k === "rent" && d.sources.rent.source === "not_entered");
-  const parts: [K, string][] = [["feed", "Feed ₹"], ["labour", "Labour ₹ (spread)"], ["electricity", "Electricity ₹ (bill or average, spread)"], ["diesel", "Diesel ₹ (entered, or average spread)"], ["miscellaneous", "Miscellaneous ₹ (average, spread)"], ["packing", "Packing ₹"], ["medicine", "Medicines ₹ (entered)"], ["other", "Other ₹ (entered)"], ["chicks", "Chicks ₹"], ["topDressing", "Top dressing ₹"], ["interest", "Interest ₹"], ["rent", "Rent ₹"]];
+    (k === "topDressing" && d.sources.topDressing.source === "not_entered") || (k === "interest" && d.sources.interest.source === "not_entered");
+  const parts: [K, string][] = [["feed", "Feed ₹"], ["labour", "Labour ₹ (spread)"], ["electricity", "Electricity ₹ (bill or average, spread)"], ["diesel", "Diesel ₹ (entered, or average spread)"], ["miscellaneous", "Miscellaneous ₹ (average, spread)"], ["packing", "Packing ₹"], ["medicine", "Medicines ₹ (entered)"], ["other", "Other ₹ (entered)"], ["chicks", "Chicks ₹"], ["topDressing", "Top dressing ₹"], ["interest", "Interest ₹"]];
   const srcWords = (d: DayEconomics) => [
     d.overheadOnly ? "no register rows: monthly costs only" : "",
     d.sources.electricity.source === "average" ? "electricity average" : d.sources.electricity.source === "bill" ? "electricity bill" : "electricity not entered",
@@ -437,7 +436,7 @@ function costsSheet(x: Ctxs, s: PeriodSummary): Dataset {
   const defs: Def[] = [
     { key: "date", header: "Date", type: "date", width: 13, value: (i) => dates[i] },
     ...parts.map(([k, l]): Def => ({ key: k, header: l, type: "num", width: 12, total: true, value: (i) => (blank(k, e[i]) ? null : e[i].cost[k]) })),
-    { key: "total", header: "Total ₹ (estimate)", type: "num", width: 14, value: (i) => e[i].cost.total, formula: (r, L) => `SUM(${L.feed}${r}:${L.rent}${r})`, totalFormula: sumF("total") },
+    { key: "total", header: "Total ₹ (estimate)", type: "num", width: 14, value: (i) => e[i].cost.total, formula: (r, L) => `SUM(${L.feed}${r}:${L.interest}${r})`, totalFormula: sumF("total") },
     { key: "src", header: "Where the numbers come from", type: "text", width: 60, value: (i) => srcWords(e[i]) },
     { key: "note", header: "Missing (not zero)", type: "text", width: 50, value: (i) => (e[i].missing.length ? e[i].missing.join(", ") : null) },
     // V19: where that day's feed price came from (each shed's own price; one line per price used)
