@@ -82,7 +82,7 @@ export default async function PurchasesPage({ searchParams }: { searchParams: Pr
       )}
       <h2>Monthly cost (estimate)</h2>
       <p className="muted an-sub">
-        Feed is exact: each shed&apos;s bags × {BAG_KG} kg × its own price that day — from 28 Nov 2026 the nutritionist&apos;s formula for the shed, before that and for sheds without a formula the farm default below. Electricity and labour are the month&apos;s amount spread evenly over its days; packing is per tray sold; diesel and medicines count on the day bought; chicks count in the month they arrive. Anything not entered shows “not entered” (never ₹0) and the profit says it is incomplete.
+        Feed is exact: each shed&apos;s bags × {BAG_KG} kg × its own price that day — from 28 Nov 2026 the nutritionist&apos;s formula for the shed (<Link href="/feed-formulas">Feed formulas</Link>), before that and for sheds without a formula the farm default below. Electricity and labour are the month&apos;s amount spread evenly over its days; packing is per tray sold; diesel and medicines count on the day bought; chicks count in the month they arrive. Anything not entered shows “not entered” (never ₹0) and the profit says it is incomplete.
       </p>
       {months.map((m) => {
         const e = monthEconomics(input, m);

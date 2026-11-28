@@ -1,5 +1,6 @@
 import { listFormulationVersions, listMaterialNames } from "@/lib/feed";
 import { FormulationForm } from "@/components/FormulationForm";
+import Link from "next/link";
 
 export const dynamic = "force-dynamic";
 
@@ -25,6 +26,7 @@ export default async function FormulationPage({
         dashboard later overlay “what changed in the feed” on the production
         timeline.
       </p>
+      <p className="an-sub">The nutritionist&apos;s formulas for each shed (28 Nov 2026), with their prices, are on <Link href="/feed-formulas">Feed formulas →</Link>. This page is the older hand-entered recipe log.</p>
       {saved && <div className="saved-banner">Formulation version saved.</div>}
 
       {versions.length > 0 && (

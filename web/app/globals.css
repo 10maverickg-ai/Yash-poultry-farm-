@@ -999,3 +999,21 @@ main:focus { outline: none; }
 .sh-off { opacity: 0.6; }
 .sh-will { margin: 0; }
 .sh-cmp { display: grid; gap: 0.2rem; }
+
+/* V19 feed formulas */
+.ff-card { padding-top: 0.6rem; }
+.ff-card > summary { list-style: none; cursor: pointer; display: grid; gap: 0.25rem; min-height: 44px; }
+.ff-card > summary::-webkit-details-marker { display: none; }
+.ff-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 0.2rem 0.6rem; }
+.ff-name { font-size: 1.05rem; }
+.ff-sheds { font-size: 0.9rem; }
+.ff-price { font-size: 0.95rem; overflow-wrap: anywhere; }
+.ff-facts { display: block; overflow-wrap: anywhere; }
+.ff-note { display: block; font-size: 0.82rem; border-left: 4px solid #b7791f; padding-left: 0.45rem; }
+.ff-open { display: inline-flex; align-items: center; min-height: 44px; font-weight: 600; color: var(--accent); }
+.ff-open::after { content: " ▾"; white-space: pre; }
+.ff-card[open] .ff-open::after { content: " ▴"; }
+.ff-h { margin: 0.6rem 0 0.2rem; font-size: 0.95rem; }
+.an-table.ff-lines, .an-table.ff-ing { min-width: 0; }
+.ff-ing td:first-child { overflow-wrap: anywhere; }
+.ff-total td { font-weight: 700; border-top: 2px solid var(--ink); }

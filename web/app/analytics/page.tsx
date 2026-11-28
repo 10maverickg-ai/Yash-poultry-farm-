@@ -222,7 +222,7 @@ export default async function AnalyticsPage({
         </div>
         {money.unpricedEggsSold > 0 && <div className="flag-banner" style={{ marginTop: "0.6rem" }}>{n0(money.unpricedEggsSold)} eggs were sold this day with no BAFTA rate entered, so revenue and profit are left out rather than guessed. <Link href="/sales/rates">Enter the rates</Link></div>}
         {money.missing.length > 0 && <div className="flag-banner" style={{ marginTop: "0.6rem" }}>Cost is missing: {money.missing.join(", ")}.</div>}
-        <p className="muted an-foot">Feed is exact: each shed&apos;s bags × {BAG_KG} kg × its own price that day ({money.feedBy.length ? money.feedBy.map((g) => `${g.label.startsWith("Formula: ") ? g.label.slice(9) : "farm default"} ₹${g.perKg.toFixed(2)}/kg on ${n0(g.bags)} bags`).join("; ") : "no feed that day"}{money.feedNotPriced.length ? `; ${money.feedNotPriced.join(", ")}: price not entered` : ""}). Electricity, labour and packing are spread/estimated; diesel and medicines count the day bought. Revenue is eggs <em>sold</em> that day, not laid.</p>
+        <p className="muted an-foot">Feed is exact: each shed&apos;s bags × {BAG_KG} kg × its own price that day ({money.feedBy.length ? money.feedBy.map((g) => `${g.label.startsWith("Formula: ") ? g.label.slice(9) : "farm default"} ₹${g.perKg.toFixed(2)}/kg on ${n0(g.bags)} bags`).join("; ") : "no feed that day"}{money.feedNotPriced.length ? `; ${money.feedNotPriced.join(", ")}: price not entered` : ""}; <Link href="/feed-formulas">Feed formulas</Link>). Electricity, labour and packing are spread/estimated; diesel and medicines count the day bought. Revenue is eggs <em>sold</em> that day, not laid.</p>
       </section>
 
       {/* ---- Alerts ---- */}
