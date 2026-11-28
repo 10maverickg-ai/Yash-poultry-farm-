@@ -3,7 +3,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any -- fixture rows are untyped JSON dumps */
 import { readFileSync } from "node:fs";
 import { loadInput } from "./fixtureInput.mts";
-import { buildCtx, diffDays, type EngineInput } from "../lib/analytics/engine";
+import { alertsFor, buildCtx, diffDays, RULES, type EngineInput } from "../lib/analytics/engine";
 import { boardFcr, eggWeightFor, fcrLabel, fcrOf, fcrOn, fcrTrend, flockFcr, ACTUAL_WEIGHT_DAYS } from "../lib/analytics/fcr";
 import { effOn } from "../lib/analytics/feedEfficiency";
 import { makeRange, rangeOf, summarizePeriod, summarizeRange, type PeriodExtras } from "../lib/analytics/period";
@@ -124,5 +124,30 @@ if (has("2026-11-19")) {
 }
 ok("no rows = null with a reason", fcrOn(ctx, [], "main").fcr === null && !!fcrOn(ctx, [], "main").why);
 ok("zero eggs on the days with feed = null, not infinity", fcrOf(ctx, [{ date: "2026-11-19", flockId: b5, eggs: 0, feed: 10 }]).fcr === null);
+
+// ---- B4 alert: "Feed is giving fewer egg kilos than normal" ----
+ok("the alert rule: 5% worse than the 7 days before, or 10% worse than the book, at least 5 of 7 days with feed, repeated at most every 7 days", RULES.fcrTrendPct === 5 && RULES.fcrStdPct === 10 && RULES.effMinFeedDays === 5 && RULES.fcrRepeatDays === 7);
+const fa = (c: typeof ctx, d: string) => alertsFor(c, d).filter((a) => a.kind === "fcr");
+const all: { date: string; seg: string | null; reason: string }[] = [];
+for (const d of ctx.dates) for (const a of fa(ctx, d)) all.push({ date: a.date, seg: a.segment, reason: a.reason });
+ok("never before 1 Sep, never for the young group (ramping-up flocks are not compared with the book)", all.every((a) => a.date >= "2026-09-01" && a.seg === "main"), all.map((a) => a.date).join(", "));
+let gapOk = true;
+for (let i = 1; i < all.length; i++) if (diffDays(all[i].date, all[i - 1].date) < RULES.fcrRepeatDays) gapOk = false;
+ok("not a daily alert: never twice within 7 days for the same group", gapOk, `${all.length} alerts`);
+if (has("2026-11-13")) {
+  const a13 = fa(ctx, "2026-11-13");
+  ok("13 Nov: raised again (the problem started 6 Nov and is still there): it says how long", a13.length === 1 && /It has lasted 8 days/.test(a13[0].reason) && /FCR \d\.\d\d in the last 7 days/.test(a13[0].reason), a13[0]?.reason.slice(0, 120));
+  ok("…and on the days in between it stays quiet (7-12 Nov)", ["2026-11-07", "2026-11-08", "2026-11-09", "2026-11-10", "2026-11-11", "2026-11-12"].every((d) => fa(ctx, d).length === 0));
+  ok("the words name the likely checks and that FCR is estimated", /Likely checks: feed waste/.test(a13[0].reason) && /weigh a sample of eggs/.test(a13[0].reason) && /estimated from the standard egg weight/.test(a13[0].reason));
+}
+if (has("2026-09-19")) {
+  const s19 = fa(ctx, "2026-09-19");
+  ok("19 Sep: raised for being more than 10% worse than the book, BAB-3 (moulting) left out", s19.length === 1 && /vs the book's/.test(s19[0].reason) && /BAB-3 \(moulting\) left out/.test(s19[0].reason), s19[0]?.reason.slice(0, 140));
+}
+// a made-up farm where the feed stays the same but the main flocks lay 20% fewer eggs from 13 Nov: the alert starts on 13 Nov
+const quiet: EngineInput = { ...input, prod: input.prod.filter((r) => r.date <= "2026-11-19") };
+const cut: EngineInput = { ...quiet, prod: quiet.prod.map((r) => (r.date >= "2026-11-13" && segOf.get(r.flockId) === "main" && r.eggs != null ? { ...r, eggs: Math.round(r.eggs * 0.8) } : r)) };
+const cc = buildCtx(cut);
+ok("a made-up 20% egg drop from 13 Nov raises the FCR alert within the week", ["2026-11-13", "2026-11-14", "2026-11-15", "2026-11-16", "2026-11-17", "2026-11-18", "2026-11-19"].some((d) => fa(cc, d).length > 0));
 
 process.exit(bad ? 1 : 0);
