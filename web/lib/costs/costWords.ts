@@ -8,7 +8,7 @@ const dm = (d: string) => `${Number(d.slice(8, 10))} ${MON[Number(d.slice(5, 7))
 const rs = (n: number) => `₹${Math.round(n).toLocaleString("en-IN")}`;
 const months = (l: SourceLine) => l.months.map(monthWord).join(", ");
 
-export type OverheadKey = "electricity" | "labour" | "diesel" | "miscellaneous" | "medicine" | "topDressing" | "interest" | "rent";
+export type OverheadKey = "electricity" | "labour" | "diesel" | "miscellaneous" | "medicine" | "topDressing" | "interest";
 
 /** One line of words for one overhead over a period, e.g. "Aug–Oct bill; Nov average ₹40,000 a month". */
 export function sourceWords(sum: CostSourceSummary, key: OverheadKey): string {

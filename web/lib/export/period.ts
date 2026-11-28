@@ -27,7 +27,7 @@ async function loadAll() {
   return { ctx, cost, extras };
 }
 
-const MONEY_NOTE = "Revenue = priced egg sales only. Cost and profit are ESTIMATES: feed exact (each shed's own price that day); labour and electricity spread over the month (a month without a bill: the electricity average); diesel as entered, or the diesel average for a month without any; miscellaneous average ₹30,000 a month; packing per tray sold; medicines inside the feed price from 28 Nov 2026. Interest, rent and top dressing: not entered.";
+const MONEY_NOTE = "Revenue = priced egg sales only. Cost and profit are ESTIMATES: feed exact (each shed's own price that day); labour and electricity spread over the month (a month without a bill: the electricity average); diesel as entered, or the diesel average for a month without any; miscellaneous average ₹30,000 a month; packing per tray sold; medicines inside the feed price from 28 Nov 2026. Interest and top dressing: not entered. No rent.";
 
 const letter = (i: number) => String.fromCharCode(65 + i);
 /**
