@@ -148,3 +148,8 @@ export const IMPORT_TAG = "register import";
 
 /** What the edit form starts with (kept here, not in the client form file, because the page calls it on the server). */
 export const defaultsFromLine = (l: LineRow) => ({ date: l.date, kind: l.kind as string, target: targetValue(l), item: l.item, catalogueId: l.catalogueId, quantity: l.quantity, unit: l.unit, cost: l.cost, supplier: l.supplier, note: l.note });
+
+/** V20: where a line came from, in plain words (never a raw code such as "owner_confirmed_on_time", which is also one
+ *  long unbroken word that could not wrap on a phone). */
+const SOURCE_WORDS: Record<string, string> = { owner_confirmed_on_time: "given on time (owner confirmed)" };
+export const sourceTagWords = (t: string): string => SOURCE_WORDS[t] ?? t.replace(/_/g, " ");

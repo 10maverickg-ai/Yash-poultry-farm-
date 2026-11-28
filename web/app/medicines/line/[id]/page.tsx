@@ -4,7 +4,7 @@ import { getLine, groupLines, listSuggestions, listTargets } from "@/lib/medicin
 import { listCatalogue } from "@/lib/medicines/catalogueStore";
 import { MedicineEntryDelete } from "@/components/MedicineEntryDelete";
 import { MedicineLineForm } from "@/components/MedicineLineForm";
-import { defaultsFromLine } from "@/lib/medicines/lines";
+import { defaultsFromLine, sourceTagWords } from "@/lib/medicines/lines";
 import { saveLineEdit, removeLine, removeEntry } from "../../actions";
 import { MedicineDelete } from "@/components/MedicineDelete";
 import { dmy, inr } from "@/lib/format";
@@ -23,7 +23,7 @@ export default async function LinePage({ params }: { params: Promise<{ id: strin
   return (
     <>
       <h1>Change a line</h1>
-      <p className="muted"><Link href={`/medicines?month=${line.date.slice(0, 7)}#month`}>← Back to the month</Link> · {line.item} on {dmy(line.date)}{line.sourceTag !== "hand entry" ? ` · ${line.sourceTag}` : ""}</p>
+      <p className="muted"><Link href={`/medicines?month=${line.date.slice(0, 7)}#month`}>← Back to the month</Link> · {line.item} on {dmy(line.date)}{line.sourceTag !== "hand entry" ? ` · ${sourceTagWords(line.sourceTag)}` : ""}</p>
       {together.length > 1 && (
         <div className="flag-banner">
           This line is one of {together.length} saved together for {together.map((l) => l.targetLabel).join(", ")}

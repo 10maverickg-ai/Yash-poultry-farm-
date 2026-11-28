@@ -5,7 +5,7 @@ import { pool } from "@/lib/db";
 import { listEntryFlocks, listLines, listSchedule, listSuggestions, listUnmatched, monthStatus } from "@/lib/medicines/store";
 import { listCatalogue } from "@/lib/medicines/catalogueStore";
 import { itemSummary, norm, pickable } from "@/lib/medicines/catalogue";
-import { groupSchedule, monthSummary, monthsOf, type ScheduleItem } from "@/lib/medicines/lines";
+import { groupSchedule, monthSummary, monthsOf, sourceTagWords, type ScheduleItem } from "@/lib/medicines/lines";
 import { MedicineEntryForm } from "@/components/MedicineEntryForm";
 import { MedicineMonthNone } from "@/components/MedicineMonthNone";
 import { ActionForm } from "@/components/ActionForm";
@@ -129,7 +129,7 @@ export default async function MedicinesPage({ searchParams }: { searchParams: Pr
                   <tr key={l.id}>
                     <td>{dmy(l.date)}</td>
                     <td>{l.kind === "vaccine" ? "Vaccine" : "Medicine"}</td>
-                    <td>{l.listName ?? l.item}{l.catalogueId == null ? <span className="badge badge-confirm" style={{ marginLeft: "0.4rem" }}>not in the list</span> : null}{l.supplier ? <span className="muted"> · {l.supplier}</span> : null}{l.sourceTag !== "hand entry" ? <span className="muted"> · {l.sourceTag}</span> : null}</td>
+                    <td>{l.listName ?? l.item}{l.catalogueId == null ? <span className="badge badge-confirm" style={{ marginLeft: "0.4rem" }}>not in the list</span> : null}{l.supplier ? <span className="muted"> · {l.supplier}</span> : null}{l.sourceTag !== "hand entry" ? <span className="muted"> · {sourceTagWords(l.sourceTag)}</span> : null}</td>
                     <td>{l.targetLabel}</td>
                     <td>{l.quantity != null ? `${l.quantity} ${l.unit ?? ""}` : "—"}</td>
                     <td>{l.cost == null ? <span className="muted">not entered</span> : inr(l.cost)}{l.entryGroup && l.costTotal != null ? <span className="muted an-tiny" style={{ display: "block" }}>share of {inr(l.costTotal)} ({l.splitBasis === "birds" ? "by birds" : "equal"})</span> : null}</td>
