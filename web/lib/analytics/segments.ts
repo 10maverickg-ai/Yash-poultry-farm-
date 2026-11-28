@@ -22,6 +22,7 @@ import { segmentFeed, type FeedPair } from "./feed";
 import type { PeriodExtras } from "./period";
 import { boardEff, effTrend, type BoardEff } from "./feedEfficiency";
 import { groupHenHoused } from "./henHoused";
+import { boardFcr, fcrTrend, type BoardFcr } from "./fcr";
 
 export interface SegmentPanel {
   segment: Segment;
@@ -45,6 +46,10 @@ export interface SegmentPanel {
   effTrend: { date: string; value: number | null; avg7: number | null }[];
   /** V17: hen-housed % over the same last 7 days (each flock's eggs ÷ its hens housed), with the stand-ins named. */
   hh: { hhPct: number | null; from: string | null; to: string | null; standins: string[]; flocks: number };
+  /** V18: FCR (feed kg ÷ egg kg): the board day, the last 7 days, the 7 days before, the change and the book. */
+  fcr: BoardFcr;
+  /** V18: FCR by day for the last 30 days and the 7-day line (Main card chart). */
+  fcrTrend: { date: string; value: number | null; avg7: number | null }[];
 }
 
 const sum = (xs: number[]) => xs.reduce((s, x) => s + x, 0);
@@ -123,6 +128,8 @@ export function segmentPanel(ctx: Ctx, extras: PeriodExtras, asOf: string, seg: 
       return { hhPct: g?.hhPct ?? null, from, to: last7[0] ?? null, standins: g?.standins ?? [], flocks: g?.flocks ?? 0 };
     })(),
     effTrend: seg === "main" ? effTrend(ctx, asOf, seg, 30) : [],
+    fcr: boardFcr(ctx, asOf, seg),
+    fcrTrend: seg === "main" ? fcrTrend(ctx, asOf, seg, 30) : [],
   };
 }
 

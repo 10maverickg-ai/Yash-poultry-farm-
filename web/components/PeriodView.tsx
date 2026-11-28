@@ -77,6 +77,15 @@ function Delta({ c, digits = 0, money = false }: { c: Change | undefined; digits
   );
 }
 
+/** V18: FCR in a table cell (2 decimals, the book beside it), or why it is empty. */
+function FcrValue({ f }: { f: PeriodSummary["flocks"][number] }) {
+  if (f.fcrEstimated == null) {
+    const w = f.fcrWhy ?? "";
+    return <span className="muted an-tiny">{w.startsWith("feed not recorded") ? "feed not recorded" : w.startsWith("past the end") ? "beyond the book's egg weights" : w.startsWith("no egg-weight reference") ? "no egg-weight reference loaded" : "–"}</span>;
+  }
+  return <>{n2(f.fcrEstimated)}{f.standardFcr != null ? <span className="muted an-tiny"> (book {n2(f.standardFcr)})</span> : null}</>;
+}
+
 /** V17: hen-housed % in a table cell, "*" when the number housed is a stand-in, the book beside it when it is real. */
 function HHValue({ f }: { f: PeriodSummary["flocks"][number] }) {
   if (f.henHousedPct == null) return <>–</>;
@@ -131,7 +140,7 @@ function FlockTable({ s }: { s: PeriodSummary }) {
     <div className="card an-scroll">
       <table className="an-table">
         <thead>
-          <tr><th>Flock</th><th className="num">Days</th><th className="num">Eggs</th><th className="num">Share of eggs</th><th className="num">Eggs per 100 birds</th><th className="num">Breeder&apos;s target (book)</th><th className="num">Our realistic target</th><th className="num">Gap to book</th><th className="num">Deaths</th><th className="num">Deaths %</th><th className="num">Feed g/bird a day (average)</th><th className="num">Eggs per kg feed</th><th className="num">Hen-housed %</th></tr>
+          <tr><th>Flock</th><th className="num">Days</th><th className="num">Eggs</th><th className="num">Share of eggs</th><th className="num">Eggs per 100 birds</th><th className="num">Breeder&apos;s target (book)</th><th className="num">Our realistic target</th><th className="num">Gap to book</th><th className="num">Deaths</th><th className="num">Deaths %</th><th className="num">Feed g/bird a day (average)</th><th className="num">Eggs per kg feed</th><th className="num">FCR (est.)</th><th className="num">Feed g per egg</th><th className="num">Hen-housed %</th></tr>
         </thead>
         <tbody>
           {s.flocks.map((f) => (
@@ -152,18 +161,21 @@ function FlockTable({ s }: { s: PeriodSummary }) {
               <td className="num">{f.deathsPct != null ? f.deathsPct.toFixed(2) : "–"}</td>
               <td className="num">{f.feedGPerBird != null ? n0(f.feedGPerBird) : "–"}</td>
               <td className="num"><EffValue v={f.eggsPerKgFeed} why={f.eggsPerKgWhy} days={f.daysWithFeed} of={f.days} /></td>
+              <td className="num"><FcrValue f={f} /></td>
+              <td className="num">{f.feedPerEggG != null ? n1(f.feedPerEggG) : <span className="muted an-tiny">{f.eggsPerKgWhy?.startsWith("feed not recorded") ? "feed not recorded" : "–"}</span>}</td>
               <td className="num"><HHValue f={f} /></td>
             </tr>
           ))}
         </tbody>
       </table>
+      {s.flocks.some((f) => f.fcrEstimated != null) && <p className="muted an-foot">FCR (est.) = feed kg ÷ egg kg, eggs counted at the BV300 standard weight for each flock&apos;s age (the farm does not weigh eggs yet); lower is better; the book for the same days in brackets. Feed g per egg needs no egg weight, so it is exact.</p>}
       {s.flocks.some((f) => f.housedSource === "standin") && <p className="muted an-foot">Hen-housed % = eggs ÷ hens housed (birds moved in or out counted; deaths, culls and sales not). * against the birds on 2 Jul 2026 (a stand-in): the number housed is not known for those flocks.</p>}
     </div>
   );
 }
 
 function CompareTable({ changes, vsLabel, lastYear }: { changes: Change[]; vsLabel: string; lastYear: Change[] | null }) {
-  const fmt = (c: Change, v: number | null) => (v == null ? "–" : c.key === "eggsPerKg" ? n2(v) : c.key === "hd" || c.key === "deathsPct" ? `${v.toFixed(c.key === "deathsPct" ? 2 : 1)}%` : c.key.endsWith("Day") && c.key !== "eggsPerDay" ? inr(v) : c.key === "feedG" ? `${n0(v)} g` : n0(v));
+  const fmt = (c: Change, v: number | null) => (v == null ? "–" : c.key === "eggsPerKg" || c.key === "fcr" ? n2(v) : c.key === "hd" || c.key === "deathsPct" ? `${v.toFixed(c.key === "deathsPct" ? 2 : 1)}%` : c.key.endsWith("Day") && c.key !== "eggsPerDay" ? inr(v) : c.key === "feedG" ? `${n0(v)} g` : n0(v));
   return (
     <div className="card an-scroll">
       <table className="an-table" style={{ minWidth: 0 }}>
@@ -174,7 +186,7 @@ function CompareTable({ changes, vsLabel, lastYear }: { changes: Change[]; vsLab
               <td>{c.label}</td>
               <td className="num">{fmt(c, c.now)}</td>
               <td className="num">{fmt(c, c.before)}</td>
-              <td><Delta c={c} digits={c.key === "eggsPerKg" ? 2 : c.key === "hd" || c.key === "deathsPct" || c.key === "feedG" ? 1 : 0} money={c.key.endsWith("Day") && c.key !== "eggsPerDay"} /></td>
+              <td><Delta c={c} digits={c.key === "eggsPerKg" || c.key === "fcr" ? 2 : c.key === "hd" || c.key === "deathsPct" || c.key === "feedG" ? 1 : 0} money={c.key.endsWith("Day") && c.key !== "eggsPerDay"} /></td>
             </tr>
           ))}
         </tbody>
@@ -320,6 +332,11 @@ function Headline({ s, c }: { s: PeriodSummary; c: Change[] }) {
           <Card title={`Eggs per kg feed, ${periodWord(s)}`} value={n2(s.feed.eggsPerKg)} sub={`all eggs ÷ all feed kg, days with feed only${s.feed.kgPer100Eggs != null ? ` · ${n1(s.feed.kgPer100Eggs)} kg feed per 100 eggs` : ""}${s.feed.daysRecorded < s.daysWithData ? ` · ${s.feed.daysRecorded} of ${s.daysWithData} days with feed` : ""}`} c={g("eggsPerKg")} digits={2} />
         ) : (
           <Card title="Eggs per kg feed" value="not available" sub={s.feed.eggsPerKgWhy ?? "feed not recorded"} />
+        )}
+        {s.feed.fcrEstimated != null ? (
+          <Card title={`${s.feed.fcrLabel}, ${periodWord(s)}`} value={n2(s.feed.fcrEstimated)} sub={`all feed kg ÷ all egg kg; lower is better${s.feed.standardFcr != null ? ` · book for these ages ${n2(s.feed.standardFcr)}` : ""} · feed ${s.feed.feedPerEggG != null ? n1(s.feed.feedPerEggG) : "–"} g per egg${s.feed.fcrLeftOut ? ` · ${s.feed.fcrLeftOut}` : ""}`} c={g("fcr")} digits={2} />
+        ) : (
+          <Card title="FCR (estimated from standard egg weight)" value="not available" sub={s.feed.fcrWhy ?? "feed not recorded"} />
         )}
       </div>
       <details style={{ marginTop: "0.6rem" }}>
@@ -492,7 +509,7 @@ function YearView({ ctx, s, months, input, yearsLabel }: { ctx: Ctx; s: PeriodSu
       <section className="card an-scroll" aria-label="Flocks this year">
         <h2 style={{ marginTop: 0 }}>Flocks this year</h2>
         <table className="an-table">
-          <thead><tr><th>Flock</th><th className="num">Months</th><th className="num">Eggs per 100 birds</th><th className="num">Deaths %</th><th className="num">Birds sold</th><th className="num">Eggs per kg feed</th><th className="num">Hen-housed %</th></tr></thead>
+          <thead><tr><th>Flock</th><th className="num">Months</th><th className="num">Eggs per 100 birds</th><th className="num">Deaths %</th><th className="num">Birds sold</th><th className="num">Eggs per kg feed</th><th className="num">FCR (est.)</th><th className="num">Hen-housed %</th></tr></thead>
           <tbody>
             {s.flocks.map((f) => (
               <tr key={f.flockId}>
@@ -502,6 +519,7 @@ function YearView({ ctx, s, months, input, yearsLabel }: { ctx: Ctx; s: PeriodSu
                 <td className="num">{f.deathsPct != null ? f.deathsPct.toFixed(2) : "–"}</td>
                 <td className="num">{n0(sold(f.flockId) || 0)}</td>
                 <td className="num"><EffValue v={f.eggsPerKgFeed} why={f.eggsPerKgWhy} days={f.daysWithFeed} of={f.days} /></td>
+                <td className="num"><FcrValue f={f} /></td>
                 <td className="num"><HHValue f={f} /></td>
               </tr>
             ))}

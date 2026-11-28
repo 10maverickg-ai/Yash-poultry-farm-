@@ -7,6 +7,7 @@ import { loadEngineInput } from "@/lib/analytics/load";
 import { flockFeed, segmentFeed } from "@/lib/analytics/feed";
 import { FeedCells } from "@/components/SegmentPanels";
 import { feedEfficiency } from "@/lib/analytics/feedEfficiency";
+import { fcrOf } from "@/lib/analytics/fcr";
 
 export const dynamic = "force-dynamic";
 
@@ -133,6 +134,7 @@ export default async function DayPage({ searchParams }: { searchParams: Promise<
             <span><b>{n0(r.mortality)}</b> deaths</span>
             <span>{r.feed != null ? <><b>{n0(r.feed)}</b> bags{flockFeeds.get(r.id)?.day.gPerBird != null ? ` · ${n0(Math.round(flockFeeds.get(r.id)!.day.gPerBird!))} g/bird that day` : ""}</> : "feed not recorded"}</span>
             <span>{(() => { const e = feedEfficiency([{ date, eggs: r.eggs, feed: r.feed }]); return e.eggsPerKg != null ? <><b>{e.eggsPerKg.toFixed(2)}</b> eggs per kg feed</> : "eggs per kg: feed not recorded"; })()}</span>
+            <span>{(() => { const f = fcrOf(ctx, [{ date, flockId: r.flockId, eggs: r.eggs, feed: r.feed }]); return f.fcr != null ? <>FCR <b>{f.fcr.toFixed(2)}</b> (est.){f.standardFcr != null ? ` · book ${f.standardFcr.toFixed(2)}` : ""}</> : r.feed == null ? null : `FCR: ${f.why ?? "not available"}`; })()}</span>
           </div>
           <FlockWeekFeed w={flockFeeds.get(r.id)?.week} />
           {r.hdWritten != null && <div className="muted an-tiny">Supervisor wrote {r.hdWritten}%</div>}

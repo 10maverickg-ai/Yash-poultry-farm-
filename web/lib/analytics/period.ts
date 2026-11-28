@@ -622,6 +622,7 @@ const METRICS: { key: string; label: string; unit: string; higherIsBetter: boole
   { key: "deathsPct", label: "Deaths % of opening birds", unit: " pts", higherIsBetter: false, get: (s) => s.birds.deathsPct },
   { key: "feedG", label: "Feed g / bird a day (average)", unit: " g", higherIsBetter: false, get: (s) => s.feed.gPerBirdDay },
   { key: "eggsPerKg", label: "Eggs per kg of feed (pooled)", unit: "", higherIsBetter: true, get: (s) => s.feed.eggsPerKg },
+  { key: "fcr", label: "FCR, est. from standard egg weight (pooled)", unit: "", higherIsBetter: false, get: (s) => s.feed.fcrEstimated },
   { key: "revenueDay", label: "Revenue per day", unit: "", higherIsBetter: true, get: (s) => (s.daysWithData ? s.money.revenue / s.daysWithData : null) },
   { key: "costDay", label: "Cost per day (so far)", unit: "", higherIsBetter: false, get: (s) => (s.money.costSplit && s.daysWithData ? s.money.cost.total / s.daysWithData : null) },
   { key: "profitDay", label: "Profit per day (estimate)", unit: "", higherIsBetter: true, get: (s) => (s.money.profit != null && s.daysWithData ? s.money.profit / s.daysWithData : null) },

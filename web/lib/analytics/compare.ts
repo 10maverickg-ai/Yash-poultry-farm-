@@ -339,6 +339,11 @@ export function compareRows(A: SideResult, B: SideResult): CompareRow[] {
   const effNote = (x: SideResult) => (x.s.feed.eggsPerKg == null ? (x.s.feed.eggsPerKgWhy ?? "feed not recorded") : undefined);
   const effPart = [A, B].filter((x) => x.s.feed.eggsPerKg != null && x.s.feed.daysRecorded < x.s.daysWithData).map((x) => `${x.side.key.toUpperCase()}: ${x.s.feed.daysRecorded} of ${x.s.daysWithData} days with feed`);
   add({ key: "eggsPerKg", group: "Feed", label: "Eggs per kg of feed", fmt: "num2", a: A.s.feed.eggsPerKg, b: B.s.feed.eggsPerKg, aNote: effNote(A), bNote: effNote(B), direction: "higher", note: `All eggs ÷ all feed kg (bags × 45 kg) over the days with feed only.${effPart.length ? ` ${effPart.join("; ")}.` : ""}` });
+  // V18 FCR: feed kg ÷ egg kg (standard egg weight for each flock's age unless eggs were weighed); lower = better
+  const fcrNote = (x: SideResult) => (x.s.feed.fcrEstimated == null ? (x.s.feed.fcrWhy ?? "not available") : undefined);
+  add({ key: "fcr", group: "Feed", label: A.s.feed.fcrLabel === B.s.feed.fcrLabel ? A.s.feed.fcrLabel : "FCR (egg weight: see the note)", fmt: "num2", a: A.s.feed.fcrEstimated, b: B.s.feed.fcrEstimated, aNote: fcrNote(A), bNote: fcrNote(B), direction: "lower", note: `All feed kg ÷ all egg kg over the days with feed. A: ${A.s.feed.fcrLabel}; B: ${B.s.feed.fcrLabel}.${[A, B].filter((x) => x.s.feed.fcrLeftOut).map((x) => ` ${x.side.key.toUpperCase()}: ${x.s.feed.fcrLeftOut}.`).join("")}` });
+  add({ key: "fcrStd", group: "Feed", label: "Breeder's FCR for the same days", fmt: "num2", a: A.s.feed.standardFcr, b: B.s.feed.standardFcr, aNote: A.s.feed.standardFcr == null ? fcrNote(A) ?? "no book figure" : undefined, bNote: B.s.feed.standardFcr == null ? fcrNote(B) ?? "no book figure" : undefined, direction: "none" });
+  add({ key: "feedPerEgg", group: "Feed", label: "Feed g per egg (exact)", fmt: "num1", a: A.s.feed.feedPerEggG, b: B.s.feed.feedPerEggG, aNote: fed(A) ? undefined : FN, bNote: fed(B) ? undefined : FN, direction: "lower" });
   add({ key: "feed100", group: "Feed", label: "Feed kg per 100 eggs", fmt: "num1", a: A.s.feed.kgPer100Eggs, b: B.s.feed.kgPer100Eggs, aNote: fed(A) ? undefined : FN, bNote: fed(B) ? undefined : FN, direction: "lower" });
 
   // egg ledger (farm-level)

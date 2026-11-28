@@ -34,6 +34,7 @@ import { dmy, n0, n1 } from "@/lib/format";
 import { allSegmentPanels, farmCheck } from "@/lib/analytics/segments";
 import { feedEfficiency, flockEff, effOn, type FeedEff } from "@/lib/analytics/feedEfficiency";
 import { flockHenHoused } from "@/lib/analytics/henHoused";
+import { fcrOf, fcrOn, flockFcr, type FcrResult } from "@/lib/analytics/fcr";
 import { FarmLine, SegmentPanelView } from "@/components/SegmentPanels";
 import { dayEconomics, monthEconomics, rangeEconomics, flockMonthEconomics } from "@/lib/costs/engine";
 
@@ -171,6 +172,7 @@ export default async function AnalyticsPage({
   const monthBySeg = { main: monthView(ctx, month, "main"), young: monthView(ctx, month, "young") };
   const returnTo = `/analytics?date=${asOf}&month=${month}`;
   // V17: eggs per kg of feed for each flock over the month (its own days with feed)
+  const monthFcr = new Map([...ctx.byFlock].map(([id, rs]) => [id, fcrOf(ctx, rs.filter((r) => r.date.startsWith(month)))]));
   const monthEff = new Map([...ctx.byFlock].map(([id, rs]) => [id, feedEfficiency(rs.filter((r) => r.date.startsWith(month)).map((r) => ({ date: r.date, eggs: r.eggs, feed: r.feed })))]));
 
   return (
@@ -317,7 +319,7 @@ export default async function AnalyticsPage({
             <div key={g ?? "none"}>
               <h3 className="an-daystamp">{g ? SEGMENT_NAME[g] : "Segment not set"} · {list.length}</h3>
               <div className="an-cards">
-                {list.map((c) => <FlockCardView key={c.flockId} c={c} eff={flockEff(ctx, c.flockId, asOf)} hh={flockHenHoused(ctx, c.flockId, asOf)} />)}
+                {list.map((c) => <FlockCardView key={c.flockId} c={c} eff={flockEff(ctx, c.flockId, asOf)} hh={flockHenHoused(ctx, c.flockId, asOf)} fcr={flockFcr(ctx, c.flockId, asOf)} />)}
               </div>
             </div>
           );
@@ -353,12 +355,12 @@ export default async function AnalyticsPage({
           return (
             <div key={g}>
               <h3 className="an-daystamp">{SEGMENT_NAME[g]}</h3>
-              <MonthTable mv={m} monthMoney={monthMoney} flockMoney={flockMoney} effByFlock={monthEff} effTotal={effOn(ctx, ctx.dates.filter((d) => d.startsWith(month)), g)} />
+              <MonthTable mv={m} monthMoney={monthMoney} flockMoney={flockMoney} effByFlock={monthEff} effTotal={effOn(ctx, ctx.dates.filter((d) => d.startsWith(month)), g)} fcrByFlock={monthFcr} fcrTotal={fcrOn(ctx, ctx.dates.filter((d) => d.startsWith(month)), g)} />
             </div>
           );
         })}
         <h3 className="an-daystamp">Whole farm (sum of the groups; mixes mature and young birds)</h3>
-        <MonthTable mv={mv} monthMoney={monthMoney} flockMoney={flockMoney} totalOnly effByFlock={monthEff} effTotal={effOn(ctx, ctx.dates.filter((d) => d.startsWith(month)), "all")} />
+        <MonthTable mv={mv} monthMoney={monthMoney} flockMoney={flockMoney} totalOnly effByFlock={monthEff} effTotal={effOn(ctx, ctx.dates.filter((d) => d.startsWith(month)), "all")} fcrByFlock={monthFcr} fcrTotal={fcrOn(ctx, ctx.dates.filter((d) => d.startsWith(month)), "all")} />
         <p className="muted an-foot">
           Deaths % = deaths ÷ birds at the start of the flock&apos;s first day in the month. Chick-shed deaths this month: {n0(mv.chickDeaths)} (not in the table).
           {monthMoney.revenue ? ` Farm: revenue ₹${n0(monthMoney.revenue)}, cost ₹${n0(monthMoney.cost.total)}, estimated profit ₹${n0(monthMoney.profit)}${monthMoney.revenuePerEgg != null && monthMoney.costPerEgg != null ? `; revenue per egg ₹${monthMoney.revenuePerEgg.toFixed(2)} vs cost per egg ₹${monthMoney.costPerEgg.toFixed(2)}` : ""}. Per-flock profit is an estimate (feed exact, other costs by bird count, revenue by eggs laid).` : " Revenue and profit are left out for this month: no BAFTA rates have been entered, so nothing is priced."}
@@ -375,7 +377,13 @@ function MonthEff({ e }: { e: FeedEff | undefined }) {
   return <>{n2(e.eggsPerKg)}{e.daysWithFeed < e.days ? <span className="muted an-tiny"> ({e.daysWithFeed} of {e.days} days)</span> : null}</>;
 }
 
-function MonthTable({ mv, monthMoney, flockMoney, totalOnly, effByFlock, effTotal }: { mv: ReturnType<typeof monthView>; monthMoney: ReturnType<typeof monthEconomics>; flockMoney: Map<string, { profit: number }>; totalOnly?: boolean; effByFlock: Map<string, FeedEff>; effTotal: FeedEff }) {
+function MonthFcr({ f }: { f: FcrResult | undefined }) {
+  if (!f) return <>–</>;
+  if (f.fcr == null) return <span className="muted an-tiny">{f.why?.startsWith("feed not recorded") ? "feed not recorded" : f.why?.startsWith("past the end") ? "beyond the book's egg weights" : "–"}</span>;
+  return <>{n2(f.fcr)}{f.standardFcr != null ? <span className="muted an-tiny"> (book {n2(f.standardFcr)})</span> : null}</>;
+}
+
+function MonthTable({ mv, monthMoney, flockMoney, totalOnly, effByFlock, effTotal, fcrByFlock, fcrTotal }: { mv: ReturnType<typeof monthView>; monthMoney: ReturnType<typeof monthEconomics>; flockMoney: Map<string, { profit: number }>; totalOnly?: boolean; effByFlock: Map<string, FeedEff>; effTotal: FeedEff; fcrByFlock: Map<string, FcrResult>; fcrTotal: FcrResult }) {
   return (
         <div className="card an-scroll">
           <table className="an-table">
@@ -390,6 +398,7 @@ function MonthTable({ mv, monthMoney, flockMoney, totalOnly, effByFlock, effTota
                 <th className="num">Deaths %</th>
                 <th className="num">Est. profit ₹</th>
                 <th className="num">Eggs per kg feed (month)</th>
+                <th className="num">FCR, est. (month)</th>
               </tr>
             </thead>
             <tbody>
@@ -408,6 +417,7 @@ function MonthTable({ mv, monthMoney, flockMoney, totalOnly, effByFlock, effTota
                   <td className="num">{r.mortPct != null ? r.mortPct.toFixed(2) : "–"}</td>
                   <td className="num">{r.flockId && monthMoney.revenue && flockMoney.get(r.flockId) ? n0(flockMoney.get(r.flockId)!.profit) : "–"}</td>
                   <td className="num"><MonthEff e={r.flockId ? effByFlock.get(r.flockId) : undefined} /></td>
+                  <td className="num"><MonthFcr f={r.flockId ? fcrByFlock.get(r.flockId) : undefined} /></td>
                 </tr>
               ))}
             </tbody>
@@ -422,6 +432,7 @@ function MonthTable({ mv, monthMoney, flockMoney, totalOnly, effByFlock, effTota
                 <th className="num">–</th>
                 <th className="num">{monthMoney.revenue && mv.total.label === "Farm total" ? n0(monthMoney.profit) : "–"}</th>
                 <th className="num"><MonthEff e={effTotal} /></th>
+                <th className="num"><MonthFcr f={fcrTotal} /></th>
               </tr>
             </tfoot>
           </table>
@@ -503,7 +514,19 @@ function FlockHHLine({ h }: { h: ReturnType<typeof flockHenHoused> }) {
   );
 }
 
-function FlockCardView({ c, eff, hh }: { c: FlockCard; eff: { day: FeedEff; week: FeedEff }; hh: ReturnType<typeof flockHenHoused> }) {
+/** V18: a flock's FCR (estimated from the standard egg weight unless weighed) on the board day and over its last 7 rows. */
+function FlockFcrLine({ f }: { f: { day: FcrResult; week: FcrResult } }) {
+  const w = f.week;
+  if (w.fcr == null) return <div className="muted an-tiny">FCR: {w.why ?? "not available"}{w.feedPerEggG != null ? ` · feed ${n1(w.feedPerEggG)} g per egg (last 7 days)` : ""}</div>;
+  return (
+    <div className="muted an-tiny">
+      FCR ({w.weight.actualRows ? "with weighed eggs" : "est. from standard egg weight"}): today {f.day.fcr != null ? <b>{n2(f.day.fcr)}</b> : (f.day.why?.startsWith("feed not recorded") ? "feed not recorded" : "–")} · last 7 days {n2(w.fcr)}
+      {w.standardFcr != null ? ` (book ${n2(w.standardFcr)})` : ""} · feed {n1(w.feedPerEggG ?? 0)} g per egg
+    </div>
+  );
+}
+
+function FlockCardView({ c, eff, hh, fcr }: { c: FlockCard; eff: { day: FeedEff; week: FeedEff }; hh: ReturnType<typeof flockHenHoused>; fcr: { day: FcrResult; week: FcrResult } }) {
   return (
     <Link href={`/flocks/${c.flockId}`} className={`card an-flock an-${c.status} card-link`}>
       <div className="an-flock-head">
@@ -535,6 +558,7 @@ function FlockCardView({ c, eff, hh }: { c: FlockCard; eff: { day: FeedEff; week
           <FlockFeedLines f={c.feed} />
           <FlockEffLine e={eff} />
           <FlockHHLine h={hh} />
+          <FlockFcrLine f={fcr} />
         </div>
         <Spark values={c.hdSeries} color={SPARK_COLOR[c.status]} />
       </div>
