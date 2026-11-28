@@ -30,6 +30,9 @@ import { chip } from "@/lib/analytics/chips";
 import { dmy, n0, n1, n2, inr } from "@/lib/format";
 import { ShareMenu } from "@/components/ShareMenu";
 import { BAG_KG } from "@/lib/costs/engine";
+import { CostRows, notEnteredExtras } from "@/components/CostRows";
+import { partialMonthWords } from "@/lib/costs/costWords";
+import { todayIST } from "@/lib/weather/openMeteo";
 import { shareQuery } from "@/lib/export/shareOptions";
 
 const pretty = (d: string) => dmy(d);
@@ -224,11 +227,11 @@ function Money({ s, month }: { s: PeriodSummary; month?: string }) {
   return (
     <section className="card" aria-label="Money">
       <h2 style={{ marginTop: 0 }}>Money <span className="badge badge-flagged">estimate</span></h2>
-      <p className="an-sub" style={{ marginTop: 0 }}><b>{s.partial ? `To date, not the full period: ${s.daysWithData} of ${s.range.days} days have data` : `Full period: all ${s.range.days} days have data`}.</b> {s.partial ? "Monthly bills (electricity, labour) are counted for those days only." : ""}</p>
+      <p className="an-sub" style={{ marginTop: 0 }}><b>{s.partial ? `To date, not the full period: ${s.daysWithData} of ${s.range.days} days have data` : `Full period: all ${s.range.days} days have data`}.</b> {s.partial ? `Monthly costs (labour, electricity, diesel, miscellaneous) are counted for ${s.money.costDays} day${s.money.costDays === 1 ? "" : "s"}: the days so far, also a day the register missed.` : ""}</p>
       <div className="an-grid">
         <Card title="Egg revenue" value={m.revenue ? inr(m.revenue) : "—"} sub={`${n0(m.eggsSold)} eggs sold${m.avgPricePerEgg != null ? ` · avg ₹${n2(m.avgPricePerEgg)}/egg` : ""}`} />
         <Card title={m.costComplete ? "Cost" : "Cost so far"} value={inr(m.cost.total)} sub={m.costComplete ? "all inputs entered" : "some inputs missing"} />
-        <Card title={profitLabel} value={m.profit != null ? inr(m.profit) : "—"} sub={m.profitPerTray != null ? `${inr(m.profitPerTray)} per tray sold` : undefined} />
+        <Card title={profitLabel} value={m.profit != null ? inr(m.profit) : "—"} sub={[m.profitPerTray != null ? `${inr(m.profitPerTray)} per tray sold` : "", notEnteredExtras(m.sources).length ? `before ${notEnteredExtras(m.sources).join(", ")} (not entered)` : ""].filter(Boolean).join(" · ") || undefined} />
         <Card title="Revenue / egg" value={m.revenuePerEgg != null ? `₹${n2(m.revenuePerEgg)}` : "—"} />
         <Card title="Cost / egg" value={m.costPerEgg != null ? `₹${n2(m.costPerEgg)}` : "—"} sub={m.costComplete ? undefined : "so far"} />
         <Card title="Cost / tray (30 eggs)" value={m.costPerEgg != null ? `₹${n2(m.costPerEgg * 30)}` : "—"} sub={m.costComplete ? "cost per egg × 30" : "so far · cost per egg × 30"} />
@@ -236,6 +239,7 @@ function Money({ s, month }: { s: PeriodSummary; month?: string }) {
         {m.birdSaleRevenue > 0 && <Card title="Bird sales" value={inr(m.birdSaleRevenue)} sub="not in egg revenue" />}
       </div>
       {m.feedPriceChanges.length > 0 && <p className="an-note pv-pricenote">{priceChangeWords(m)} Each day uses its own price. <Link href="/feed-formulas">Feed formulas →</Link></p>}
+      {partialMonthWords(m.sources, todayIST()).map((w) => <p key={w} className="an-note pv-pricenote">{w}</p>)}
       {m.unpricedEggs > 0 && <div className="flag-banner" style={{ marginTop: "0.6rem" }}>{n0(m.unpricedEggs)} eggs sold have no rate, so they are left out of revenue. <Link href="/sales/rates">Enter the rates</Link></div>}
       {m.missing.length > 0 && (
         <div className="flag-banner" style={{ marginTop: "0.6rem" }}>
@@ -249,13 +253,8 @@ function Money({ s, month }: { s: PeriodSummary; month?: string }) {
             <tr key={`${g.label}|${g.perKg}`} className="pv-subrow"><td className="muted an-tiny">· {g.label.startsWith("Formula: ") ? g.label.slice(9) : "farm default"}: {n0(g.bags)} bags × {BAG_KG} kg × ₹{g.perKg.toFixed(2)}{g.from !== g.to ? ` (${dmy(g.from)} – ${dmy(g.to)})` : ` (${dmy(g.from)})`}</td><td className="num muted an-tiny">{inr(g.cost)}</td></tr>
           ))}
           {m.feedNotPriced.length > 0 && <tr className="pv-subrow"><td className="muted an-tiny">· {m.feedNotPriced.join(", ")}: no formula and no farm default</td><td className="num"><span className="badge badge-flagged">not entered</span></td></tr>}
-          <tr><td>Electricity</td><td className="num">{m.missing.some((x) => x.startsWith("electricity")) ? <span className="badge badge-flagged">missing: not entered</span> : inr(m.cost.electricity)}</td></tr>
-          <tr><td>Labour</td><td className="num">{m.missing.includes("labour") ? <span className="badge badge-flagged">missing: not entered</span> : inr(m.cost.labour)}</td></tr>
-          <tr><td>Packing</td><td className="num">{miss("packing price") ? <span className="badge badge-flagged">not entered</span> : inr(m.cost.packing)}</td></tr>
-          <tr><td>Diesel</td><td className="num">{miss("diesel") ? <span className="badge badge-flagged">not entered</span> : inr(m.cost.diesel)}</td></tr>
-          <tr><td>Medicines and vaccines</td><td className="num">{miss("medicines") ? <span className="badge badge-flagged">not entered</span> : inr(m.cost.medicine)}</td></tr>
-          <tr><td>Other costs</td><td className="num">{miss("other costs") ? <span className="badge badge-flagged">not entered</span> : inr(m.cost.other)}</td></tr>
-          <tr><td>Chick purchase <span className="muted an-tiny">{`(average ${m.chickPrice != null ? `₹${m.chickPrice}` : "price"} per chick × chicks that arrived; counted in the month they arrived)`}</span></td><td className="num">{inr(m.cost.chicks)}</td></tr>
+          <CostRows cost={m.cost} sources={m.sources} missing={m.missing} packPer={m.packingPerTray} chickPrice={m.chickPrice} />
+          <tr className="ff-total"><td>Total cost{m.costComplete ? "" : " so far"} (estimate)</td><td className="num">{inr(m.cost.total)}</td></tr>
         </tbody>
       </table></div>
       {month && <p className="muted an-foot"><Link href="/purchases">Complete this month&apos;s inputs →</Link></p>}

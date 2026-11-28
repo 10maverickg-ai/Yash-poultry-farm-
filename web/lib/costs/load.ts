@@ -2,6 +2,7 @@ import { pool } from "@/lib/db";
 import { ACTIVE_FARM } from "@/lib/farm";
 import type { CostInput } from "./engine";
 import { loadFormulations } from "./formulaLoad";
+import { todayIST } from "@/lib/weather/openMeteo";
 
 const num = (x: unknown) => (x == null ? null : Number(x));
 
@@ -50,6 +51,7 @@ export async function loadCostInput(): Promise<CostInput> {
     statuses: statuses.rows.map((r) => ({ month: r.month, key: r.input_key, status: r.status })),
     formulations,
     flockLabels: Object.fromEntries(flocks.rows.map((r) => [r.flock_internal_id, r.display_label])),
+    today: todayIST(), // V19 D3: a month still running is charged its days so far
     birdSales: birds.rows.map((r) => ({
       date: r.date,
       amount: r.price_per_bird != null ? Math.abs(r.birds_change) * Number(r.price_per_bird) : null,
