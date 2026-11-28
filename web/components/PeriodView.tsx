@@ -29,6 +29,7 @@ import { SeriesChart } from "@/components/PeriodCharts";
 import { chip } from "@/lib/analytics/chips";
 import { dmy, n0, n1, n2, inr } from "@/lib/format";
 import { ShareMenu } from "@/components/ShareMenu";
+import { BAG_KG } from "@/lib/costs/engine";
 import { shareQuery } from "@/lib/export/shareOptions";
 
 const pretty = (d: string) => dmy(d);
@@ -201,6 +202,21 @@ function CompareTable({ changes, vsLabel, lastYear }: { changes: Change[]; vsLab
   );
 }
 
+/** V19: "Feed price changed on 28 Nov 2026 (new formulas)." for every formula date inside the period. */
+const priceChangeWords = (m: PeriodSummary["money"]) => m.feedPriceChanges.map((d) => `Feed price changed on ${dmy(d)} (new formulas).`).join(" ");
+
+/** V19: where the period's feed price came from, in words: one price, or the average of each shed's own prices. */
+function feedPriceWords(m: PeriodSummary["money"]): string {
+  if (m.feedBy.length === 0) return m.feedPerKg != null ? `(farm default ₹${m.feedPerKg.toFixed(2)} per kg = ₹${n0(m.feedPerKg * BAG_KG)} per ${BAG_KG} kg bag, own mill)` : "";
+  if (m.feedBy.length === 1) {
+    const g = m.feedBy[0];
+    return `(${g.label.startsWith("Formula: ") ? g.label.replace(/^Formula: /, "formula ") : "farm default, own mill"}: ₹${g.perKg.toFixed(2)} per kg = ₹${n0(g.perKg * BAG_KG)} per ${BAG_KG} kg bag)`;
+  }
+  const bags = m.feedBy.reduce((t, g) => t + g.bags, 0);
+  const cost = m.feedBy.reduce((t, g) => t + g.cost, 0);
+  return `(each shed's own price that day: average ₹${(cost / (bags * BAG_KG)).toFixed(2)} per kg over ${n0(bags)} bags; the lines below)`;
+}
+
 function Money({ s, month }: { s: PeriodSummary; month?: string }) {
   const m = s.money;
   const profitLabel = m.costComplete ? "Estimated profit" : "Estimated profit — INCOMPLETE";
@@ -215,8 +231,11 @@ function Money({ s, month }: { s: PeriodSummary; month?: string }) {
         <Card title={profitLabel} value={m.profit != null ? inr(m.profit) : "—"} sub={m.profitPerTray != null ? `${inr(m.profitPerTray)} per tray sold` : undefined} />
         <Card title="Revenue / egg" value={m.revenuePerEgg != null ? `₹${n2(m.revenuePerEgg)}` : "—"} />
         <Card title="Cost / egg" value={m.costPerEgg != null ? `₹${n2(m.costPerEgg)}` : "—"} sub={m.costComplete ? undefined : "so far"} />
+        <Card title="Cost / tray (30 eggs)" value={m.costPerEgg != null ? `₹${n2(m.costPerEgg * 30)}` : "—"} sub={m.costComplete ? "cost per egg × 30" : "so far · cost per egg × 30"} />
+        <Card title="Feed cost, share of egg sales" value={m.revenue > 0 && !miss("feed price") ? `${n1((m.cost.feed / m.revenue) * 100)}%` : "—"} sub={m.revenue > 0 ? `feed ${inr(m.cost.feed)} ÷ egg revenue ${inr(m.revenue)}` : "no priced egg sales"} />
         {m.birdSaleRevenue > 0 && <Card title="Bird sales" value={inr(m.birdSaleRevenue)} sub="not in egg revenue" />}
       </div>
+      {m.feedPriceChanges.length > 0 && <p className="an-note pv-pricenote">{priceChangeWords(m)} Each day uses its own price. <Link href="/feed-formulas">Feed formulas →</Link></p>}
       {m.unpricedEggs > 0 && <div className="flag-banner" style={{ marginTop: "0.6rem" }}>{n0(m.unpricedEggs)} eggs sold have no rate, so they are left out of revenue. <Link href="/sales/rates">Enter the rates</Link></div>}
       {m.missing.length > 0 && (
         <div className="flag-banner" style={{ marginTop: "0.6rem" }}>
@@ -225,7 +244,11 @@ function Money({ s, month }: { s: PeriodSummary; month?: string }) {
       )}
       <div style={{ overflowX: "auto" }}><table className="an-table" style={{ minWidth: 0, marginTop: "0.6rem" }}>
         <tbody>
-          <tr><td>Feed <span className="muted an-tiny">{m.feedPerKg != null ? `(₹${m.feedPerKg.toFixed(2)} per kg = ₹${n0(m.feedPerKg * 45)} per 45 kg bag, own mill)` : ""}</span></td><td className="num">{miss("feed price") ? <span className="badge badge-flagged">not entered</span> : inr(m.cost.feed)}</td></tr>
+          <tr><td>Feed <span className="muted an-tiny">{feedPriceWords(m)}</span></td><td className="num">{miss("feed price") ? <span className="badge badge-flagged">not entered</span> : inr(m.cost.feed)}</td></tr>
+          {m.feedBy.length > 1 && m.feedBy.map((g) => (
+            <tr key={`${g.label}|${g.perKg}`} className="pv-subrow"><td className="muted an-tiny">· {g.label.startsWith("Formula: ") ? g.label.slice(9) : "farm default"}: {n0(g.bags)} bags × {BAG_KG} kg × ₹{g.perKg.toFixed(2)}{g.from !== g.to ? ` (${dmy(g.from)} – ${dmy(g.to)})` : ` (${dmy(g.from)})`}</td><td className="num muted an-tiny">{inr(g.cost)}</td></tr>
+          ))}
+          {m.feedNotPriced.length > 0 && <tr className="pv-subrow"><td className="muted an-tiny">· {m.feedNotPriced.join(", ")}: no formula and no farm default</td><td className="num"><span className="badge badge-flagged">not entered</span></td></tr>}
           <tr><td>Electricity</td><td className="num">{m.missing.some((x) => x.startsWith("electricity")) ? <span className="badge badge-flagged">missing: not entered</span> : inr(m.cost.electricity)}</td></tr>
           <tr><td>Labour</td><td className="num">{m.missing.includes("labour") ? <span className="badge badge-flagged">missing: not entered</span> : inr(m.cost.labour)}</td></tr>
           <tr><td>Packing</td><td className="num">{miss("packing price") ? <span className="badge badge-flagged">not entered</span> : inr(m.cost.packing)}</td></tr>
@@ -306,6 +329,7 @@ function Headline({ s, c }: { s: PeriodSummary; c: Change[] }) {
   return (
     <section className="card" aria-label="Headline numbers">
       <p className="muted an-sub" style={{ marginTop: 0 }}>{s.dataNote}{s.partial ? " — averages use only days with data" : ""}.</p>
+      {s.money.feedPriceChanges.length > 0 && <p className="an-note pv-pricenote">{priceChangeWords(s.money)}</p>}
       <div className="an-grid">
         <Card title="Eggs per day" value={s.eggs.perDay != null ? n0(s.eggs.perDay) : "–"} sub={`${n0(s.eggs.total)} eggs · ${n0(s.eggs.trays)} trays`} c={g("eggsPerDay")} />
         <Card title="Eggs per 100 birds (HD %)" value={s.eggs.hdPooled != null ? `${n1(s.eggs.hdPooled)}%` : "–"} sub="all eggs ÷ all bird-days × 100" c={g("hd")} digits={1} />
@@ -352,7 +376,7 @@ function Headline({ s, c }: { s: PeriodSummary; c: Change[] }) {
             <li>Breakage and labour take: written in the egg ledger for the whole page, not split by flock.</li>
           )}
           {s.eggs.best && s.eggs.worst && <li>Best day {pretty(s.eggs.best.date)} ({n1(s.eggs.best.hd)}%), worst day {pretty(s.eggs.worst.date)} ({n1(s.eggs.worst.hd)}%).</li>}
-          <li>{s.feed.recorded ? `Feed ${periodWord(s)}: ${n0(s.feed.kg)} kg in total (${n0(s.feed.bags)} bags of 45 kg).` : "Feed is not recorded for these flocks."} {s.farmLevel ? <>Feed left at period end: {s.feed.daysLeftAtEnd != null ? `${n1(s.feed.daysLeftAtEnd)} days` : "–"}. Egg stock: {s.feed.eggStockDaysAtEnd != null ? `${n1(s.feed.eggStockDaysAtEnd)} days` : "–"}.</> : "Feed stock and egg stock are kept for the whole farm, not per flock."}</li>
+          <li>{s.feed.recorded ? `Feed ${periodWord(s)}: ${n0(s.feed.kg)} kg in total (${n0(s.feed.bags)} bags of ${BAG_KG} kg).` : "Feed is not recorded for these flocks."} {s.farmLevel ? <>Feed left at period end: {s.feed.daysLeftAtEnd != null ? `${n1(s.feed.daysLeftAtEnd)} days` : "–"}. Egg stock: {s.feed.eggStockDaysAtEnd != null ? `${n1(s.feed.eggStockDaysAtEnd)} days` : "–"}.</> : "Feed stock and egg stock are kept for the whole farm, not per flock."}</li>
           {s.eggs.hdMeanOfDaily != null && s.eggs.hdPooled != null && <li>Mean of the daily percentages would be {n1(s.eggs.hdMeanOfDaily)}%; the pooled figure above is the correct one.</li>}
         </ul>
       </details>
