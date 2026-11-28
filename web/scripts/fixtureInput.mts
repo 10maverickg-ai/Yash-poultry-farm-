@@ -91,3 +91,22 @@ export function loadCostSettings(dir: string): { type: string; value: number; ef
   const f = `${dir}/cost_settings.json`;
   return existsSync(f) ? (JSON.parse(readFileSync(f, "utf8")) as any[]).map((r) => ({ type: r.cost_type, value: Number(r.value), effectiveFrom: String(r.effective_from).slice(0, 10), month: r.month })) : [];
 }
+
+/** V19 D: the whole cost input from the fixture dump, the same shape the loader builds (real settings, purchases, diesel, chicks, statuses, formulas). */
+export function loadCostFixture(dir: string, today?: string): import("../lib/costs/engine.ts").CostInput {
+  const j = (n: string) => (existsSync(`${dir}/${n}.json`) ? JSON.parse(readFileSync(`${dir}/${n}.json`, "utf8")) : []);
+  const flocks: any[] = j("flocks");
+  return {
+    settings: loadCostSettings(dir),
+    purchases: (j("purchases") as any[]).map((r) => ({ date: String(r.date).slice(0, 10), category: r.category, amount: Number(r.amount_inr) })),
+    diesel: (j("diesel") as any[]).map((r) => ({ date: String(r.date).slice(0, 10), amount: Number(r.amount_inr) })),
+    prod: (j("dp") as any[]).map((r) => ({ date: r.date, flockId: r.flock_internal_id, eggs: r.eggs_total ?? 0, feedBags: r.feed_bags ?? 0, birds: r.bird_population ?? 0 })),
+    sales: j("sales"),
+    birdSales: [],
+    chickBatches: (j("chick_batches") as any[]).map((r) => ({ arrival: String(r.arrival_date).slice(0, 10), count: Math.max(0, Number(r.starting_count) - Number(r.to_anil)) })),
+    statuses: (j("input_status") as any[]).map((r) => ({ month: r.month, key: r.input_key, status: r.status })),
+    formulations: loadFormulations(dir),
+    flockLabels: Object.fromEntries(flocks.map((f) => [f.flock_internal_id, f.display_label])),
+    ...(today ? { today } : {}),
+  };
+}
