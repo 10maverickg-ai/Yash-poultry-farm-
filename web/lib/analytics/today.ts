@@ -45,7 +45,7 @@ const ACTION: Record<AlertKind, string> = {
   feed_efficiency: "Check for feed waste (spilt feed, feeder level, rats), a change in the feed or the mill's mix, sick birds, and heat in the shed.",
   fcr: "Check for feed waste, a change in the feed or the mill's mix, sick birds and heat; weigh a sample of eggs to see if they are getting smaller.",
 };
-const KIND_TITLE: Record<AlertKind, string> = {
+export const KIND_TITLE: Record<AlertKind, string> = {
   production_drop: "is laying fewer eggs than usual",
   high_mortality: "had more deaths than usual",
   low_feed_stock: "Feed stock is very low",

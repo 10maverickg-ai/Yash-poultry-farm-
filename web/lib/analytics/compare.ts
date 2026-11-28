@@ -307,7 +307,7 @@ export function compareRows(A: SideResult, B: SideResult): CompareRow[] {
   const fp = (x: SideResult) => (x.side.flockId ? x.s.flocks.find((f) => f.flockId === x.side.flockId) ?? null : null);
   const hhNote = (x: SideResult) => (!x.side.flockId ? "per flock only (each flock has its own number housed)" : fp(x)?.henHousedPct == null ? "no rows in this range" : undefined);
   const stand = [A, B].filter((x) => fp(x)?.housedSource === "standin").map((x) => x.side.key.toUpperCase());
-  const hhCommon = `Hen-housed = eggs ÷ hens housed (birds moved in or out counted; deaths, culls and sales not).${stand.length ? ` ${stand.join(" and ")}: stand-in, the birds on 2 Jul 2026 (the number housed is not known).` : ""}`;
+  const hhCommon = `Hen-housed = eggs ÷ hens housed (birds moved between flocks counted; birds that died, were culled or left the farm not).${stand.length ? ` ${stand.join(" and ")}: stand-in, the birds on 2 Jul 2026 (the number housed is not known).` : ""}`;
   add({ key: "hensHoused", group: "Hen-housed", label: "Hens housed (average over the days)", fmt: "int", a: fp(A)?.hensHoused ?? null, b: fp(B)?.hensHoused ?? null, aNote: hhNote(A), bNote: hhNote(B), direction: "none", note: hhCommon });
   add({ key: "hhPct", group: "Hen-housed", label: "Hen-housed % (eggs ÷ hens housed)", fmt: "pct1", a: fp(A)?.henHousedPct ?? null, b: fp(B)?.henHousedPct ?? null, aNote: hhNote(A), bNote: hhNote(B), direction: "higher" });
   add({ key: "eggsPerHH", group: "Hen-housed", label: "Eggs per hen housed (in the range)", fmt: "num1", a: fp(A)?.eggsPerHenHoused ?? null, b: fp(B)?.eggsPerHenHoused ?? null, aNote: hhNote(A), bNote: hhNote(B), direction: "higher", totals: true });

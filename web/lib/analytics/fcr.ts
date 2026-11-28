@@ -62,6 +62,7 @@ export interface FcrResult {
   gapPct: number | null;
   feedKg: number; // all flock-days with feed
   eggs: number; // their eggs
+  fcrFeedKg: number; // feed kg of the flock-days that have an egg weight (the FCR's top line; = feedKg when none is left out)
   eggKg: number; // egg kg of the flock-days that have an egg weight
   days: number;
   daysWithFeed: number;
@@ -137,6 +138,7 @@ export function fcrOf(ctx: Ctx, rows: Pick<ProdRow, "date" | "flockId" | "eggs" 
     gapPct: fcr != null && standardFcr ? ((fcr - standardFcr) / standardFcr) * 100 : null,
     feedKg,
     eggs,
+    fcrFeedKg,
     eggKg,
     days,
     daysWithFeed,

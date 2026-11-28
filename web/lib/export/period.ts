@@ -5,10 +5,11 @@ import { loadCostInput } from "@/lib/costs/load";
 import { ledgerSegment, rowsOn, segmentOn, type Ctx } from "@/lib/analytics/engine";
 import { monthsWithin, rangeCoverage, rangeOf, summarizeRange, summarizePeriod, type PeriodExtras, type PeriodKind, type PeriodRange, type RangeFilter } from "@/lib/analytics/period";
 import { readRange, type Param } from "@/lib/analytics/rangeParams";
-import { compareRows, compareSide, readCompare, type CompareRow } from "@/lib/analytics/compare";
+import { compareRows, compareSide, readCompare } from "@/lib/analytics/compare";
 import { SEGMENT_NAME, type SegFilter } from "@/lib/analytics/engine";
 import { BAG_KG, dayEconomics, type CostInput } from "@/lib/costs/engine";
 import type { Dataset } from "./types";
+import { compareSheet, HD_NOTE } from "./compareSheet";
 
 // Read-only week / month / year / custom-range summaries and the Compare table for Excel and CSV.
 // A week, month or range is one row per day; a year is one row per month. HD% is a formula (eggs ÷ bird-days)
@@ -25,7 +26,6 @@ async function loadAll() {
   return { ctx, cost, extras };
 }
 
-const HD_NOTE = "HD % = eggs ÷ bird-days × 100. The totals row pools it (total eggs ÷ total bird-days); it is not an average of daily percentages.";
 const MONEY_NOTE = "Revenue = priced egg sales only. Cost and profit are ESTIMATES (feed exact; electricity, labour and packing spread; diesel and medicines on the day bought).";
 
 const letter = (i: number) => String.fromCharCode(65 + i);
@@ -189,51 +189,6 @@ export async function compareDataset(sp: Record<string, Param>, today: string): 
   const st = readCompare(ctx, sp, today);
   const A = compareSide(ctx, cost, extras, st.a);
   const B = compareSide(ctx, cost, extras, st.b);
-  const rows = compareRows(A, B);
-  const numeric = (r: CompareRow) => typeof r.a === "number" && typeof r.b === "number" && r.fmt !== "date" && r.fmt !== "text";
-  const name = (x: typeof A) => `${x.side.key.toUpperCase()}: ${x.side.flockLabel}, ${x.side.range.label}`;
-  const unit = (r: CompareRow) => (r.fmt === "pct1" || r.fmt === "pct2" ? "%" : r.fmt === "inr" || r.fmt === "inr2" ? "₹" : r.fmt === "age" ? "days" : "");
-  const first = 4;
-  const ds: Dataset = {
-    name: "Compare",
-    title: `Compare — ${name(A)} against ${name(B)}${st.age && st.weeks ? ` (weeks ${st.weeks.from}–${st.weeks.to} of age)` : ""}`,
-    columns: [
-      { key: "group", header: "Group", type: "text", width: 16 },
-      { key: "measure", header: "Measure", type: "text", width: 40 },
-      { key: "a", header: name(A), type: "auto", width: 22 },
-      { key: "b", header: name(B), type: "auto", width: 22 },
-      { key: "diff", header: "Difference (B − A)", type: "num", width: 16 },
-      { key: "diffPct", header: "Difference % of A", type: "num", width: 14 },
-      { key: "unit", header: "Unit", type: "text", width: 7 },
-      { key: "verdict", header: "B is", type: "text", width: 14 },
-      { key: "why", header: "Why blank / note", type: "text", width: 50 },
-    ],
-    rows: rows.map((r) => ({
-      group: r.group,
-      measure: r.label,
-      a: r.a,
-      b: r.b,
-      diff: r.diff,
-      diffPct: r.diffPct,
-      unit: unit(r),
-      verdict: r.diff == null ? "" : Math.abs(r.diff) < 1e-9 ? "the same" : r.good == null ? (r.diff > 0 ? "higher" : "lower") : r.good ? "better" : "worse",
-      why: [r.aNote ? `A: ${r.aNote}` : "", r.bNote ? `B: ${r.bNote}` : "", r.note ?? ""].filter(Boolean).join(" "),
-    })),
-    notes: [
-      `${name(A)}: ${A.s.dataNote}.${A.coverageNote ? ` ${A.coverageNote}` : ""}`,
-      `${name(B)}: ${B.s.dataNote}.${B.coverageNote ? ` ${B.coverageNote}` : ""}`,
-      ...st.notes,
-      ...st.a.notes.map((x) => `A: ${x}`),
-      ...st.b.notes.map((x) => `B: ${x}`),
-      "Each column is worked out on its own (its own flock and dates). Difference = B − A, written as a formula; % = difference ÷ A.",
-      HD_NOTE.replace(" The totals row pools it (total eggs ÷ total bird-days);", ";"),
-      "One flock: its own birds and eggs only. Sales, costs, profit and the egg-ledger breakage are farm-level, not split by flock (blank). Profit is an estimate; missing costs are missing, not zero.",
-    ],
-    formulas: {
-      diff: (row) => (numeric(rows[row - first]) ? `IF(AND(ISNUMBER(C${row}),ISNUMBER(D${row})),D${row}-C${row},"")` : null),
-      diffPct: (row) => (numeric(rows[row - first]) ? `IF(AND(ISNUMBER(C${row}),ISNUMBER(D${row}),C${row}<>0),(D${row}-C${row})/ABS(C${row})*100,"")` : null),
-    },
-  };
   const tag = (x: typeof A) => `${x.side.flockId ? x.side.flockLabel.replace(/[^A-Za-z0-9-]+/g, "") : "all"}-${x.side.range.from}`;
-  return { ds, stem: `yash-farm-compare-${tag(A)}-vs-${tag(B)}` };
+  return { ds: compareSheet(A, B, st, compareRows(A, B)), stem: `yash-farm-compare-${tag(A)}-vs-${tag(B)}` };
 }
