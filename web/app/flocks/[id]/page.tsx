@@ -19,6 +19,9 @@ import { TargetLines } from "@/components/TargetLines";
 import { FlockMedicinesCard } from "@/components/FlockMedicinesCard";
 import { loadFlockMedicines } from "@/lib/medicines/boosterStore";
 import { todayIST } from "@/lib/weather/openMeteo";
+import { ShareMenu } from "@/components/ShareMenu";
+import { shareQuery } from "@/lib/export/shareOptions";
+import { addDays } from "@/lib/analytics/engine";
 
 export const dynamic = "force-dynamic";
 
@@ -36,10 +39,13 @@ export default async function FlockDetailPage({
   const [history, sheds, stageEvents, movements, sameLabel] = await Promise.all([getLabelHistory(id), listSheds(), getStageHistory(id), getFlockMovements(id), sameLabelFlocks(id, flock.display_label)]);
   let card: ReturnType<typeof flockCards>[number] | null = null;
   let hh: ReturnType<typeof flockHenHoused> = null;
+  let shareTo: string | null = null; // V18: the flock's last day with data (its share file covers the 7 days up to it)
   try {
     const { ctx } = buildFarmCtx(await loadEngineInput());
     card = flockCards(ctx, lastDayOfData(ctx)).find((c) => c.flockId === id) ?? null;
     hh = flockHenHoused(ctx, id, lastDayOfData(ctx)); // V17: hen-housed, the breeder's definition
+    const own = ctx.byFlock.get(id) ?? [];
+    shareTo = own.length ? own[own.length - 1].date : null;
   } catch {
     card = null; // the targets box is extra information; never block the flock page
   }
@@ -56,6 +62,7 @@ export default async function FlockDetailPage({
       </h1>
 
       <p className="flock-compare"><Link href={`/analytics/compare?a=${encodeURIComponent(flock.display_label)}`} className="btn btn-secondary">Compare this flock with another</Link> <Link href={`/analytics?view=custom&f=${encodeURIComponent(flock.display_label)}`} className="btn btn-secondary">This flock over any dates</Link></p>
+      {shareTo && <ShareMenu query={shareQuery({ view: "flock", from: addDays(shareTo, -6), to: shareTo, flocks: [flock.display_label] })} what={`${flock.display_label}, the 7 days to ${dmyHH(shareTo)}: its own eggs, feed, deaths and alerts (sales and costs are kept for the whole farm).`} />}
       {sp.saved && <div className="saved-banner">{sp.saved}</div>}
       {sp.error && <div className="error-banner">{sp.error}</div>}
       {placeholder && (

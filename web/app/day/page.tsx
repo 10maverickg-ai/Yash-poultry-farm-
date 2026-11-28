@@ -8,6 +8,8 @@ import { flockFeed, segmentFeed } from "@/lib/analytics/feed";
 import { FeedCells } from "@/components/SegmentPanels";
 import { feedEfficiency } from "@/lib/analytics/feedEfficiency";
 import { fcrOf } from "@/lib/analytics/fcr";
+import { ShareMenu } from "@/components/ShareMenu";
+import { shareQuery } from "@/lib/export/shareOptions";
 
 export const dynamic = "force-dynamic";
 
@@ -75,6 +77,7 @@ export default async function DayPage({ searchParams }: { searchParams: Promise<
         </form>
         {d.nextDate ? <Link className="btn btn-secondary" href={`/day?date=${d.nextDate}`}>{d.nextDate.slice(5)} →</Link> : <span />}
       </div>
+      {d.rows.length > 0 && <ShareMenu query={shareQuery({ view: "day", from: date, to: date })} what={`${dmy(date)}, all flocks: the day's eggs, feed, deaths, sales, costs and alerts.`} />}
 
       <div className="card stack">
         <ExportLinks kind="production" month={date.slice(0, 7)} label="Daily production" />

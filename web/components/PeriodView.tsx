@@ -28,6 +28,8 @@ import type { EngineInput } from "@/lib/analytics/engine";
 import { SeriesChart } from "@/components/PeriodCharts";
 import { chip } from "@/lib/analytics/chips";
 import { dmy, n0, n1, n2, inr } from "@/lib/format";
+import { ShareMenu } from "@/components/ShareMenu";
+import { shareQuery } from "@/lib/export/shareOptions";
 
 const pretty = (d: string) => dmy(d);
 const KIND_LABEL: Record<AlertKind, string> = {
@@ -649,6 +651,7 @@ export function PeriodView({
       <ViewSwitch view={kind} anchor={s.lastDate ?? range.from} />
       <Picker range={range} kind={kind} options={opts} latest={latest} first={first} />
       <h2 style={{ margin: "0 0 0.4rem" }}>{heading}</h2>
+      {s.daysWithData > 0 && <ShareMenu query={shareQuery({ view: kind, from: range.from, to: range.to < today ? range.to : today })} what={`This ${kind}, ${range.label}, all flocks: everything on this screen.`} />}
       {s.daysWithData === 0 ? (
         <p className="card muted">No data in this {kind}. Pick another from the list.</p>
       ) : (
@@ -744,6 +747,7 @@ export function RangeView({ input, cost, extras, sp, today }: { input: EngineInp
       <RangePicker ctx={ctx} range={range} flockIds={flockIds} today={today} />
       {choice.notes.length > 0 && <div className="flag-banner" role="status">{choice.notes.map((n, i) => <p key={i} style={{ margin: 0 }}>{n}</p>)}</div>}
       <h2 style={{ margin: "0.6rem 0 0.2rem" }}>{range.label} <span className="muted" style={{ fontWeight: 400 }}>· {range.days} day{range.days === 1 ? "" : "s"}{chosen ? ` · ${flockLabels.join(", ")}` : " · all flocks"}</span></h2>
+      {s.daysWithData > 0 && <ShareMenu query={shareQuery({ view: "custom", from: range.from, to: range.to, flocks: flockLabels })} what={`${range.label}, ${chosen ? flockLabels.join(", ") : "all flocks"}: everything on this screen.`} />}
       <p className="an-sub" style={{ marginTop: 0 }}><b>{s.dataNote}</b>{s.partial && s.daysWithData > 0 ? " — averages use only the days with data" : ""}.{cov.note ? ` ${cov.note}` : ""}{choice.isDefault ? " Showing the last 14 days with data; pick other dates above." : ""}</p>
       {s.daysWithData === 0 ? (
         <p className="card muted">No data for {chosen ? "these flocks" : "the farm"} in this range. Pick other dates or one of the quick ranges.</p>
@@ -790,6 +794,8 @@ function RangeDownloads({ from, to, flockLabels }: { from: string; to: string; f
   return (
     <section className="card" aria-label="Download this view">
       <h2 style={{ marginTop: 0 }}>Download this view</h2>
+      <p style={{ margin: "0 0 0.5rem" }}>The whole view in one file (summary, flocks, days, sales, costs, alerts): <a href={`/analytics/share?${shareQuery({ view: "custom", from, to, flocks: flockLabels })}`}>Share / Download →</a></p>
+      <p className="muted an-tiny" style={{ margin: "0 0 0.3rem" }}>Or one day-by-day sheet:</p>
       {flockLabels.length > 0 ? (
         <p className="pv-dl"><a className="btn btn-secondary" href={href("xlsx")} download>Excel (.xlsx)</a> <a className="btn btn-secondary" href={href("csv")} download>CSV</a></p>
       ) : (

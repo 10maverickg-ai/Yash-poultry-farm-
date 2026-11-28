@@ -29,6 +29,8 @@ import { loadCostInput } from "@/lib/costs/load";
 import { loadPeriodExtras } from "@/lib/analytics/periodLoad";
 import { PeriodView, RangeView, ViewSwitch } from "@/components/PeriodView";
 import { DataStamp } from "@/components/DataStamp";
+import { ShareMenu } from "@/components/ShareMenu";
+import { shareQuery } from "@/lib/export/shareOptions";
 import { chip } from "@/lib/analytics/chips";
 import { dmy, n0, n1 } from "@/lib/format";
 import { allSegmentPanels, farmCheck } from "@/lib/analytics/segments";
@@ -200,6 +202,7 @@ export default async function AnalyticsPage({
           Go
         </button>
       </form>
+      <ShareMenu query={shareQuery({ view: "board", from: addDays(asOf, -6), to: asOf })} what={`The board's 7 days, ${pretty(addDays(asOf, -6))} to ${pretty(asOf)}, all flocks. Other dates: "Choose what to share".`} />
 
       {/* ---- One panel per segment, whole farm last ---- */}
       {panels.map((p) => (

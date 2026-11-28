@@ -977,7 +977,14 @@ main:focus { outline: none; }
 .an-grid .an-metric-wide { grid-column: span 2; }
 .eff-trend { margin-top: 0.6rem; max-width: 520px; }
 
-/* V18 share / download: the "Choose what to share" page */
+/* V18 share / download */
+.sh-menu { margin: 0 0 0.7rem; }
+.sh-menu > summary { list-style: none; min-height: 44px; display: inline-flex; align-items: center; cursor: pointer; }
+.sh-menu > summary::-webkit-details-marker { display: none; }
+.sh-menu > summary::after { content: " ▾"; white-space: pre; }
+.sh-menu[open] > summary::after { content: " ▴"; }
+.sh-pop { margin-top: 0.4rem; display: grid; gap: 0.5rem; }
+.sh-choose { min-height: 44px; display: inline-flex; align-items: center; font-weight: 600; }
 .sh-action { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 0.35rem; }
 .sh-action .btn { min-height: 44px; }
 .sh-err { color: var(--danger); }
