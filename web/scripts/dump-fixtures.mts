@@ -26,6 +26,11 @@ const Q: Record<string, string> = {
   sales: `SELECT date, eggs_quantity AS eggs, amount FROM sales ORDER BY date, id`,
   sales_full: `SELECT id, date, transaction_type::text AS tt, buyer_or_recipient AS b, grade AS g, eggs_quantity AS e, price_per_unit AS p, amount AS a FROM sales ORDER BY date, id`,
   overrides: `SELECT grp, metric, band_start, ratio_pct, note FROM realistic_target_overrides ORDER BY id`,
+  // V19: the feed formulas (each shed's price from the formula's date) and the farm's cost settings
+  formulations: `SELECT id, code, name, effective_from, batch_kg, formula_cost_per_kg, production_loss_pct, production_cost_per_kg, bagging_cost_per_kg, delivered_cost_per_kg, ame_kcal_per_kg, target_intake_note, source, note FROM feed_formulations ORDER BY id`,
+  formulation_ingredients: `SELECT formulation_id, ingredient, percent, kg_per_batch, rupees_per_kg FROM feed_formulation_ingredients ORDER BY formulation_id, percent DESC`,
+  formulation_sheds: `SELECT formulation_id, flock_label FROM feed_formulation_sheds ORDER BY formulation_id, flock_label`,
+  cost_settings: `SELECT cost_type, value, effective_from, month FROM cost_settings WHERE farm_code = 'YPF' ORDER BY effective_from, cost_type`,
 };
 for (const [name, sql] of Object.entries(Q)) writeFileSync(`${out}/${name}.json`, JSON.stringify((await pool.query(sql)).rows));
 const ff = (await pool.query(`SELECT DISTINCT s.date, s.section FROM daily_egg_stock_entries e JOIN daily_egg_stock_summary s ON s.id = e.egg_stock_summary_id WHERE s.deleted_at IS NULL AND e.category = 'sale' ORDER BY 1`)).rows as { date: string; section: string }[];

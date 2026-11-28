@@ -70,3 +70,24 @@ export function loadInput(dir: string): EngineInput {
     realisticOverrides: existsSync(`${dir}/overrides.json`) ? j("overrides").map((o: any) => ({ group: o.grp, metric: o.metric, bandStart: o.band_start, ratioPct: Number(o.ratio_pct), note: o.note ?? null })) : [],
     };
 }
+
+/** V19: the feed formulas from the fixture dump, in the shape the cost engine reads (none when the dump has no file). */
+export function loadFormulations(dir: string): import("../lib/costs/feedPrice.ts").Formulation[] {
+  const j = (n: string) => (existsSync(`${dir}/${n}.json`) ? JSON.parse(readFileSync(`${dir}/${n}.json`, "utf8")) : []);
+  const ing: any[] = j("formulation_ingredients");
+  const sheds: any[] = j("formulation_sheds");
+  return (j("formulations") as any[]).map((r) => ({
+    id: Number(r.id), code: r.code, name: r.name, effectiveFrom: String(r.effective_from).slice(0, 10), batchKg: Number(r.batch_kg),
+    formulaCostPerKg: Number(r.formula_cost_per_kg), lossPct: Number(r.production_loss_pct), productionCostPerKg: Number(r.production_cost_per_kg),
+    baggingCostPerKg: Number(r.bagging_cost_per_kg), deliveredCostPerKg: Number(r.delivered_cost_per_kg), ameKcalPerKg: r.ame_kcal_per_kg == null ? null : Number(r.ame_kcal_per_kg),
+    targetIntakeNote: r.target_intake_note, source: r.source, note: r.note,
+    sheds: sheds.filter((s) => s.formulation_id === r.id).map((s) => String(s.flock_label)),
+    ingredients: ing.filter((i) => i.formulation_id === r.id).map((i) => ({ ingredient: i.ingredient, percent: Number(i.percent), kgPerBatch: Number(i.kg_per_batch), rupeesPerKg: Number(i.rupees_per_kg) })),
+  }));
+}
+
+/** V19: the farm's cost settings from the fixture dump (feed_per_kg 33.33 since 1 Aug 2026 …). */
+export function loadCostSettings(dir: string): { type: string; value: number; effectiveFrom: string; month: string | null }[] {
+  const f = `${dir}/cost_settings.json`;
+  return existsSync(f) ? (JSON.parse(readFileSync(f, "utf8")) as any[]).map((r) => ({ type: r.cost_type, value: Number(r.value), effectiveFrom: String(r.effective_from).slice(0, 10), month: r.month })) : [];
+}
