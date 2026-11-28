@@ -3,7 +3,8 @@ import { pool } from "@/lib/db";
 import { ACTIVE_FARM } from "@/lib/farm";
 import { compareLabels } from "@/lib/naturalSort";
 import { loadCostInput } from "@/lib/costs/load";
-import { BAG_KG, dayEconomics, monthEconomics } from "@/lib/costs/engine";
+import { BAG_KG, monthEconomics, periodEconomics } from "@/lib/costs/engine";
+import { partialMonthWords } from "@/lib/costs/costWords";
 import { loadEngineInput } from "@/lib/analytics/load";
 import { buildCtx } from "@/lib/analytics/engine";
 import { hensHoused, housedOn } from "@/lib/analytics/henHoused";
@@ -149,20 +150,28 @@ export async function costsDataset(month: string): Promise<Dataset> {
   const dates = [...new Set(input.prod.filter((p) => p.date.startsWith(month)).map((p) => p.date))].sort();
   const m = monthEconomics(input, month);
   const miss = (what: string) => m.missing.some((x) => x.startsWith(what));
-  const rows = dates.map((d) => {
-    const e = dayEconomics(input, d);
+  // V19 D3: every day whose costs are counted: days with rows, plus the other days so far (their share of the monthly costs)
+  const dim = new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0)).getUTCDate();
+  const rows = periodEconomics(input, `${month}-01`, `${month}-${String(dim).padStart(2, "0")}`, dates).map((e) => {
     const r = (x: number) => Math.round(x * 100) / 100;
     return {
-      date: d, produced: e.eggsProduced, sold: e.eggsSold, revenue: r(e.revenue), feed: r(e.cost.feed), electricity: r(e.cost.electricity), labour: r(e.cost.labour),
-      packing: r(e.cost.packing), diesel: miss("diesel") ? null : r(e.cost.diesel), medicine: miss("medicines") ? null : r(e.cost.medicine), other: miss("other costs") ? null : r(e.cost.other), chicks: r(e.cost.chicks), total: r(e.cost.total), profit: r(e.profit),
+      date: e.date, produced: e.overheadOnly ? null : e.eggsProduced, sold: e.overheadOnly ? null : e.eggsSold, revenue: r(e.revenue), feed: r(e.cost.feed),
+      electricity: e.sources.electricity.source === "missing" ? null : r(e.cost.electricity), labour: r(e.cost.labour), packing: r(e.cost.packing),
+      diesel: e.sources.diesel.source === "missing" ? null : r(e.cost.diesel), miscellaneous: e.sources.miscellaneous.source === "average" ? r(e.cost.miscellaneous) : null,
+      medicine: e.sources.medicine.source === "in_feed" && e.cost.medicine === 0 ? null : miss("medicines") && e.sources.medicine.source === "missing" ? null : r(e.cost.medicine),
+      other: miss("other costs") ? null : r(e.cost.other), chicks: r(e.cost.chicks),
+      extras: e.sources.topDressing.source === "entered" || e.sources.interest.source === "entered" || e.sources.rent.source === "entered" ? r(e.cost.topDressing + e.cost.interest + e.cost.rent) : null,
+      total: r(e.cost.total), profit: r(e.profit),
+      note: [e.overheadOnly ? "no register rows: monthly costs only" : "", e.sources.electricity.source === "average" ? "electricity average" : "", e.sources.diesel.source === "average" ? "diesel average" : "", e.sources.miscellaneous.source === "average" ? "miscellaneous average" : "", e.sources.medicine.source === "in_feed" ? "medicines included in feed price" : ""].filter(Boolean).join("; ") || null,
     };
   });
   const notes = [
-    "ALL COST AND PROFIT FIGURES ARE ESTIMATES. Feed is exact (bags × 45 kg × price per kg). Electricity and labour are the month's amount spread evenly over its days; packing is per tray sold; diesel and medicines count on the day bought.",
+    `ALL COST AND PROFIT FIGURES ARE ESTIMATES. Feed is exact: each shed's bags × ${BAG_KG} kg × its own price per kg that day (from 28 Nov 2026 the nutritionist's formula for the shed; before that, and for a shed without a formula, the farm default).`,
+    "Labour and electricity are the month's amount spread evenly over its days (a month without a bill uses the electricity average ₹40,000 from Nov 2026). Diesel entered counts on the day bought; a month without any diesel entry uses the diesel average ₹10,000. Miscellaneous (vaccines, repairs, transport, vet, anything else) is the average ₹30,000 a month. Each average is marked in the Note column. Packing is ₹ per tray sold (big and small eggs). Medicines and vaccines are inside the feed price from 28 Nov 2026. Interest, rent and top dressing: not entered.",
     "Revenue is eggs SOLD that day at the saved sale prices, not eggs laid. Bird sales are not included. Chick purchase = chicks that arrived × the average price per chick (a setting, about ₹52), counted on the arrival day, i.e. in the month of arrival — it is NOT spread over the laying months.",
   ];
   if (m.missing.length) notes.push(`NOT ENTERED (blank above where it is a whole column; the cost total is 'so far', understated, and the profit overstated): ${m.missing.join(", ")}.`);
-  if (m.days < new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0)).getUTCDate()) notes.push(`TO DATE, not the full month: ${m.days} days have data; monthly bills (electricity, labour) are counted for those days only.`);
+  if (m.costDays < m.daysInMonth) notes.push(`TO DATE, not the full month: ${m.days} days have register rows. ${partialMonthWords(m.sources, input.today ?? null).join(" ")}`);
   if (m.unpricedEggsSold > 0) notes.push(`${m.unpricedEggsSold} eggs were sold without a BAFTA rate, so revenue is incomplete.`);
   return {
     name: "Costs and profit",
@@ -177,15 +186,19 @@ export async function costsDataset(month: string): Promise<Dataset> {
       { key: "labour", header: "Labour ₹", type: "num", width: 12, total: true },
       { key: "packing", header: "Packing ₹", type: "num", width: 12, total: true },
       { key: "diesel", header: "Diesel ₹", type: "num", width: 11, total: true },
+      { key: "miscellaneous", header: "Miscellaneous ₹ (average)", type: "num", width: 14, total: true },
       { key: "medicine", header: "Medicines ₹", type: "num", width: 12, total: true },
       { key: "other", header: "Other ₹", type: "num", width: 11, total: true },
       { key: "chicks", header: "Chick purchase ₹ (avg 52)", type: "num", width: 16, total: true },
+      { key: "extras", header: "Top dressing, interest, rent ₹ (empty = not entered)", type: "num", width: 16, total: true },
       { key: "total", header: "Total cost ₹", type: "num", width: 13, total: true },
       { key: "profit", header: "Estimated profit ₹", type: "num", width: 16, total: true },
+      { key: "note", header: "Note (averages, no register rows)", type: "text", width: 50 },
     ],
     rows,
     notes,
-    formulas: { total: (row) => `SUM(E${row}:L${row})`, profit: (row) => `D${row}-M${row}` },
+    // columns: D revenue, E feed … M chicks, N top dressing/interest/rent, O total, P profit
+    formulas: { total: (row) => `SUM(E${row}:N${row})`, profit: (row) => `D${row}-O${row}` },
   };
 }
 

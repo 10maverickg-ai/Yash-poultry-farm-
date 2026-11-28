@@ -3,7 +3,10 @@ import { pool } from "@/lib/db";
 import { ACTIVE_FARM } from "@/lib/farm";
 import { loadCostInput } from "@/lib/costs/load";
 import { dmy } from "@/lib/format";
-import { monthEconomics } from "@/lib/costs/engine";
+import { BAG_KG, monthEconomics } from "@/lib/costs/engine";
+import { CostRows, notEnteredExtras } from "@/components/CostRows";
+import { partialMonthWords } from "@/lib/costs/costWords";
+import { todayIST } from "@/lib/weather/openMeteo";
 import { ExportLinks } from "@/components/ExportLinks";
 import { addCostSetting, addPurchase, addDiesel, completeMonthInput } from "./actions";
 import { monthChecklist, type ChecklistItem } from "@/lib/costs/inputs";
@@ -20,6 +23,13 @@ const TYPE_LABEL: Record<string, string> = {
   chick_cost_per_chick: "Chick price (average per chick)",
   diesel_month: "Diesel for a month",
   medicines_month: "Medicines for a month",
+  electricity_month_default: "Electricity average per month (used when there is no bill)",
+  diesel_month_default: "Diesel average per month (used when no diesel is entered)",
+  miscellaneous_month_default: "Miscellaneous average per month (vaccines, repairs, transport, vet, anything else)",
+  medicine_vaccine_in_feed: "Medicines and vaccines are inside the feed price (no separate cost)",
+  top_dressing: "Top dressing for a month",
+  interest_month: "Interest per month",
+  rent_month: "Rent per month",
 };
 
 function Checklist({ month, items }: { month: string; items: ChecklistItem[] }) {
@@ -64,6 +74,8 @@ export default async function PurchasesPage({ searchParams }: { searchParams: Pr
     pool.query(`SELECT date, litres, amount_inr FROM diesel_purchases WHERE farm_code = $1 ORDER BY date DESC, id DESC LIMIT 15`, [ACTIVE_FARM]),
   ]);
   const chickPrice = latestSetting(input.settings, "chick_cost_per_chick");
+  // packing ₹ per tray in force at the end of a month (for the line's words)
+  const packPerOf = (m: string) => input.settings.filter((x) => x.type === "packing_per_tray" && !x.month && x.effectiveFrom <= `${m}-31`).sort((a, b) => (a.effectiveFrom < b.effectiveFrom ? 1 : -1))[0]?.value ?? null;
   const months = [...new Set(input.prod.map((p) => p.date.slice(0, 7)))].sort().reverse();
   const checklists = new Map<string, ChecklistItem[]>();
   for (const m of months) checklists.set(m, await monthChecklist(m));
@@ -82,29 +94,23 @@ export default async function PurchasesPage({ searchParams }: { searchParams: Pr
       )}
       <h2>Monthly cost (estimate)</h2>
       <p className="muted an-sub">
-        Feed is exact (bags × 45 kg × price). Electricity and labour are the month&apos;s amount spread evenly over its days; packing is per tray sold; diesel and medicines count on the day bought; chicks count in the month they arrive. Anything not entered shows “not entered” (never ₹0) and the profit says it is incomplete.
+        Feed is exact: each shed&apos;s bags × {BAG_KG} kg × its own price that day — from 28 Nov 2026 the nutritionist&apos;s formula for the shed (<Link href="/feed-formulas">Feed formulas</Link>), before that and for sheds without a formula the farm default below. Labour and electricity are the month&apos;s amount spread evenly over its days; a month without an electricity bill uses the average ₹40,000, a month without a diesel entry the average ₹10,000, and miscellaneous (vaccines, repairs, transport, vet, anything else) is an average ₹30,000 a month — each says “average” next to it. A month still running is charged its days so far (the monthly amount × days so far ÷ days in the month). Medicines and vaccines are inside the feed price from 28 Nov 2026. Packing is ₹ per tray sold (big and small eggs); diesel actually entered counts on the day bought; chicks count in the month they arrive. Anything not entered shows “not entered” (never ₹0) and the profit says it is incomplete.
       </p>
       {months.map((m) => {
         const e = monthEconomics(input, m);
         return (
           <div key={m} className="card">
             <h3 style={{ marginTop: 0 }}>{monthName(m)}</h3>
-            {e.days < daysIn(m) && <p className="muted an-tiny" style={{ marginTop: 0 }}><b>To date, not the full month:</b> {e.days} of {daysIn(m)} days have data, so the monthly bills (electricity, labour) are counted for those {e.days} days only.</p>}
+            {e.costDays < e.daysInMonth && <p className="muted an-tiny" style={{ marginTop: 0 }}><b>To date, not the full month:</b> {e.days} of {daysIn(m)} days have register rows. {partialMonthWords(e.sources, todayIST()).join(" ")}</p>}
             <div style={{ overflowX: "auto" }}><table className="an-table" style={{ minWidth: 0 }}>
               <tbody>
                 <tr><td>Feed</td><td className="num">{e.missing.some((x) => x.startsWith("feed price")) ? <span className="badge badge-flagged">not entered (price starts 1 Aug)</span> : `₹${inr(e.cost.feed)}`}</td></tr>
-                <tr><td>Electricity</td><td className="num">{e.missing.some((x) => x.startsWith("electricity")) ? <span className="badge badge-flagged">missing: not entered</span> : `₹${inr(e.cost.electricity)}`}</td></tr>
-                <tr><td>Labour</td><td className="num">{e.missing.some((x) => x.startsWith("labour")) ? <span className="badge badge-flagged">not entered</span> : `₹${inr(e.cost.labour)}`}</td></tr>
-                <tr><td>Packing</td><td className="num">{e.missing.some((x) => x.startsWith("packing price")) ? <span className="badge badge-flagged">not entered (price starts 1 Aug)</span> : `₹${inr(e.cost.packing)}`}</td></tr>
-                <tr><td>Diesel</td><td className="num">{e.missing.some((x) => x.startsWith("diesel")) ? <span className="badge badge-flagged">not entered</span> : `₹${inr(e.cost.diesel)}`}</td></tr>
-                <tr><td>Medicines &amp; vaccines</td><td className="num">{e.missing.some((x) => x.startsWith("medicines")) ? <span className="badge badge-flagged">not entered</span> : `₹${inr(e.cost.medicine)}`}</td></tr>
-                <tr><td>Other costs</td><td className="num">{e.missing.some((x) => x.startsWith("other costs")) ? <span className="badge badge-flagged">not entered</span> : `₹${inr(e.cost.other)}`}</td></tr>
-                <tr><td>Chick purchase <span className="muted an-tiny">(average {chickPrice != null ? `₹${chickPrice}` : "price"} per chick × chicks that arrived; counted in the month they arrived, not spread over laying months)</span></td><td className="num">{`₹${inr(e.cost.chicks)}`}</td></tr>
+                <CostRows cost={e.cost} sources={e.sources} missing={e.missing} packPer={packPerOf(m)} chickPrice={chickPrice} />
               </tbody>
               <tfoot>
                 <tr><th>Total cost so far{e.missing.length ? " (incomplete)" : ""} <span className="muted an-tiny">estimate</span></th><th className="num">₹{inr(e.cost.total)}</th></tr>
                 <tr><td>Egg revenue (priced sales)</td><td className="num">{e.revenue ? `₹${inr(e.revenue)}` : "—"}</td></tr>
-                <tr><th>Estimated profit{e.missing.length ? " — INCOMPLETE" : ""} <span className="muted an-tiny">estimate</span></th><th className="num">{e.revenue ? `₹${inr(e.profit)}` : "—"}</th></tr>
+                <tr><th>Estimated profit{e.missing.length ? " — INCOMPLETE" : ""} <span className="muted an-tiny">estimate{notEnteredExtras(e.sources).length ? `, before ${notEnteredExtras(e.sources).join(", ")} (not entered)` : ""}</span></th><th className="num">{e.revenue ? `₹${inr(e.profit)}` : "—"}</th></tr>
               </tfoot>
             </table></div>
             {e.birdSaleRevenue > 0 && <p className="muted an-tiny">Bird sales this month (not in egg revenue): ₹{inr(e.birdSaleRevenue)}</p>}

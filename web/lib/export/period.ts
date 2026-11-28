@@ -8,7 +8,7 @@ import { monthsWithin, rangeCoverage, rangeOf, summarizeRange, summarizePeriod, 
 import { readRange, type Param } from "@/lib/analytics/rangeParams";
 import { compareRows, compareSide, readCompare } from "@/lib/analytics/compare";
 import { SEGMENT_NAME, type SegFilter } from "@/lib/analytics/engine";
-import { BAG_KG, dayEconomics, type CostInput } from "@/lib/costs/engine";
+import { BAG_KG, dayEconomics, periodEconomics, type CostInput } from "@/lib/costs/engine";
 import type { Dataset } from "./types";
 import { compareSheet, HD_NOTE } from "./compareSheet";
 
@@ -27,7 +27,7 @@ async function loadAll() {
   return { ctx, cost, extras };
 }
 
-const MONEY_NOTE = "Revenue = priced egg sales only. Cost and profit are ESTIMATES (feed exact; electricity, labour and packing spread; diesel and medicines on the day bought).";
+const MONEY_NOTE = "Revenue = priced egg sales only. Cost and profit are ESTIMATES: feed exact (each shed's own price that day); labour and electricity spread over the month (a month without a bill: the electricity average); diesel as entered, or the diesel average for a month without any; miscellaneous average ₹30,000 a month; packing per tray sold; medicines inside the feed price from 28 Nov 2026. Interest, rent and top dressing: not entered.";
 
 const letter = (i: number) => String.fromCharCode(65 + i);
 /**
@@ -127,6 +127,11 @@ function dayRowsDataset(ctx: Ctx, cost: CostInput, extras: PeriodExtras, range: 
     const fed = rowsOn(ctx, d.date, seg, only).filter((r) => r.feed != null);
     return fed.length ? fed.reduce((t, r) => t + (r.eggs ?? 0), 0) : null;
   });
+  // V19 D3: a day the register missed (up to today) still carries its share of the monthly costs; say how much
+  if (farm && seg === "all") {
+    const extra = periodEconomics(cost, range.from, range.to, s.series.map((d) => d.date)).filter((e) => e.overheadOnly);
+    if (extra.length) notes.push(`${extra.length} day${extra.length === 1 ? "" : "s"} without register rows (${extra.map((e) => e.date).join(", ")}): their share of the monthly costs, ₹${Math.round(extra.reduce((t, e) => t + e.cost.total, 0)).toLocaleString("en-IN")}, is in the period's cost but not in the rows above.`);
+  }
   return withEggsPerKg({ name: head.name, title: head.title, columns, rows, notes, formulas }, eggsFed, s.series.map((d) => fcrOf(ctx, rowsOn(ctx, d.date, seg, only))));
 }
 

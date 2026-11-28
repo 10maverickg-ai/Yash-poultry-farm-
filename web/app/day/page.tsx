@@ -9,6 +9,9 @@ import { FeedCells } from "@/components/SegmentPanels";
 import { feedEfficiency } from "@/lib/analytics/feedEfficiency";
 import { fcrOf } from "@/lib/analytics/fcr";
 import { ShareMenu } from "@/components/ShareMenu";
+import { loadFeedPricing } from "@/lib/costs/formulaLoad";
+import { feedPriceFor } from "@/lib/costs/feedPrice";
+import { BAG_KG } from "@/lib/costs/engine";
 import { shareQuery } from "@/lib/export/shareOptions";
 
 export const dynamic = "force-dynamic";
@@ -45,7 +48,12 @@ export default async function DayPage({ searchParams }: { searchParams: Promise<
   if (dates.length === 0) return (<><h1>Daily production</h1><p className="card muted">No days saved yet. Upload a register photo first.</p></>);
   const date = iso.test(sp.date ?? "") ? sp.date! : dates[dates.length - 1];
   // V16: feed on the day AND over the last 7 days, from the same engine as Analytics (one read of the rows)
-  const [d, engineInput] = await Promise.all([loadDay(date), loadEngineInput()]);
+  const [d, engineInput, pricing] = await Promise.all([loadDay(date), loadEngineInput(), loadFeedPricing()]);
+  // V19: each flock's feed cost that day = its bags × BAG_KG × its own price (the formula for its shed, else the farm default)
+  const feedCost = (flockName: string, bags: number | null) => {
+    const price = feedPriceFor(pricing.settings, pricing.formulations, flockName, date);
+    return { price, cost: bags != null && bags > 0 && price.perKg != null ? bags * BAG_KG * price.perKg : null };
+  };
   const ctx = buildCtx(engineInput);
   const flockFeeds = new Map(d.rows.map((r) => [r.id, flockFeed(ctx, r.flockId, date)]));
 
@@ -104,7 +112,11 @@ export default async function DayPage({ searchParams }: { searchParams: Promise<
               </div>
             ))}
             <p className="muted an-sub" style={{ marginBottom: 0 }}>
-              <b>Whole farm</b> (sum of the groups; it mixes mature and young birds, so its HD % describes neither): {n0(eggs)} eggs · {n0(birds)} birds · {n0(mort)} deaths · {groups.some((x) => x.fed) ? `feed ${n0(feed)} bags that day${groups.some((x) => !x.fed) ? ` (groups that record feed: ${groups.filter((x) => x.fed).map((x) => (x.g ? SEGMENT_NAME[x.g].split(" (")[0].toLowerCase() : "segment not set")).join(", ")})` : ""}` : "feed not recorded"} · HD {hd != null ? `${hd.toFixed(1)}%` : "–"}.
+              <b>Whole farm</b> (sum of the groups; it mixes mature and young birds, so its HD % describes neither): {n0(eggs)} eggs · {n0(birds)} birds · {n0(mort)} deaths · {groups.some((x) => x.fed) ? `feed ${n0(feed)} bags that day${groups.some((x) => !x.fed) ? ` (groups that record feed: ${groups.filter((x) => x.fed).map((x) => (x.g ? SEGMENT_NAME[x.g].split(" (")[0].toLowerCase() : "segment not set")).join(", ")})` : ""}` : "feed not recorded"} · HD {hd != null ? `${hd.toFixed(1)}%` : "–"}.{(() => {
+                const cs = d.rows.filter((r) => r.feed != null && r.feed > 0).map((r) => feedCost(r.flockName, r.feed));
+                if (cs.length === 0) return null;
+                return cs.some((c) => c.cost == null) ? " Feed cost: a price is not entered for some flocks." : ` Feed cost ₹${n0(Math.round(cs.reduce((t, c) => t + c.cost!, 0)))} (each flock's bags × ${BAG_KG} kg × its own price).`;
+              })()}
             </p>
           </>
         )}
@@ -137,6 +149,7 @@ export default async function DayPage({ searchParams }: { searchParams: Promise<
             <span><b>{n0(r.mortality)}</b> deaths</span>
             <span>{r.feed != null ? <><b>{n0(r.feed)}</b> bags{flockFeeds.get(r.id)?.day.gPerBird != null ? ` · ${n0(Math.round(flockFeeds.get(r.id)!.day.gPerBird!))} g/bird that day` : ""}</> : "feed not recorded"}</span>
             <span>{(() => { const e = feedEfficiency([{ date, eggs: r.eggs, feed: r.feed }]); return e.eggsPerKg != null ? <><b>{e.eggsPerKg.toFixed(2)}</b> eggs per kg feed</> : "eggs per kg: feed not recorded"; })()}</span>
+            {r.feed != null && r.feed > 0 && <span>{(() => { const c = feedCost(r.flockName, r.feed); return c.cost != null ? <>feed <b>₹{n0(Math.round(c.cost))}</b> (₹{c.price.perKg!.toFixed(2)}/kg, {c.price.source === "formula" ? <Link href={`/feed-formulas?open=${encodeURIComponent(c.price.formulation!.code)}#f-${c.price.formulation!.code}`} className="plain-link">{c.price.formulation!.name}</Link> : "farm default"})</> : "feed cost: price not entered"; })()}</span>}
             <span>{(() => { const f = fcrOf(ctx, [{ date, flockId: r.flockId, eggs: r.eggs, feed: r.feed }]); return f.fcr != null ? <>FCR <b>{f.fcr.toFixed(2)}</b> (est.){f.standardFcr != null ? ` · book ${f.standardFcr.toFixed(2)}` : ""}</> : r.feed == null ? null : `FCR: ${f.why ?? "not available"}`; })()}</span>
           </div>
           <FlockWeekFeed w={flockFeeds.get(r.id)?.week} />

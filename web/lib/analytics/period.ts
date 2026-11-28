@@ -40,7 +40,8 @@ import {
   type RefReason,
   type SegFilter,
 } from "./engine";
-import { BAG_KG, dayEconomics, type CostInput } from "../costs/engine";
+import { BAG_KG, periodEconomics, sumCosts, summarizeSources, type CostInput, type CostSourceSummary, type DayEconomics } from "../costs/engine";
+import { feedPriceChanges } from "../costs/feedPrice";
 import { feedEfficiency } from "./feedEfficiency";
 import { henHousedFor, type HousedSource } from "./henHoused";
 import { fcrLabel, fcrOf } from "./fcr";
@@ -302,10 +303,21 @@ export interface PeriodSummary {
     byBuyer: { buyer: string; eggs: number; revenue: number }[]; // largest first; "(not recorded)" when blank
     avgPricePerEgg: number | null; // revenue / priced eggs
     birdSaleRevenue: number;
-    cost: { feed: number; electricity: number; labour: number; packing: number; diesel: number; medicine: number; other: number; chicks: number; total: number };
+    cost: DayEconomics["cost"]; // V19 D adds miscellaneous (average), top dressing, interest and rent
+    /** V19 D: where each overhead came from (bill / average / entered / included in feed / not entered), month by month */
+    sources: CostSourceSummary;
+    /** V19 D3: calendar days whose costs are counted (days with rows + the other days up to today: monthly costs only) */
+    costDays: number;
     chickPurchases: number;
     chickPrice: number | null; // average price per chick in force (settings), for the label
-    feedPerKg: number | null; // feed price per kg in force at the end of the period
+    packingPerTray: number | null; // V19 D2: ₹ per tray sold in force at the end of the period, for the label
+    feedPerKg: number | null; // the farm default feed price per kg in force at the end of the period
+    /** V19: the feed cost by price used (formula of a shed, or the farm default), with the first and last day each was used */
+    feedBy: { label: string; perKg: number; bags: number; cost: number; from: string; to: string }[];
+    /** V19: days inside the period on which a feed formula starts (the price changed), e.g. ["2026-11-28"] */
+    feedPriceChanges: string[];
+    /** V19: flocks with feed but no price at all (no formula and no farm default): their feed cost is not entered */
+    feedNotPriced: string[];
     costSplit: boolean; // false for one segment: shared costs are not split between segments, so cost and profit are shown for the whole farm only
     missing: string[]; // inputs not entered; the cost total is "so far", not complete
     costComplete: boolean;
@@ -395,19 +407,10 @@ export function summarizeRange(ctx: Ctx, cost: CostInput, extras: PeriodExtras, 
     for (const x of cost.settings) if (x.type === type && !x.month && x.effectiveFrom <= to && (!best || x.effectiveFrom > best.from)) best = { v: x.value, from: x.effectiveFrom };
     return best ? best.v : null;
   };
-  const econ = split ? dates.map((d) => dayEconomics(cost, d)) : [];
+  // V19 D3: every day with rows, plus the other calendar days up to today (their share of the monthly costs only)
+  const econ = split ? periodEconomics(cost, from, to, dates) : [];
   const cs = (f: (e: (typeof econ)[number]) => number) => sum(econ.map(f));
-  const costObj = {
-    feed: cs((e) => e.cost.feed),
-    electricity: cs((e) => e.cost.electricity),
-    labour: cs((e) => e.cost.labour),
-    packing: cs((e) => e.cost.packing),
-    diesel: cs((e) => e.cost.diesel),
-    medicine: cs((e) => e.cost.medicine),
-    other: cs((e) => e.cost.other),
-    chicks: cs((e) => e.cost.chicks),
-    total: cs((e) => e.cost.total),
-  };
+  const costObj = sumCosts(econ);
   const saleSeg = (x: PeriodSale) => ledgerSegment(ctx, x.grade === "small" ? "small" : "big", x.date);
   const sales = farmLevel ? extras.sales.filter((s) => s.date >= from && s.date <= to && (seg === "all" || saleSeg(s) === seg)) : [];
   const eggsSold = sum(sales.map((s) => s.eggs));
@@ -442,10 +445,27 @@ export function summarizeRange(ctx: Ctx, cost: CostInput, extras: PeriodExtras, 
     birdSaleRevenue: split ? sum(extras.birdSales.filter((b) => b.date >= from && b.date <= to).map((b) => b.amount ?? 0)) : 0,
     costSplit: split,
     chickPrice: priceOn("chick_cost_per_chick"),
+    packingPerTray: priceOn("packing_per_tray"),
     feedPerKg: priceOn("feed_per_kg"),
     cost: costObj,
     chickPurchases: cs((e) => e.chickPurchases),
     missing,
+    feedBy: (() => {
+      const m = new Map<string, PeriodSummary["money"]["feedBy"][number]>();
+      for (const e of econ) for (const g of e.feedBy) {
+        const k = `${g.label}|${g.perKg}`;
+        const a = m.get(k) ?? { label: g.label, perKg: g.perKg, bags: 0, cost: 0, from: e.date, to: e.date };
+        a.bags += g.bags;
+        a.cost += g.cost;
+        a.to = e.date;
+        m.set(k, a);
+      }
+      return [...m.values()];
+    })(),
+    feedPriceChanges: split ? feedPriceChanges(cost.formulations ?? [], from, to) : [],
+    feedNotPriced: [...new Set(econ.flatMap((e) => e.feedNotPriced))],
+    sources: summarizeSources(econ),
+    costDays: econ.length,
     costComplete: missing.length === 0,
     profit: split && revenue > 0 ? revenue - costObj.total : null,
     revenuePerEgg: eggsSold > 0 && revenue > 0 && unpricedEggs === 0 ? revenue / eggsSold : null,

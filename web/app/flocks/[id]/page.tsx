@@ -22,6 +22,9 @@ import { todayIST } from "@/lib/weather/openMeteo";
 import { ShareMenu } from "@/components/ShareMenu";
 import { shareQuery } from "@/lib/export/shareOptions";
 import { addDays } from "@/lib/analytics/engine";
+import { loadFeedPricing } from "@/lib/costs/formulaLoad";
+import { feedPriceFor, nextFormulationFor } from "@/lib/costs/feedPrice";
+import { FeedPriceLine } from "@/components/FeedPriceLine";
 
 export const dynamic = "force-dynamic";
 
@@ -50,6 +53,10 @@ export default async function FlockDetailPage({
     card = null; // the targets box is extra information; never block the flock page
   }
   const medView = await loadFlockMedicines(todayIST(), id).then((r) => r.views[0] ?? null).catch(() => null); // extra information; never blocks the flock page
+  // V19 B2: the feed this flock eats today and its price (the formula for its shed, else the farm default)
+  const pricing = await loadFeedPricing().catch(() => null);
+  const feedPrice = pricing ? feedPriceFor(pricing.settings, pricing.formulations, flock.display_label, todayIST()) : null;
+  const feedNext = pricing ? nextFormulationFor(pricing.formulations, flock.display_label, todayIST()) : null;
   const placeholder = isPlaceholderDate(flock.placement_date, flock.placement_date_confirmed);
   const ageWeeks = flock.placement_date && !placeholder ? weeksSince(flock.placement_date) : null;
   const TYPE: Record<string, string> = { transfer_out: "moved out", transfer_in: "moved in", sale: "sold", cull: "culled", unexplained_out: "left (destination not known)", unexplained_in: "arrived (source not known)", count_adjustment: "count adjusted" };
@@ -62,6 +69,7 @@ export default async function FlockDetailPage({
       </h1>
 
       <p className="flock-compare"><Link href={`/analytics/compare?a=${encodeURIComponent(flock.display_label)}`} className="btn btn-secondary">Compare this flock with another</Link> <Link href={`/analytics?view=custom&f=${encodeURIComponent(flock.display_label)}`} className="btn btn-secondary">This flock over any dates</Link></p>
+      {feedPrice && <FeedPriceLine price={feedPrice} next={feedNext} link />}
       {shareTo && <ShareMenu query={shareQuery({ view: "flock", from: addDays(shareTo, -6), to: shareTo, flocks: [flock.display_label] })} what={`${flock.display_label}, the 7 days to ${dmyHH(shareTo)}: its own eggs, feed, deaths and alerts (sales and costs are kept for the whole farm).`} />}
       {sp.saved && <div className="saved-banner">{sp.saved}</div>}
       {sp.error && <div className="error-banner">{sp.error}</div>}

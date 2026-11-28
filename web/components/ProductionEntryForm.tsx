@@ -3,6 +3,7 @@
 import { useActionState, useState } from "react";
 import { saveProduction } from "@/app/production/actions";
 import type { ProductionSlot } from "@/lib/production";
+import { BAG_KG } from "@/lib/costs/engine";
 
 // One card per flock, mirroring the paper register's columns:
 // Mort | Feed | Total | Bal Bird | % — plus the shed as written that day.
@@ -94,7 +95,7 @@ function FlockCard({
       <div className="row2">
         <label className="field">
           <span>
-            Feed <span className="hint">(bags, 1 = 45 kg)</span>
+            Feed <span className="hint">(bags, 1 = {BAG_KG} kg)</span>
           </span>
           <input
             type="number"

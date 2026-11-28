@@ -9,6 +9,19 @@ export interface Change {
 export const CHANGES: Change[] = [
   {
     date: "2026-11-28",
+    title: "Feed formulas for each shed, and feed cost from them",
+    points: [
+      "New screen “Feed formulas” (Buy menu): one card for each of Dr Bhaskar Choudhary's five formulas of 28 Nov — which sheds eat it, what a kg costs delivered (and a 45 kg bag), the energy, the target intake and his note. Tap a card for the ingredient list and how the price is made up (ingredients + 1% loss + ₹1.50 production + ₹0.90 bagging).",
+      "From 28 Nov each shed's feed is costed at its own formula's price: BAB-1 and BAB-4 ₹36.03 a kg, BAB-2 ₹35.39, BAB-3, 5 and 6 ₹36.16, BAB-8 ₹36.69, BAB-9, 10 and 11 ₹38.44. BAB-7 has no formula yet, so it stays at the farm price ₹33.33. Every day before 28 Nov keeps ₹33.33: no earlier number changes.",
+      "The farm's feed cost is now each shed's bags × 45 kg × its own price, added up. Profit, cost per egg, the new cost per tray (30 eggs) and feed cost as a share of egg sales use it. A week or month that runs across 28 Nov says “Feed price changed on 28 Nov 2026 (new formulas)”.",
+      "Each flock's page and card says what it eats: “Feed: BV-300 Phase IV shed 1 & 4 — ₹36.03/kg”. The Day screen shows each flock's feed cost, and Feed formulas has a table of feed cost by shed for the last 7 days with the cost per egg.",
+      "Your averages are now in the costs and the profit, always marked “average”: electricity ₹40,000 a month when there is no bill (from November; August to October keep their bills), diesel ₹10,000 a month when no diesel is entered (August, September and November; October keeps the ₹29,000 entered on 29 Oct), and a new line “Miscellaneous (average)” ₹30,000 a month for vaccines, repairs, transport, vet and anything else.",
+      "From 28 Nov, medicines and vaccines say “included in feed price”: no separate cost. Interest, rent and top dressing say “not entered”.",
+      "A month that is still running is charged only its days so far: November on 28 Nov counts 28 of its 30 days for labour, electricity, diesel and miscellaneous, and the screen says so. A day the register missed (20 Nov) still carries its share of those monthly costs.",
+    ],
+  },
+  {
+    date: "2026-11-28",
     title: "Share Analytics as Excel or CSV, and FCR",
     points: [
       "Every Analytics screen (the board, the Day screen, Week, Month, Year, Custom, a flock's page and Compare) has one “Share / Download” button: Excel, CSV, or Share straight to WhatsApp, mail or Files. The file has the numbers on that screen.",
