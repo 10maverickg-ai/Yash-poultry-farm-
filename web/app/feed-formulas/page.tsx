@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { loadCostInput } from "@/lib/costs/load";
 import { BAG_KG, flockFeedPrice } from "@/lib/costs/engine";
+import { FeedCostByShed } from "@/components/FeedCostByShed";
 import { costLines, defaultFeedPrice, nextFormulationFor, type Formulation } from "@/lib/costs/feedPrice";
 import { todayIST } from "@/lib/weather/openMeteo";
 import { dmy, n0 } from "@/lib/format";
@@ -103,6 +104,7 @@ export default async function FeedFormulasPage({ searchParams }: { searchParams:
         byDate.map((f) => <FormulaCard key={f.id} f={f} open={open === f.code} now={now} />)
       )}
 
+      <FeedCostByShed input={input} now={now} />
       <p className="muted an-foot"><Link href="/purchases">Farm default feed price (Purchases &amp; costs) →</Link> · <Link href="/analytics">Analytics →</Link></p>
     </>
   );
