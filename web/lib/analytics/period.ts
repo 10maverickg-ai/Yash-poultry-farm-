@@ -41,6 +41,7 @@ import {
   type SegFilter,
 } from "./engine";
 import { BAG_KG, dayEconomics, type CostInput } from "../costs/engine";
+import { feedPriceChanges } from "../costs/feedPrice";
 import { feedEfficiency } from "./feedEfficiency";
 import { henHousedFor, type HousedSource } from "./henHoused";
 import { fcrLabel, fcrOf } from "./fcr";
@@ -305,7 +306,13 @@ export interface PeriodSummary {
     cost: { feed: number; electricity: number; labour: number; packing: number; diesel: number; medicine: number; other: number; chicks: number; total: number };
     chickPurchases: number;
     chickPrice: number | null; // average price per chick in force (settings), for the label
-    feedPerKg: number | null; // feed price per kg in force at the end of the period
+    feedPerKg: number | null; // the farm default feed price per kg in force at the end of the period
+    /** V19: the feed cost by price used (formula of a shed, or the farm default), with the first and last day each was used */
+    feedBy: { label: string; perKg: number; bags: number; cost: number; from: string; to: string }[];
+    /** V19: days inside the period on which a feed formula starts (the price changed), e.g. ["2026-11-28"] */
+    feedPriceChanges: string[];
+    /** V19: flocks with feed but no price at all (no formula and no farm default): their feed cost is not entered */
+    feedNotPriced: string[];
     costSplit: boolean; // false for one segment: shared costs are not split between segments, so cost and profit are shown for the whole farm only
     missing: string[]; // inputs not entered; the cost total is "so far", not complete
     costComplete: boolean;
@@ -446,6 +453,20 @@ export function summarizeRange(ctx: Ctx, cost: CostInput, extras: PeriodExtras, 
     cost: costObj,
     chickPurchases: cs((e) => e.chickPurchases),
     missing,
+    feedBy: (() => {
+      const m = new Map<string, PeriodSummary["money"]["feedBy"][number]>();
+      for (const e of econ) for (const g of e.feedBy) {
+        const k = `${g.label}|${g.perKg}`;
+        const a = m.get(k) ?? { label: g.label, perKg: g.perKg, bags: 0, cost: 0, from: e.date, to: e.date };
+        a.bags += g.bags;
+        a.cost += g.cost;
+        a.to = e.date;
+        m.set(k, a);
+      }
+      return [...m.values()];
+    })(),
+    feedPriceChanges: split ? feedPriceChanges(cost.formulations ?? [], from, to) : [],
+    feedNotPriced: [...new Set(econ.flatMap((e) => e.feedNotPriced))],
     costComplete: missing.length === 0,
     profit: split && revenue > 0 ? revenue - costObj.total : null,
     revenuePerEgg: eggsSold > 0 && revenue > 0 && unpricedEggs === 0 ? revenue / eggsSold : null,

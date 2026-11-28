@@ -1,11 +1,12 @@
 import { pool } from "@/lib/db";
 import { ACTIVE_FARM } from "@/lib/farm";
 import type { CostInput } from "./engine";
+import { loadFormulations } from "./formulaLoad";
 
 const num = (x: unknown) => (x == null ? null : Number(x));
 
 export async function loadCostInput(): Promise<CostInput> {
-  const [settings, purchases, medLines, diesel, prod, sales, birds, batches, statuses] = await Promise.all([
+  const [settings, purchases, medLines, diesel, prod, sales, birds, batches, statuses, formulations, flocks] = await Promise.all([
     pool.query(`SELECT cost_type, value, effective_from, month FROM cost_settings WHERE farm_code = $1`, [ACTIVE_FARM]),
     pool.query(`SELECT date, category, amount_inr FROM purchases WHERE farm_code = $1`, [ACTIVE_FARM]),
     // V12: medicine and vaccine register lines WITH a cost count as medicine / vaccine cost; a line with no cost is "not entered", never zero
@@ -24,6 +25,9 @@ export async function loadCostInput(): Promise<CostInput> {
     ),
     pool.query(`SELECT arrival_date, starting_count, coalesce(to_anil_farm_count, 0) AS to_anil FROM chick_batches WHERE farm_code = $1`, [ACTIVE_FARM]),
     pool.query(`SELECT month, input_key, status FROM monthly_input_status WHERE farm_code = $1`, [ACTIVE_FARM]),
+    // V19: the feed formulas (each shed's price from its formula's date); a database without the tables keeps the farm default
+    loadFormulations().catch((e) => { console.warn("feed formulas not loaded:", (e as Error).message); return []; }),
+    pool.query(`SELECT flock_internal_id, display_label FROM flocks WHERE farm_code = $1`, [ACTIVE_FARM]),
   ]);
   return {
     settings: settings.rows.map((r) => ({
@@ -44,6 +48,8 @@ export async function loadCostInput(): Promise<CostInput> {
     sales: sales.rows.map((r) => ({ date: r.date, eggs: r.eggs_quantity ?? 0, amount: num(r.amount) })),
     chickBatches: batches.rows.map((r) => ({ arrival: String(r.arrival_date).slice(0, 10), count: Math.max(0, Number(r.starting_count) - Number(r.to_anil)) })),
     statuses: statuses.rows.map((r) => ({ month: r.month, key: r.input_key, status: r.status })),
+    formulations,
+    flockLabels: Object.fromEntries(flocks.rows.map((r) => [r.flock_internal_id, r.display_label])),
     birdSales: birds.rows.map((r) => ({
       date: r.date,
       amount: r.price_per_bird != null ? Math.abs(r.birds_change) * Number(r.price_per_bird) : null,

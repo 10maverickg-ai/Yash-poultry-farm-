@@ -38,7 +38,7 @@ import { feedEfficiency, flockEff, effOn, type FeedEff } from "@/lib/analytics/f
 import { flockHenHoused } from "@/lib/analytics/henHoused";
 import { fcrOf, fcrOn, flockFcr, type FcrResult } from "@/lib/analytics/fcr";
 import { FarmLine, SegmentPanelView } from "@/components/SegmentPanels";
-import { dayEconomics, monthEconomics, rangeEconomics, flockMonthEconomics } from "@/lib/costs/engine";
+import { BAG_KG, dayEconomics, monthEconomics, rangeEconomics, flockMonthEconomics } from "@/lib/costs/engine";
 
 export const dynamic = "force-dynamic";
 
@@ -222,7 +222,7 @@ export default async function AnalyticsPage({
         </div>
         {money.unpricedEggsSold > 0 && <div className="flag-banner" style={{ marginTop: "0.6rem" }}>{n0(money.unpricedEggsSold)} eggs were sold this day with no BAFTA rate entered, so revenue and profit are left out rather than guessed. <Link href="/sales/rates">Enter the rates</Link></div>}
         {money.missing.length > 0 && <div className="flag-banner" style={{ marginTop: "0.6rem" }}>Cost is missing: {money.missing.join(", ")}.</div>}
-        <p className="muted an-foot">Feed is exact; electricity, labour and packing are spread/estimated; diesel and medicines count the day bought. Revenue is eggs <em>sold</em> that day, not laid.</p>
+        <p className="muted an-foot">Feed is exact: each shed&apos;s bags × {BAG_KG} kg × its own price that day ({money.feedBy.length ? money.feedBy.map((g) => `${g.label.startsWith("Formula: ") ? g.label.slice(9) : "farm default"} ₹${g.perKg.toFixed(2)}/kg on ${n0(g.bags)} bags`).join("; ") : "no feed that day"}{money.feedNotPriced.length ? `; ${money.feedNotPriced.join(", ")}: price not entered` : ""}). Electricity, labour and packing are spread/estimated; diesel and medicines count the day bought. Revenue is eggs <em>sold</em> that day, not laid.</p>
       </section>
 
       {/* ---- Alerts ---- */}
@@ -387,7 +387,7 @@ function MonthFcr({ f }: { f: FcrResult | undefined }) {
   return <>{n2(f.fcr)}{f.standardFcr != null ? <span className="muted an-tiny"> (book {n2(f.standardFcr)})</span> : null}</>;
 }
 
-function MonthTable({ mv, monthMoney, flockMoney, totalOnly, effByFlock, effTotal, fcrByFlock, fcrTotal }: { mv: ReturnType<typeof monthView>; monthMoney: ReturnType<typeof monthEconomics>; flockMoney: Map<string, { profit: number }>; totalOnly?: boolean; effByFlock: Map<string, FeedEff>; effTotal: FeedEff; fcrByFlock: Map<string, FcrResult>; fcrTotal: FcrResult }) {
+function MonthTable({ mv, monthMoney, flockMoney, totalOnly, effByFlock, effTotal, fcrByFlock, fcrTotal }: { mv: ReturnType<typeof monthView>; monthMoney: ReturnType<typeof monthEconomics>; flockMoney: Map<string, { profit: number; feed: number; feedMissing: boolean }>; totalOnly?: boolean; effByFlock: Map<string, FeedEff>; effTotal: FeedEff; fcrByFlock: Map<string, FcrResult>; fcrTotal: FcrResult }) {
   return (
         <div className="card an-scroll">
           <table className="an-table">
@@ -398,6 +398,7 @@ function MonthTable({ mv, monthMoney, flockMoney, totalOnly, effByFlock, effTota
                 <th className="num">Eggs</th>
                 <th className="num">Eggs per 100 birds</th>
                 <th className="num">Feed bags (month total)</th>
+                <th className="num">Feed cost ₹ (month, each shed&apos;s price)</th>
                 <th className="num">Deaths</th>
                 <th className="num">Deaths %</th>
                 <th className="num">Est. profit ₹</th>
@@ -417,6 +418,7 @@ function MonthTable({ mv, monthMoney, flockMoney, totalOnly, effByFlock, effTota
                   <td className="num">{n0(r.eggs)}</td>
                   <td className="num">{r.hd != null ? n1(r.hd) : "–"}</td>
                   <td className="num">{r.feedDays === 0 ? "not recorded" : `${n0(r.feed)}${r.feedDays < r.days ? ` (feed on ${r.feedDays} of ${r.days} days)` : ""}`}</td>
+                  <td className="num">{(() => { const fm = r.flockId ? flockMoney.get(r.flockId) : undefined; return r.feedDays === 0 || !fm ? "–" : fm.feedMissing ? <span className="badge badge-flagged">not entered</span> : n0(fm.feed); })()}</td>
                   <td className="num">{n0(r.mort)}</td>
                   <td className="num">{r.mortPct != null ? r.mortPct.toFixed(2) : "–"}</td>
                   <td className="num">{r.flockId && monthMoney.revenue && flockMoney.get(r.flockId) ? n0(flockMoney.get(r.flockId)!.profit) : "–"}</td>
@@ -432,6 +434,13 @@ function MonthTable({ mv, monthMoney, flockMoney, totalOnly, effByFlock, effTota
                 <th className="num">{n0(mv.total.eggs)}</th>
                 <th className="num">{mv.total.hd != null ? n1(mv.total.hd) : "–"}</th>
                 <th className="num">{mv.total.feedDays === 0 ? "not recorded" : `${n0(mv.total.feed)}${mv.total.feedDays < mv.total.days ? ` (feed on ${mv.total.feedDays} of ${mv.total.days} days)` : ""}`}</th>
+                <th className="num">{(() => {
+                  // the feed cost of the rows above, added up shed by shed (feed is exact per shed; never all bags × one price)
+                  if (mv.total.feedDays === 0) return "–";
+                  if (mv.total.label === "Farm total") return monthMoney.missing.includes("feed price per kg") ? "not entered" : n0(monthMoney.cost.feed);
+                  const fms = mv.rows.map((r) => (r.flockId ? flockMoney.get(r.flockId) : undefined)).filter((x): x is NonNullable<typeof x> => !!x);
+                  return fms.some((x) => x.feedMissing) ? "not entered" : n0(fms.reduce((t, x) => t + x.feed, 0));
+                })()}</th>
                 <th className="num">{n0(mv.total.mort)}</th>
                 <th className="num">–</th>
                 <th className="num">{monthMoney.revenue && mv.total.label === "Farm total" ? n0(monthMoney.profit) : "–"}</th>

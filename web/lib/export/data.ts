@@ -158,7 +158,8 @@ export async function costsDataset(month: string): Promise<Dataset> {
     };
   });
   const notes = [
-    "ALL COST AND PROFIT FIGURES ARE ESTIMATES. Feed is exact (bags × 45 kg × price per kg). Electricity and labour are the month's amount spread evenly over its days; packing is per tray sold; diesel and medicines count on the day bought.",
+    `ALL COST AND PROFIT FIGURES ARE ESTIMATES. Feed is exact: each shed's bags × ${BAG_KG} kg × its own price per kg that day (from 28 Nov 2026 the nutritionist's formula for the shed; before that, and for a shed without a formula, the farm default).`,
+    "Electricity and labour are the month's amount spread evenly over its days; packing is per tray sold; diesel and medicines count on the day bought.",
     "Revenue is eggs SOLD that day at the saved sale prices, not eggs laid. Bird sales are not included. Chick purchase = chicks that arrived × the average price per chick (a setting, about ₹52), counted on the arrival day, i.e. in the month of arrival — it is NOT spread over the laying months.",
   ];
   if (m.missing.length) notes.push(`NOT ENTERED (blank above where it is a whole column; the cost total is 'so far', understated, and the profit overstated): ${m.missing.join(", ")}.`);

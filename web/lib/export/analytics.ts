@@ -12,6 +12,7 @@ import { KIND_TITLE } from "@/lib/analytics/today";
 import { BAG_KG, dayEconomics, type CostInput } from "@/lib/costs/engine";
 import { dmy } from "@/lib/format";
 import { compareSheet, HD_NOTE } from "./compareSheet";
+import { feedPriceChanges } from "@/lib/costs/feedPrice";
 import { BLOCK_LABEL, BLOCKS, parseInc, SHARE_VIEWS, shareFileStem, VIEW_LABEL, type Block, type ShareView } from "./shareOptions";
 import type { Col, Dataset } from "./types";
 
@@ -72,7 +73,10 @@ const rowRatio = (top: string, bottom: string, k = 1) => (r: number, L: Record<s
 
 const FEED_NOTE = `Feed kg = bags × ${BAG_KG} kg. Feed figures, eggs per kg, feed per egg and FCR use only the flock-days that have a feed figure ("feed not recorded" days are left out, never counted as 0).`;
 const FCR_NOTE = "FCR = feed kg ÷ egg kg (lower is better). Egg kg = eggs × the BV300 standard egg weight for the flock's age (estimated), unless a real weighing is stored; flock-days with no egg-weight reference are left out on both sides. Pooled: all feed kg ÷ all egg kg, never an average of daily FCRs.";
-const MONEY_NOTE = "Revenue = priced egg sales only. Cost and profit are ESTIMATES (feed exact; electricity, labour and packing spread; diesel and medicines on the day bought). Missing inputs are missing, not zero.";
+const MONEY_NOTE = "Revenue = priced egg sales only. Cost and profit are ESTIMATES (feed exact: each shed's bags × the bag weight × its own price that day; electricity, labour and packing spread; diesel and medicines on the day bought). Missing inputs are missing, not zero.";
+/** V19: "Feed price changed on 28 Nov 2026 (new formulas) …" for each formula date inside the file's dates. */
+const priceChangeNotes = (x: { cost: CostInput; c: { range: PeriodRange } }) =>
+  feedPriceChanges(x.cost.formulations ?? [], x.c.range.from, x.c.range.to).map((d) => `Feed price changed on ${dmy(d)} (new formulas): from that day each shed's feed costs its formula's delivered price per kg; each day uses its own price.`);
 
 interface Ctxs {
   ctx: Ctx;
@@ -206,6 +210,7 @@ function summaryNotes(x: Ctxs, ss: PeriodSummary[]): string[] {
     for (const z of ss) if (z.feed.fcrLeftOut) notes.push(`FCR: ${z.feed.fcrLeftOut}.`);
   }
   if (x.farm && (x.has("sales") || x.has("costs"))) notes.push(MONEY_NOTE);
+  if (x.farm && x.has("costs")) notes.push(...priceChangeNotes(x));
   return [...new Set(notes)];
 }
 
@@ -362,6 +367,7 @@ function daysSheet(x: Ctxs, s: PeriodSummary): Dataset {
   if (x.has("production")) notes.push(HD_NOTE);
   if (x.has("feed")) notes.push(FEED_NOTE, FCR_NOTE);
   if (x.farm && (x.has("sales") || x.has("costs"))) notes.push(MONEY_NOTE);
+  if (x.farm && x.has("costs")) notes.push(...priceChangeNotes(x));
   return table("Days", `Day by day — ${x.c.range.label} — ${x.who}`, defs, day.length, notes);
 }
 
@@ -391,8 +397,10 @@ function costsSheet(x: Ctxs, s: PeriodSummary): Dataset {
     ...parts.map(([k, l]): Def => ({ key: k, header: l, type: "num", width: 12, total: true, value: (i) => e[i].cost[k] })),
     { key: "total", header: "Total ₹ (estimate)", type: "num", width: 14, value: (i) => e[i].cost.total, formula: (r, L) => `SUM(${L.feed}${r}:${L.chicks}${r})`, totalFormula: sumF("total") },
     { key: "note", header: "Missing (not zero)", type: "text", width: 50, value: (i) => (e[i].missing.length ? e[i].missing.join(", ") : null) },
+    // V19: where that day's feed price came from (each shed's own price; one line per price used)
+    { key: "feedPrice", header: "Feed price used (₹ per kg, bags)", type: "text", width: 60, value: (i) => (e[i].feedBy.length ? e[i].feedBy.map((g) => `${g.label.startsWith("Formula: ") ? g.label.slice(9) : "Farm default"} ₹${g.perKg.toFixed(3)}/kg: ${g.bags} bags`).join("; ") : null) },
   ];
-  return table("Costs", `Costs by day (estimate) — ${x.c.range.label} — whole farm`, defs, dates.length, [MONEY_NOTE, "Profit is an estimate: it is egg revenue minus this cost (see the Summary sheet)."]);
+  return table("Costs", `Costs by day (estimate) — ${x.c.range.label} — whole farm`, defs, dates.length, [MONEY_NOTE, ...priceChangeNotes(x), "Profit is an estimate: it is egg revenue minus this cost (see the Summary sheet)."]);
 }
 
 function alertsSheet(x: Ctxs, s: PeriodSummary): Dataset {

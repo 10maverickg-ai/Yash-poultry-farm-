@@ -5,7 +5,7 @@
 import { addDays, diffDays, isPlaceholderAge, moultOn, stdFor, type Ctx } from "./engine";
 import { customRange, makeRange, rangeCoverage, summarizeRange, type PeriodExtras, type PeriodRange, type PeriodSummary } from "./period";
 import { defaultRange, flockOptions, one, resolveFlock, type Param } from "./rangeParams";
-import type { CostInput } from "../costs/engine";
+import { BAG_KG, type CostInput } from "../costs/engine";
 
 export interface CompareSide {
   key: "a" | "b";
@@ -338,7 +338,7 @@ export function compareRows(A: SideResult, B: SideResult): CompareRow[] {
   // V17: eggs per kg of feed, pooled over each column's days with feed (more = better)
   const effNote = (x: SideResult) => (x.s.feed.eggsPerKg == null ? (x.s.feed.eggsPerKgWhy ?? "feed not recorded") : undefined);
   const effPart = [A, B].filter((x) => x.s.feed.eggsPerKg != null && x.s.feed.daysRecorded < x.s.daysWithData).map((x) => `${x.side.key.toUpperCase()}: ${x.s.feed.daysRecorded} of ${x.s.daysWithData} days with feed`);
-  add({ key: "eggsPerKg", group: "Feed", label: "Eggs per kg of feed", fmt: "num2", a: A.s.feed.eggsPerKg, b: B.s.feed.eggsPerKg, aNote: effNote(A), bNote: effNote(B), direction: "higher", note: `All eggs ÷ all feed kg (bags × 45 kg) over the days with feed only.${effPart.length ? ` ${effPart.join("; ")}.` : ""}` });
+  add({ key: "eggsPerKg", group: "Feed", label: "Eggs per kg of feed", fmt: "num2", a: A.s.feed.eggsPerKg, b: B.s.feed.eggsPerKg, aNote: effNote(A), bNote: effNote(B), direction: "higher", note: `All eggs ÷ all feed kg (bags × ${BAG_KG} kg) over the days with feed only.${effPart.length ? ` ${effPart.join("; ")}.` : ""}` });
   // V18 FCR: feed kg ÷ egg kg (standard egg weight for each flock's age unless eggs were weighed); lower = better
   const fcrNote = (x: SideResult) => (x.s.feed.fcrEstimated == null ? (x.s.feed.fcrWhy ?? "not available") : undefined);
   add({ key: "fcr", group: "Feed", label: A.s.feed.fcrLabel === B.s.feed.fcrLabel ? A.s.feed.fcrLabel : "FCR (egg weight: see the note)", fmt: "num2", a: A.s.feed.fcrEstimated, b: B.s.feed.fcrEstimated, aNote: fcrNote(A), bNote: fcrNote(B), direction: "lower", note: `All feed kg ÷ all egg kg over the days with feed. A: ${A.s.feed.fcrLabel}; B: ${B.s.feed.fcrLabel}.${[A, B].filter((x) => x.s.feed.fcrLeftOut).map((x) => ` ${x.side.key.toUpperCase()}: ${x.s.feed.fcrLeftOut}.`).join("")}` });
