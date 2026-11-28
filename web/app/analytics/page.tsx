@@ -30,6 +30,8 @@ import { loadPeriodExtras } from "@/lib/analytics/periodLoad";
 import { PeriodView, RangeView, ViewSwitch } from "@/components/PeriodView";
 import { DataStamp } from "@/components/DataStamp";
 import { ShareMenu } from "@/components/ShareMenu";
+import { FeedPriceLine } from "@/components/FeedPriceLine";
+import { feedPriceFor, nextFormulationFor, type FeedPrice, type Formulation } from "@/lib/costs/feedPrice";
 import { shareQuery } from "@/lib/export/shareOptions";
 import { chip } from "@/lib/analytics/chips";
 import { dmy, n0, n1 } from "@/lib/format";
@@ -323,7 +325,7 @@ export default async function AnalyticsPage({
             <div key={g ?? "none"}>
               <h3 className="an-daystamp">{g ? SEGMENT_NAME[g] : "Segment not set"} · {list.length}</h3>
               <div className="an-cards">
-                {list.map((c) => <FlockCardView key={c.flockId} c={c} eff={flockEff(ctx, c.flockId, asOf)} hh={flockHenHoused(ctx, c.flockId, asOf)} fcr={flockFcr(ctx, c.flockId, asOf)} />)}
+                {list.map((c) => <FlockCardView key={c.flockId} c={c} eff={flockEff(ctx, c.flockId, asOf)} hh={flockHenHoused(ctx, c.flockId, asOf)} fcr={flockFcr(ctx, c.flockId, asOf)} feed={{ price: feedPriceFor(costInput.settings, costInput.formulations ?? [], c.label, asOf), next: nextFormulationFor(costInput.formulations ?? [], c.label, asOf) }} />)}
               </div>
             </div>
           );
@@ -539,7 +541,7 @@ function FlockFcrLine({ f }: { f: { day: FcrResult; week: FcrResult } }) {
   );
 }
 
-function FlockCardView({ c, eff, hh, fcr }: { c: FlockCard; eff: { day: FeedEff; week: FeedEff }; hh: ReturnType<typeof flockHenHoused>; fcr: { day: FcrResult; week: FcrResult } }) {
+function FlockCardView({ c, eff, hh, fcr, feed }: { c: FlockCard; eff: { day: FeedEff; week: FeedEff }; hh: ReturnType<typeof flockHenHoused>; fcr: { day: FcrResult; week: FcrResult }; feed: { price: FeedPrice; next: Formulation | null } }) {
   return (
     <Link href={`/flocks/${c.flockId}`} className={`card an-flock an-${c.status} card-link`}>
       <div className="an-flock-head">
@@ -572,6 +574,7 @@ function FlockCardView({ c, eff, hh, fcr }: { c: FlockCard; eff: { day: FeedEff;
           <FlockEffLine e={eff} />
           <FlockHHLine h={hh} />
           <FlockFcrLine f={fcr} />
+          <FeedPriceLine price={feed.price} next={feed.next} />
         </div>
         <Spark values={c.hdSeries} color={SPARK_COLOR[c.status]} />
       </div>

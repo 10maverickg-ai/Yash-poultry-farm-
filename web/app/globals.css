@@ -1017,11 +1017,13 @@ main:focus { outline: none; }
 .an-table.ff-lines, .an-table.ff-ing { min-width: 0; }
 .ff-ing td:first-child { overflow-wrap: anywhere; }
 .ff-total td { font-weight: 700; border-top: 2px solid var(--ink); }
-.pv-subrow td { padding-top: 0.15rem; padding-bottom: 0.15rem; }
-.pv-pricenote { border-left: 4px solid #2a78d6; padding-left: 0.5rem; margin: 0.3rem 0 0.5rem; }
 .ff-shed .ff-wrap { min-width: 9rem; white-space: normal; }
 .ff-cell { display: block; min-width: 0; }
 .ff-sub { display: block; }
 .ff-allrow td { font-weight: 700; }
 @media (max-width: 600px) { .ff-shed .ff-wrap { min-width: 0; } .ff-cell { text-align: right; flex: 1; } }
 .ff-shed td a, .ff-wrap a { display: inline-flex; align-items: center; min-height: 44px; }
+.flock-feed-line { margin: 0.2rem 0 0.4rem; }
+.flock-feed-line a { display: inline-flex; align-items: center; min-height: 44px; font-weight: 600; }
+.pv-subrow td { padding-top: 0.15rem; padding-bottom: 0.15rem; }
+.pv-pricenote { border-left: 4px solid #2a78d6; padding-left: 0.5rem; margin: 0.3rem 0 0.5rem; }
