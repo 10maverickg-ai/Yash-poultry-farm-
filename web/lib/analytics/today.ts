@@ -43,8 +43,9 @@ const ACTION: Record<AlertKind, string> = {
   missing_day: "Enter the missing figures for that day.",
   flock_health: "Call the vet today. Walk the shed: look at the dead birds, drinkers and water, feed and shed temperature, and separate any sick birds.",
   feed_efficiency: "Check for feed waste (spilt feed, feeder level, rats), a change in the feed or the mill's mix, sick birds, and heat in the shed.",
+  fcr: "Check for feed waste, a change in the feed or the mill's mix, sick birds and heat; weigh a sample of eggs to see if they are getting smaller.",
 };
-const KIND_TITLE: Record<AlertKind, string> = {
+export const KIND_TITLE: Record<AlertKind, string> = {
   production_drop: "is laying fewer eggs than usual",
   high_mortality: "had more deaths than usual",
   low_feed_stock: "Feed stock is very low",
@@ -54,6 +55,7 @@ const KIND_TITLE: Record<AlertKind, string> = {
   missing_day: "Figures are missing",
   flock_health: "may be sick: more deaths than usual and fewer eggs",
   feed_efficiency: "Feed is giving fewer eggs",
+  fcr: "Feed is giving fewer egg kilos than normal",
 };
 
 const flockHref = (c: Pick<FlockCard, "flockId">) => `/flocks/${c.flockId}`;

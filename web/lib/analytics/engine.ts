@@ -18,6 +18,7 @@ import type { RealisticModel, RealisticOverride } from "./realisticTypes";
 import type { WeatherDay } from "./weatherTypes";
 import { feedPair, type FeedPair } from "./feed";
 import { feedEfficiency, lastDatesWithRows } from "./feedEfficiency";
+import { fcrOf, type FcrResult } from "./fcr";
 
 // The two groups of the farm. MAIN = right page of the register (big eggs, mature flocks);
 // YOUNG = left page (small eggs, young flocks still climbing to peak). A flock whose segment
@@ -104,6 +105,8 @@ export interface StdRow {
   cumDepl?: number | null; // book cumulative depletion (%), BV300 table
   hhWeek?: number | null; // V17: book eggs per hen housed in this week of age (BV300 "current HH"), e.g. 6.7 at week 25
   cumHh?: number | null; // V17: book cumulative eggs per hen housed at the end of this week
+  eggWeightG?: number | null; // V18: book average egg weight (g) in this week of age
+  feedPerEggWeekG?: number | null; // V18: book feed per egg (g) in this week ("current"; the table's feed_per_egg_g is cumulative from week 19)
 }
 
 export interface EngineInput {
@@ -121,6 +124,8 @@ export interface EngineInput {
   stdByBreed?: Record<string, StdRow[]>;
   realisticOverrides?: RealisticOverride[]; // owner-typed realistic levels (V10; deaths from V11)
   weather?: WeatherDay[]; // weather_daily cache (V11); empty/absent = "weather not available"
+  /** V18: actual average egg weights weighed on the farm (egg_weight_samples). Empty = none yet: FCR uses the BV300 standard weight. */
+  eggWeights?: { flockId: string; date: string; grams: number }[];
 }
 
 // ---- tunable rules (the owner's brief, plus the few choices it left open) --
@@ -146,6 +151,9 @@ export const RULES = {
   trendWorsenPoints: 2, // trending below: gap grew >= 2 points week on week
   effDropPct: 8, // V17: eggs per kg of feed, last 7 days more than 8% below the 7 days before (owner, 25 Nov 2026) ...
   effMinFeedDays: 5, // ... with a feed figure on at least 5 of the 7 days in BOTH windows (fewer days is too thin to judge)
+  fcrTrendPct: 5, // V18 (owner, 28 Nov): 7-day FCR more than 5% worse than the 7 days before ...
+  fcrStdPct: 10, // ... or more than 10% worse than the book for the flocks' ages (ramping-up flocks are not compared with the book)
+  fcrRepeatDays: 7, // raised on the first day, then at most once every 7 days while it lasts (the V12 health-alert style), not daily
 };
 
 /**
@@ -180,7 +188,8 @@ export type AlertKind =
   | "feed_anomaly"
   | "missing_day"
   | "flock_health" // V12: deaths above its usual two days running AND eggs falling more than 5% in a week
-  | "feed_efficiency"; // V17: eggs per kg of feed, last 7 days more than 8% below the 7 days before
+  | "feed_efficiency" // V17: eggs per kg of feed, last 7 days more than 8% below the 7 days before
+  | "fcr"; // V18: 7-day FCR more than 5% worse than the 7 days before, or more than 10% worse than the book
 
 export interface Alert {
   segment: Segment | null; // which group the alert is about (null = flock without a segment, or farm-wide)
@@ -954,6 +963,51 @@ export function alertKey(a: { kind: AlertKind; date: string; flockId: string | n
 
 type RawAlert = Omit<Alert, "key" | "segment"> & { segment?: Segment | null };
 
+interface FcrAlertState {
+  bad: boolean;
+  trendBad: boolean;
+  stdBad: boolean;
+  now: FcrResult;
+  before: FcrResult | null;
+  vsBook: FcrResult | null;
+  last7: string[];
+  prev7: string[];
+  moulting: string[];
+  ramping: string[];
+}
+const fcrMemo = new WeakMap<Ctx, Map<string, FcrAlertState | null>>();
+/** V18: whether a group's FCR is "worse than normal" on a day (memoised per context: the episode rule looks back). */
+function fcrAlertState(ctx: Ctx, date: string, seg: Segment): FcrAlertState | null {
+  let memo = fcrMemo.get(ctx);
+  if (!memo) fcrMemo.set(ctx, (memo = new Map()));
+  const key = `${seg}|${date}`;
+  if (memo.has(key)) return memo.get(key)!;
+  let res: FcrAlertState | null = null;
+  if (dayTotals(ctx, date, seg)) {
+    const last7 = lastDatesWithRows(ctx, date, seg, 7);
+    const prev7 = last7.length ? lastDatesWithRows(ctx, last7[last7.length - 1], seg, 7, true) : [];
+    const moulting = new Set<string>();
+    const ramping = new Set<string>();
+    const rows = (ds: string[], noRamping = false) =>
+      ds.flatMap((d) =>
+        rowsOn(ctx, d, seg).filter((r) => {
+          if (moultOn(ctx, r.flockId, d)) { moulting.add(flockName(ctx, r.flockId, r.label)); return false; }
+          if (noRamping && rampingUp(ctx, r.flockId, d)) { ramping.add(flockName(ctx, r.flockId, r.label)); return false; }
+          return true;
+        })
+      );
+    const now = fcrOf(ctx, rows(last7));
+    const before = prev7.length ? fcrOf(ctx, rows(prev7)) : null;
+    const vsBook = fcrOf(ctx, rows(last7, true));
+    const min = RULES.effMinFeedDays;
+    const trendBad = now.fcr != null && before?.fcr != null && now.daysWithFeed >= min && before.daysWithFeed >= min && now.fcr > before.fcr * (1 + RULES.fcrTrendPct / 100);
+    const stdBad = vsBook.fcr != null && vsBook.standardFcr != null && vsBook.daysWithFeed >= min && vsBook.fcr > vsBook.standardFcr * (1 + RULES.fcrStdPct / 100);
+    res = { bad: trendBad || stdBad, trendBad, stdBad, now, before, vsBook, last7, prev7, moulting: [...moulting], ramping: [...ramping] };
+  }
+  memo.set(key, res);
+  return res;
+}
+
 export function alertsFor(ctx: Ctx, date: string, opts: { includeCleared?: boolean; segment?: SegFilter } = {}): Alert[] {
   const seen = new Map<string, number>();
   const all: Alert[] = alertsForRaw(ctx, date, opts).map((a) => {
@@ -1172,6 +1226,39 @@ function alertsForRaw(ctx: Ctx, date: string, opts: { includeCleared?: boolean }
       flockTag: null,
       source: null,
       reason: `${SEGMENT_SHORT[seg]} flocks: feed is giving fewer eggs: ${now.eggsPerKg.toFixed(2)} eggs per kg of feed now (last 7 days, ${span(last7)}) vs ${before.eggsPerKg.toFixed(2)} before (${span(prev7)}), ${Math.abs(pct).toFixed(1)}% lower (alert above ${RULES.effDropPct}%).${moulting.size ? ` ${[...moulting].join(", ")} (moulting) left out.` : ""} Likely checks: feed waste (spilt feed, feeder level, rats or birds), a change in feed quality or the mill's mix, disease (deaths, droppings, birds off feed), heat.`,
+    });
+  }
+
+  // V18 FCR, per group: the last 7 days against the 7 days before and against the book; moulting flocks left out of both
+  // windows (never flagged), ramping-up flocks not compared with the book (as everywhere); raised once per episode,
+  // then at most every 7 days while it lasts.
+  for (const seg of SEGMENTS) {
+    const st = fcrAlertState(ctx, date, seg);
+    if (!st?.bad) continue;
+    let run = 0; // how many days before this one the condition already held (consecutive days with rows)
+    for (let i = ctx.dates.indexOf(date) - 1, g = 0; i >= 0 && g < 60; i--, g++) {
+      const d = ctx.dates[i];
+      if (!dayTotals(ctx, d, seg)) continue;
+      if (!fcrAlertState(ctx, d, seg)?.bad) break;
+      run++;
+    }
+    if (run % RULES.fcrRepeatDays !== 0) continue;
+    const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const dm = (d: string) => `${Number(d.slice(8, 10))} ${MON[Number(d.slice(5, 7)) - 1]}`;
+    const span = (ds: string[]) => (ds.length ? `${dm(ds[ds.length - 1])} – ${dm(ds[0])}` : "");
+    const parts: string[] = [];
+    if (st.trendBad) parts.push(`FCR ${st.now.fcr!.toFixed(2)} in the last 7 days (${span(st.last7)}) vs ${st.before!.fcr!.toFixed(2)} before (${span(st.prev7)}), ${((st.now.fcr! / st.before!.fcr! - 1) * 100).toFixed(1)}% worse (alert above ${RULES.fcrTrendPct}%)`);
+    if (st.stdBad) parts.push(`FCR ${st.vsBook!.fcr!.toFixed(2)} vs the book's ${st.vsBook!.standardFcr!.toFixed(2)} for these ages, ${((st.vsBook!.fcr! / st.vsBook!.standardFcr! - 1) * 100).toFixed(1)}% worse (alert above ${RULES.fcrStdPct}%)`);
+    out.push({
+      kind: "fcr",
+      segment: seg,
+      date,
+      flockId: null,
+      flockLabel: null,
+      registerLabel: null,
+      flockTag: null,
+      source: null,
+      reason: `${SEGMENT_SHORT[seg]} flocks: feed is giving fewer egg kilos than normal: ${parts.join("; ")}. FCR is estimated from the standard egg weight.${st.moulting.length ? ` ${st.moulting.join(", ")} (moulting) left out.` : ""}${st.ramping.length ? ` ${st.ramping.join(", ")} (ramping up) not compared with the book.` : ""}${run ? ` It has lasted ${run + 1} days.` : ""} Likely checks: feed waste (spilt feed, feeder level, rats or birds), a change in feed quality or the mill's mix, disease (deaths, droppings, birds off feed), heat, eggs getting smaller (weigh a sample of eggs).`,
     });
   }
 

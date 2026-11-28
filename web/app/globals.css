@@ -976,3 +976,26 @@ main:focus { outline: none; }
 .eff-lines { flex-direction: column; gap: 0.15rem; }
 .an-grid .an-metric-wide { grid-column: span 2; }
 .eff-trend { margin-top: 0.6rem; max-width: 520px; }
+
+/* V18 share / download */
+.sh-menu { margin: 0 0 0.7rem; }
+.sh-menu > summary { list-style: none; min-height: 44px; display: inline-flex; align-items: center; cursor: pointer; }
+.sh-menu > summary::-webkit-details-marker { display: none; }
+.sh-menu > summary::after { content: " ▾"; white-space: pre; }
+.sh-menu[open] > summary::after { content: " ▴"; }
+.sh-pop { margin-top: 0.4rem; display: grid; gap: 0.5rem; }
+.sh-choose { min-height: 44px; display: inline-flex; align-items: center; font-weight: 600; }
+.sh-action { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 0.35rem; }
+.sh-action .btn { min-height: 44px; }
+.sh-err { color: var(--danger); }
+.sh-panel { display: grid; gap: 0.5rem; }
+.sh-panel .pv-dl .btn, .sh-panel .pv-dl button { min-height: 44px; }
+.sh-panel button:disabled { opacity: 0.55; cursor: not-allowed; }
+.sh-blocks { border: 1px solid var(--line); border-radius: 10px; padding: 0.5rem 0.6rem 0.6rem; margin: 0; min-width: 0; display: grid; gap: 0.4rem; }
+.sh-blocks legend { font-weight: 700; padding: 0 0.3rem; }
+.sh-row { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.sh-row .btn { min-height: 44px; }
+.sh-grid { display: grid; gap: 0.3rem; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); }
+.sh-off { opacity: 0.6; }
+.sh-will { margin: 0; }
+.sh-cmp { display: grid; gap: 0.2rem; }

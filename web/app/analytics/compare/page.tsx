@@ -8,6 +8,9 @@ import { todayIST } from "@/lib/weather/openMeteo";
 import { CompareView } from "@/components/CompareView";
 import { DataStamp } from "@/components/DataStamp";
 import type { Param } from "@/lib/analytics/rangeParams";
+import { compareHref, readCompare } from "@/lib/analytics/compare";
+import { ShareMenu } from "@/components/ShareMenu";
+import { shareQuery } from "@/lib/export/shareOptions";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Compare flocks" };
@@ -28,6 +31,11 @@ export default async function ComparePage({ searchParams }: { searchParams: Prom
       ) : (
         <>
           <DataStamp latest={lastDayOfData(ctx)} today={new Date().toISOString().slice(0, 10)} />
+          {(() => {
+            const st = readCompare(ctx, sp, todayIST());
+            const params = Object.fromEntries(new URL(compareHref(st), "http://farm.local").searchParams);
+            return <ShareMenu query={shareQuery({ view: "compare", compare: params })} what={`The Compare table: A ${st.a.flockLabel}, ${st.a.range.label} against B ${st.b.flockLabel}, ${st.b.range.label}.`} />;
+          })()}
           <CompareView input={input} cost={cost} extras={extras} sp={sp} today={todayIST()} />
         </>
       )}

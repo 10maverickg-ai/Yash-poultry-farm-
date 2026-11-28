@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { BoardEff } from "@/lib/analytics/feedEfficiency";
+import { fcrLabel, type BoardFcr } from "@/lib/analytics/fcr";
 import { EffTrendChart } from "@/components/PeriodCharts";
 import { SEGMENT_NAME, RAMP_DAYS, type Segment } from "@/lib/analytics/engine";
 import type { SegmentPanel } from "@/lib/analytics/segments";
@@ -86,12 +87,19 @@ export function SegmentPanelView({ p, detailHref }: { p: SegmentPanel; detailHre
           <Cell title={p.segment === "main" ? "Big eggs in stock" : "Small eggs in stock"} value={p.stock ? `${n1(p.stock.days)} days` : "–"} sub={p.stock ? `${n0(p.stock.closing)} eggs` : "no ledger row"} />
           <EggsPerKgCell e={p.eff} />
           <HenHousedCell p={p} />
+          <FcrCell f={p.fcr} />
         </div>
       )}
       {t && p.effTrend.length > 0 && (
         <div className="eff-trend">
           <EffTrendChart points={p.effTrend} title={`Eggs per kg feed, last 30 days (${dayMon(p.effTrend[0].date)} – ${dayMon(p.effTrend[p.effTrend.length - 1].date)})`} />
           <p className="muted an-tiny" style={{ margin: 0 }}>A gap means the register has no feed figure that day. Higher is better: more eggs from each kg of feed.</p>
+        </div>
+      )}
+      {t && p.fcrTrend.length > 0 && (
+        <div className="eff-trend">
+          <EffTrendChart points={p.fcrTrend} step={0.25} unit="FCR" avgLabel="7-day FCR (all feed kg ÷ all egg kg of the last 7 days)" emptyText="no FCR in these days (no feed or no egg weight), nothing to draw." title={`${fcrLabel(p.fcr.week)}, last 30 days (${dayMon(p.fcrTrend[0].date)} – ${dayMon(p.fcrTrend[p.fcrTrend.length - 1].date)})`} />
+          <p className="muted an-tiny" style={{ margin: 0 }}>A gap means no feed figure (or no egg weight) that day. Lower is better: less feed for each kg of eggs.{p.fcr.week.standardFcr != null ? ` The book for these ages: ${p.fcr.week.standardFcr.toFixed(2)}.` : ""}</p>
         </div>
       )}
       <p className="an-foot" style={{ marginBottom: 0 }}>
@@ -180,6 +188,49 @@ export function HenHousedCell({ p }: { p: SegmentPanel }) {
       <div className="an-metric-cmp eff-lines">
         <span>eggs ÷ hens housed{p.hd7 != null ? ` · hen-day % for the same days: ${n1(p.hd7)} (eggs ÷ birds alive)` : ""}</span>
         <span>{h.standins.length === 0 ? "hens housed counted on the flocks' first day in the register" : h.standins.length === h.flocks ? "stand-in: the number housed is not known for these flocks, so the birds on 2 Jul 2026 are used" : `stand-in (birds on 2 Jul 2026) for ${h.standins.join(", ")}`}</span>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * V18 FCR tile: the day's FCR as the big number, then the last 7 days with the book for the same flock-days and the change
+ * against the 7 days before (lower = better; ▲/▼ and better/worse in words). Always says the egg weight used.
+ */
+export function FcrCell({ f }: { f: BoardFcr }) {
+  const d = f.day;
+  const w = f.week;
+  const c = f.change;
+  const title = `${fcrLabel(w)} today (${dayMon(f.date)})`;
+  if (w.fcr == null && d.fcr == null) {
+    return (
+      <div className="an-metric an-metric-wide">
+        <div className="an-metric-title">{title}</div>
+        <div className="an-metric-value an-metric-words">{w.why?.startsWith("feed not recorded") ? "feed not recorded" : "not available"}</div>
+        <div className="an-metric-cmp">{w.why ?? "no FCR for these days"}</div>
+      </div>
+    );
+  }
+  return (
+    <div className="an-metric an-metric-wide">
+      <div className="an-metric-title">{title}</div>
+      <div className={`an-metric-value${d.fcr == null ? " an-metric-words" : ""}`}>{d.fcr != null ? n2(d.fcr) : d.why?.startsWith("feed not recorded") ? "feed not recorded" : "not available"}</div>
+      <div className="an-metric-cmp eff-lines">
+        <span>{d.fcr != null ? `kg of feed for each kg of eggs today · feed ${n1(d.feedPerEggG ?? 0)} g per egg (exact)` : d.why ?? ""}</span>
+        <span>
+          7-day ({fromTo(w.from, w.to)}): <b>{w.fcr != null ? n2(w.fcr) : "–"}</b>
+          {w.standardFcr != null ? ` · book for these ages ${n2(w.standardFcr)}${w.gap != null ? ` (${w.gap > 0 ? "+" : "−"}${n2(Math.abs(w.gap))}, ${w.gap > 0 ? "worse" : "better"} than the book)` : ""}` : ""}
+          {w.feedPerEggG != null ? ` · feed ${n1(w.feedPerEggG)} g per egg` : ""}
+          {w.daysWithFeed < w.days ? ` · ${w.daysWithFeed} of ${w.days} days with feed` : ""}
+        </span>
+        {w.leftOut ? <span>{w.leftOut}</span> : null}
+        {c ? (
+          <span className={c.good == null ? "" : c.good ? "pv-good" : "pv-bad"}>
+            {c.abs > 0 ? "▲" : c.abs < 0 ? "▼" : "="} {c.abs >= 0 ? "+" : "−"}{n2(Math.abs(c.abs))} ({c.pct >= 0 ? "+" : "−"}{Math.abs(c.pct).toFixed(1)}%) vs the 7 days before ({fromTo(f.prevWeek.from, f.prevWeek.to)}){c.good == null ? " — no change" : c.good ? " — better" : " — worse"}
+          </span>
+        ) : (
+          <span>no earlier 7 days with an FCR to compare</span>
+        )}
       </div>
     </div>
   );

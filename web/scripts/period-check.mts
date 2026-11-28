@@ -104,7 +104,7 @@ ok("a week with no data says so and has no invented numbers", empty.daysWithData
 const prevWeek = S(shiftRange(wk.range, -1));
 const cmp = compare(wk, prevWeek);
 const c = (k: string) => cmp.find((x) => x.key === k)!;
-ok("comparison covers 8 metrics (V17 added eggs per kg of feed)", cmp.length === 8);
+ok("comparison covers 9 metrics (V17 eggs per kg of feed, V18 FCR)", cmp.length === 9);
 ok("change = now − before", Math.abs(c("eggsPerDay").abs! - (wk.eggs.perDay! - prevWeek.eggs.perDay!)) < 1e-9);
 ok("more eggs is good, more deaths is bad", c("eggsPerDay").good === (c("eggsPerDay").abs! > 0) && c("deathsPct").good === (c("deathsPct").abs! < 0));
 ok("no earlier data -> no comparison (same week last year)", compare(wk, S(lastYearRange(wk.range))).every((x) => x.abs == null && x.good == null));

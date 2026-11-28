@@ -8,6 +8,17 @@ export interface Change {
 
 export const CHANGES: Change[] = [
   {
+    date: "2026-11-28",
+    title: "Share Analytics as Excel or CSV, and FCR",
+    points: [
+      "Every Analytics screen (the board, the Day screen, Week, Month, Year, Custom, a flock's page and Compare) has one “Share / Download” button: Excel, CSV, or Share straight to WhatsApp, mail or Files. The file has the numbers on that screen.",
+      "“Choose what to share” lets you pick the dates (or Last 7 / 14 / 30 days, This month), the flocks, and what goes in: production, feed, deaths and birds, sales, costs and profit, alerts, the per-flock table, the day-by-day table. Untick sales and costs and the file has no money in it at all. The choice stays in the page's address, so you can bookmark it.",
+      "The Excel file has a sheet for each part (Summary, Flocks, Days, Sales, Costs, Alerts), real dates and numbers, totals that Excel works out, and at the top the farm, the dates, the flocks and when it was made. A missing figure is empty with the reason beside it, never 0.",
+      "New: FCR, kilos of feed for each kilo of eggs (lower is better). 13–19 Nov, Main flocks: 2.40, the BV300 book says 2.13 for these ages; 142.6 g of feed per egg. The egg weight is the BV300 standard for each flock's age, so the screen says “estimated from standard egg weight”; if you weigh a sample of eggs, the real weight can be stored and FCR becomes exact. BAB-4 is past the end of the book's egg-weight table (week 100), so it gets no FCR and says why.",
+      "FCR is on each group card (today, the last 7 days, a 30-day line on Main), the flock cards, every per-flock table, Compare and the downloads. New alert “Feed is giving fewer egg kilos than normal” when the last 7 days are clearly worse than the week before or than the book, with what to check.",
+    ],
+  },
+  {
     date: "2026-11-25",
     title: "Eggs per kg of feed",
     points: [
