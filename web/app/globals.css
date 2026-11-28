@@ -18,6 +18,17 @@
 
 html {
   font-size: 16px;
+  /* V20: iPhone Safari must not enlarge text by itself (it does on turning the phone sideways), which can widen boxes */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+/* V20: the last safety net against sideways overflow. On iPhone Safari a page wider than the screen widens the layout
+   viewport, which drags the fixed bottom bar into the middle of the screen. Every overflow found is fixed at its source;
+   this only stops one we have not found yet. `clip` (not `hidden`) keeps sticky headers working. */
+html,
+body {
+  overflow-x: clip;
 }
 
 body {
@@ -74,6 +85,8 @@ main {
   max-width: 760px;
   margin: 0 auto;
   padding: 1rem;
+  min-width: 0;
+  overflow-wrap: break-word; /* V20: a long word (a code, a name) wraps instead of widening the page */
 }
 
 h1 {
@@ -598,12 +611,17 @@ button:hover,
 .sub-nav { display: flex; gap: 0.4rem; overflow-x: auto; padding: 0.5rem 1rem; background: #e6ebef; border-bottom: 1px solid var(--line); white-space: nowrap; -webkit-overflow-scrolling: touch; }
 .sub-nav a { text-decoration: none; color: var(--ink); font-size: 0.9rem; padding: 0.4rem 0.8rem; border-radius: 999px; background: #fff; border: 1px solid var(--line); min-height: 36px; display: inline-flex; align-items: center; }
 .sub-nav a.on { background: var(--accent); color: #fff; border-color: var(--accent); }
-.bottom-nav { position: fixed; left: 0; right: 0; bottom: 0; z-index: 50; display: grid; grid-template-columns: repeat(7, 1fr); background: #fff; border-top: 1px solid var(--line); padding-bottom: env(safe-area-inset-bottom); }
-.bottom-nav a { display: grid; justify-items: center; gap: 0; padding: 0.35rem 0 0.3rem; text-decoration: none; color: var(--muted); min-height: 52px; align-content: center; }
+/* V20: the phone bar. Fixed to the bottom of the screen, a direct child of <body> (no transformed or clipped parent),
+   as wide as the screen and never wider: each item is as wide as its label plus an equal share of the rest, at least
+   44 px, and a label that still does not fit ends in "…" instead of pushing the bar (and the page) wider. */
+:root { --bottom-bar-h: 56px; }
+.bottom-nav { position: fixed; left: 0; right: 0; bottom: 0; width: 100%; max-width: 100%; z-index: 50; display: flex; background: #fff; border-top: 1px solid var(--line); padding-bottom: env(safe-area-inset-bottom); }
+.bottom-nav a { flex: 1 1 auto; min-width: 44px; overflow: hidden; display: grid; justify-items: center; gap: 0; padding: 0.35rem 1px 0.3rem; text-decoration: none; color: var(--muted); min-height: 52px; align-content: center; }
 .bottom-nav a.on { color: var(--accent); font-weight: 700; }
 .bn-icon { font-size: 1.15rem; line-height: 1.2; }
-.bn-label { font-size: 0.62rem; }
-main { padding-bottom: 5.5rem; }
+.bn-label { font-size: 0.68rem; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* room under the last card for the bar and the phone's home-bar area, so nothing is hidden under it */
+main { padding-bottom: calc(var(--bottom-bar-h) + env(safe-area-inset-bottom) + 1.5rem); }
 @media (min-width: 900px) {
   .top-sections { display: flex; }
   .bottom-nav { display: none; }
@@ -826,6 +844,9 @@ main:focus { outline: none; }
   table[data-stacked] td:first-child .muted, table[data-stacked] td:first-child .an-tiny { font-weight: 400; display: block; }
   table[data-stacked] td:first-child::before { display: none; }
   table[data-stacked] td.num { white-space: normal; }
+  /* V20: a long word in a card (a code, a name) wraps inside the card instead of making it wider than the screen */
+  table[data-stacked] td, table[data-stacked] th { min-width: 0; overflow-wrap: anywhere; }
+  table[data-stacked] td > * { min-width: 0; }
   .an-scroll:has(> table[data-stacked]), .table-wrap:has(> table[data-stacked]), .tl-scroll:has(> table[data-stacked]) { overflow-x: visible; padding: 0; border: 0; background: transparent; box-shadow: none; }
 }
 @media (min-width: 601px) and (max-width: 1000px) {
@@ -841,6 +862,8 @@ main:focus { outline: none; }
   table[data-heavy] td:first-child .muted, table[data-heavy] td:first-child .an-tiny { font-weight: 400; display: block; }
   table[data-heavy] td:first-child::before { display: none; }
   table[data-heavy] td.num { white-space: normal; }
+  table[data-heavy] td, table[data-heavy] th { min-width: 0; overflow-wrap: anywhere; }
+  table[data-heavy] td > * { min-width: 0; }
   .an-scroll:has(> table[data-heavy]), .table-wrap:has(> table[data-heavy]), .tl-scroll:has(> table[data-heavy]) { overflow-x: visible; padding: 0; border: 0; background: transparent; box-shadow: none; }
 }
 .table-wrap td, .table-wrap th { white-space: normal; }
@@ -1027,3 +1050,29 @@ main:focus { outline: none; }
 .flock-feed-line a { display: inline-flex; align-items: center; min-height: 44px; font-weight: 600; }
 .pv-subrow td { padding-top: 0.15rem; padding-bottom: 0.15rem; }
 .pv-pricenote { border-left: 4px solid #2a78d6; padding-left: 0.5rem; margin: 0.3rem 0 0.5rem; }
+
+/* V20: phone widths — nothing may be wider than the screen, whatever the text size. A grid column of "1fr" cannot
+   shrink below its widest word (it is minmax(auto, 1fr)), so a long label widened its column and the page; columns are
+   minmax(0, 1fr) and flex children min-width: 0, so long text wraps or ends in "…" inside its own box instead. */
+.pv-switch { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.pv-switch a { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.an-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (min-width: 560px) { .an-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); } }
+.an-grid.seg-grid { grid-template-columns: repeat(auto-fit, minmax(min(8.5rem, 100%), 1fr)); }
+.an-cards { grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 640px) { .an-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.an-flock-head > *, .an-flock-body > * { min-width: 0; }
+.an-flock-head .an-pill { flex: none; }
+.an-flock-body svg { flex: none; }
+.an-metric-value { white-space: normal; overflow-wrap: anywhere; } /* a big number wraps inside its tile at large text, never out of it */
+.card, .an-metric, .flag-banner { min-width: 0; overflow-wrap: break-word; }
+/* V20: iPhone Safari zooms the page in when a text box under 16 px is tapped, and stays zoomed: the bottom bar is then
+   no longer at the bottom of the screen. Every text box, number box, date and list is at least 16 px. */
+input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="hidden"]), select, textarea { font-size: max(16px, 1em) !important; }
+/* V20: rows that sat side by side wrap instead of running off the screen */
+.td-flock > div { min-width: 0; }
+.td-flock .an-pill { flex: none; }
+.buyer-form { flex-wrap: wrap; }
+.buyer-form input { min-width: 0; flex: 1 1 8rem; }
+.tl { grid-template-columns: minmax(0, 1fr); min-width: 0; }
+.tl > div > * { min-width: 0; overflow-wrap: anywhere; }

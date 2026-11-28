@@ -24,7 +24,7 @@ if (!fx) {
 const needsFixture = ["analytics-check", "costs-check", "period-check", "range-check", "feed-check", "eggs-per-kg-check", "henhoused-check", "fcr-check", "share-check", "feedprice-check", "overhead-check", "segment-check", "health-check"];
 const checks = [
   "analytics-check", "costs-check", "period-check", "range-check", "feed-check", "eggs-per-kg-check", "henhoused-check", "fcr-check", "share-check", "feedprice-check", "overhead-check", "segment-check", "std-for-check", "rates-check", "friendly-check", "plain-check",
-  "realistic-check", "import-check", "weather-check", "heat-check", "health-check", "medicines-check", "medicines-v14-check", "manualday-check", "reprice-check", "safety-check", "eggweight-db-check",
+  "realistic-check", "import-check", "weather-check", "heat-check", "health-check", "medicines-check", "medicines-v14-check", "manualday-check", "reprice-check", "safety-check", "eggweight-db-check", "layout-check",
 ].filter((n) => readdirSync("scripts").includes(`${n}.mts`));
 const regressions = readdirSync("scripts").filter((f) => /^regression-.*\.ts$/.test(f)).sort();
 
@@ -37,6 +37,8 @@ const go = (name: string, file: string, extra: string[] = []) => {
   const pass = (text.match(/^PASS/gm) ?? []).length;
   const fail = (text.match(/^FAIL/gm) ?? []).length;
   const first = (text.match(/^FAIL.*$/m) ?? [""])[0].slice(0, 110);
+  // a check that could not run here (the app is not running, no browser) says SKIP and is listed as skipped, not passed
+  if (pass + fail === 0 && r.status === 0 && /^SKIP/m.test(text)) return void rows.push({ name, status: "SKIPPED", detail: (text.match(/^SKIP\s+(.*)$/m) ?? ["", ""])[1].slice(0, 110) });
   rows.push({ name, status: r.status === 0 && fail === 0 ? "PASS" : "FAIL", detail: pass + fail > 0 ? `${pass} pass, ${fail} fail${first ? ` — ${first}` : ""}` : r.status === 0 ? "exit 0" : text.trim().split("\n").pop()!.slice(0, 120) });
 };
 for (const n of checks) go(n, `${n}.mts`, needsFixture.includes(n) && fx ? [fx] : []);

@@ -9,6 +9,15 @@ export interface Change {
 export const CHANGES: Change[] = [
   {
     date: "2026-11-28",
+    title: "The bottom bar stays at the bottom on iPhone",
+    points: [
+      "On iPhone the bar with Upload · Day · Sales · Buy · Meds · Flocks · Analytics could jump into the middle of the screen, with the page running on underneath it and “Analytics” cut off at the edge. It now stays at the bottom on every page, and “Analytics” is shown in full.",
+      "The cause was parts of some pages that were a little wider than the phone's screen. On iPhone that pulls the bar off the bottom. These were fixed: the bar's own last label, the Day · Week · Month · Year · Custom buttons, the flock cards, a long code on the Medicines page, the buyer boxes on Sales and the flock rows on Today. Tapping a small text box also made iPhone zoom in (on Targets, Renumber flocks, Correct a day and Sales); all text boxes are now big enough that it does not.",
+      "The last card on every page now has room under it, so nothing is hidden under the bar.",
+    ],
+  },
+  {
+    date: "2026-11-28",
     title: "Feed formulas for each shed, and feed cost from them",
     points: [
       "New screen “Feed formulas” (Buy menu): one card for each of Dr Bhaskar Choudhary's five formulas of 28 Nov — which sheds eat it, what a kg costs delivered (and a 45 kg bag), the energy, the target intake and his note. Tap a card for the ingredient list and how the price is made up (ingredients + 1% loss + ₹1.50 production + ₹0.90 bagging).",
