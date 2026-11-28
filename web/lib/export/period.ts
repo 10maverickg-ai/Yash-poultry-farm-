@@ -3,6 +3,7 @@ import { loadEngineInput } from "@/lib/analytics/load";
 import { loadPeriodExtras } from "@/lib/analytics/periodLoad";
 import { loadCostInput } from "@/lib/costs/load";
 import { ledgerSegment, rowsOn, segmentOn, type Ctx } from "@/lib/analytics/engine";
+import { fcrOf, type FcrResult } from "@/lib/analytics/fcr";
 import { monthsWithin, rangeCoverage, rangeOf, summarizeRange, summarizePeriod, type PeriodExtras, type PeriodKind, type PeriodRange, type RangeFilter } from "@/lib/analytics/period";
 import { readRange, type Param } from "@/lib/analytics/rangeParams";
 import { compareRows, compareSide, readCompare } from "@/lib/analytics/compare";
@@ -33,27 +34,47 @@ const letter = (i: number) => String.fromCharCode(65 + i);
  * V17: "Eggs of flocks with feed" and "Eggs per kg feed" as the last two columns. Eggs per kg is a formula
  * (eggs of the flocks with a feed figure ÷ (feed bags × the bag weight)); the totals row pools it, never an
  * average of the rows. A row without a feed figure stays empty ("feed not recorded"), never 0.
+ * V18 B5: then "Feed g per egg" (exact), the feed kg and egg kg of the FCR, and the FCR (estimated from the standard
+ * egg weight) as formulas, pooled in the totals row the same way (all feed kg ÷ all egg kg).
  */
-function withEggsPerKg(ds: Dataset, eggsFed: (number | null)[]): Dataset {
+function withEggsPerKg(ds: Dataset, eggsFed: (number | null)[], fcr: FcrResult[]): Dataset {
   const n = ds.columns.length;
   const feedCol = letter(ds.columns.findIndex((c) => c.key === "feed"));
   const fedCol = letter(n);
+  const [fkCol, ekCol] = [letter(n + 3), letter(n + 4)]; // n: eggs fed, n+1: eggs per kg, n+2: g per egg
+  const sumOf = (c: string, f: number, l: number) => `SUM(${c}${f}:${c}${l})`;
   const columns: Dataset["columns"] = [
     ...ds.columns,
     { key: "eggsFed", header: "Eggs of flocks with feed", type: "int", width: 14, total: true },
     { key: "eggsPerKg", header: `Eggs per kg feed (bags × ${BAG_KG} kg)`, type: "num", width: 15, totalFormula: (f, l) => `IF(SUM(${feedCol}${f}:${feedCol}${l})>0,SUM(${fedCol}${f}:${fedCol}${l})/(SUM(${feedCol}${f}:${feedCol}${l})*${BAG_KG}),"")` },
+    { key: "gPerEgg", header: "Feed g per egg (exact)", type: "num", width: 12, totalFormula: (f, l) => `IF(${sumOf(fedCol, f, l)}>0,${sumOf(feedCol, f, l)}*${BAG_KG}*1000/${sumOf(fedCol, f, l)},"")` },
+    { key: "fcrKg", header: "Feed kg in the FCR (rows with an egg weight)", type: "num", width: 14, total: true },
+    { key: "eggKg", header: "Egg kg (eggs × standard egg weight)", type: "num", width: 14, total: true },
+    { key: "fcr", header: "FCR (estimated from standard egg weight)", type: "num", width: 14, totalFormula: (f, l) => `IF(${sumOf(ekCol, f, l)}>0,${sumOf(fkCol, f, l)}/${sumOf(ekCol, f, l)},"")` },
   ];
   const rows = ds.rows.map((r, i) => {
     const feed = typeof r.feed === "number" ? r.feed : null;
     const fed = eggsFed[i];
-    return { ...r, eggsFed: feed != null ? fed : null, eggsPerKg: feed != null && feed > 0 && fed != null ? fed / (feed * BAG_KG) : null };
+    const x = fcr[i];
+    return { ...r, eggsFed: feed != null ? fed : null, eggsPerKg: feed != null && feed > 0 && fed != null ? fed / (feed * BAG_KG) : null, gPerEgg: x.feedPerEggG, fcrKg: x.eggKg > 0 ? x.fcrFeedKg : null, eggKg: x.eggKg > 0 ? x.eggKg : null, fcr: x.fcr };
   });
+  const leftOut = [...new Set(fcr.map((x) => x.leftOut).filter(Boolean))];
   return {
     ...ds,
     columns,
     rows,
-    notes: [...ds.notes, `Eggs per kg feed = eggs of the flocks that have a feed figure ÷ (feed bags × ${BAG_KG} kg); the totals row pools it (all those eggs ÷ all that feed). A row with no feed figure is left empty: feed not recorded.`],
-    formulas: { ...(ds.formulas ?? {}), eggsPerKg: (row) => `IF(AND(ISNUMBER(${feedCol}${row}),${feedCol}${row}>0),${fedCol}${row}/(${feedCol}${row}*${BAG_KG}),"")` },
+    notes: [
+      ...ds.notes,
+      `Eggs per kg feed = eggs of the flocks that have a feed figure ÷ (feed bags × ${BAG_KG} kg); the totals row pools it (all those eggs ÷ all that feed). A row with no feed figure is left empty: feed not recorded.`,
+      "Feed g per egg = feed kg × 1000 ÷ those eggs (exact). FCR = feed kg ÷ egg kg, ESTIMATED: egg kg = eggs × the BV300 standard egg weight for the flock's age (unless a real weighing is stored); flock-days with no egg-weight reference are left out on both sides. The totals row pools it (all feed kg ÷ all egg kg).",
+      ...(leftOut.length ? [`FCR: ${leftOut[0]}.`] : []),
+    ],
+    formulas: {
+      ...(ds.formulas ?? {}),
+      eggsPerKg: (row) => `IF(AND(ISNUMBER(${feedCol}${row}),${feedCol}${row}>0),${fedCol}${row}/(${feedCol}${row}*${BAG_KG}),"")`,
+      gPerEgg: (row) => `IF(AND(ISNUMBER(${feedCol}${row}),ISNUMBER(${fedCol}${row}),${fedCol}${row}>0),${feedCol}${row}*${BAG_KG}*1000/${fedCol}${row},"")`,
+      fcr: (row) => `IF(AND(ISNUMBER(${fkCol}${row}),ISNUMBER(${ekCol}${row}),${ekCol}${row}>0),${fkCol}${row}/${ekCol}${row},"")`,
+    },
   };
 }
 
@@ -106,7 +127,7 @@ function dayRowsDataset(ctx: Ctx, cost: CostInput, extras: PeriodExtras, range: 
     const fed = rowsOn(ctx, d.date, seg, only).filter((r) => r.feed != null);
     return fed.length ? fed.reduce((t, r) => t + (r.eggs ?? 0), 0) : null;
   });
-  return withEggsPerKg({ name: head.name, title: head.title, columns, rows, notes, formulas }, eggsFed);
+  return withEggsPerKg({ name: head.name, title: head.title, columns, rows, notes, formulas }, eggsFed, s.series.map((d) => fcrOf(ctx, rowsOn(ctx, d.date, seg, only))));
 }
 
 export async function periodDataset(kind: PeriodKind, p: string, seg: SegFilter = "all"): Promise<Dataset> {
@@ -167,7 +188,7 @@ export async function periodDataset(kind: PeriodKind, p: string, seg: SegFilter 
       hd: (r) => `IF(D${r}>0,C${r}/D${r}*100,"")`,
       ...(seg === "all" ? { profit: (r: number) => `IF(H${r}>0,H${r}-I${r},"")` } : {}),
     },
-  }, monthEggsFed);
+  }, monthEggsFed, rows.map((r) => fcrOf(ctx, ctx.input.prod.filter((x) => x.date.startsWith(String(r.month).slice(0, 7)) && (seg === "all" || segmentOn(ctx, x.flockId, x.date) === seg)))));
 }
 
 /** V15: the Custom range exactly as the screen shows it (same address: from, to, f). */

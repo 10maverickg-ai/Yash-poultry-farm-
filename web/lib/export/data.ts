@@ -7,6 +7,7 @@ import { BAG_KG, dayEconomics, monthEconomics } from "@/lib/costs/engine";
 import { loadEngineInput } from "@/lib/analytics/load";
 import { buildCtx } from "@/lib/analytics/engine";
 import { hensHoused, housedOn } from "@/lib/analytics/henHoused";
+import { fcrOf } from "@/lib/analytics/fcr";
 import type { Dataset } from "./types";
 
 // Read-only datasets for the Excel / CSV export. Same sources the screens use;
@@ -56,6 +57,11 @@ export async function productionDataset(month: string): Promise<Dataset> {
       { key: "housed", header: "Hens housed (that day)", type: "int", width: 14 },
       { key: "hh", header: "Hen-housed % (eggs ÷ hens housed)", type: "pct", width: 18, totalFormula: (f, l) => `IF(SUM(K${f}:K${l})>0,SUMIFS(H${f}:H${l},K${f}:K${l},"<>")/SUM(K${f}:K${l})*100,"")` },
       { key: "housedFrom", header: "Hens housed from", type: "text", width: 22 },
+      // V18 B5: feed per egg (exact) and the FCR (estimated from the standard egg weight); the totals row pools both
+      { key: "gPerEgg", header: "Feed g per egg (exact)", type: "num", width: 12, totalFormula: (f, l) => `IF(SUMIFS(H${f}:H${l},G${f}:G${l},"<>")>0,SUM(G${f}:G${l})*${BAG_KG}*1000/SUMIFS(H${f}:H${l},G${f}:G${l},"<>"),"")` },
+      { key: "eggKg", header: "Egg kg (eggs × standard egg weight)", type: "num", width: 14, total: true },
+      { key: "fcr", header: "FCR (estimated from standard egg weight)", type: "num", width: 14, totalFormula: (f, l) => `IF(SUM(O${f}:O${l})>0,SUMIFS(G${f}:G${l},O${f}:O${l},"<>")*${BAG_KG}/SUM(O${f}:O${l}),"")` },
+      { key: "fcrStd", header: "Breeder's FCR (BV300, that week)", type: "num", width: 13 },
     ],
     rows: rows.map((r) => ({
       date: String(r.date).slice(0, 10), flock: r.flock, segment: r.segment === "main" ? "Main" : r.segment === "young" ? "Young" : "not set", reg: r.reg, birds: r.birds, mortality: r.mortality, feed: r.feed_bags, eggs: r.eggs_total,
@@ -65,9 +71,13 @@ export async function productionDataset(month: string): Promise<Dataset> {
         const h = housedFor(r.fid, String(r.date).slice(0, 10));
         return { housed: h?.n ?? null, hh: h && h.n > 0 ? Math.round(((r.eggs_total ?? 0) / h.n) * 10000) / 100 : null, housedFrom: h ? (h.standin ? "stand-in: birds on 2 Jul 2026" : "register / owner") : "" };
       })(),
+      ...(() => {
+        const x = fcrOf(ctx, [{ date: String(r.date).slice(0, 10), flockId: r.fid, eggs: r.eggs_total, feed: r.feed_bags }]);
+        return { gPerEgg: x.feedPerEggG, eggKg: x.eggKg > 0 ? x.eggKg : null, fcr: x.fcr, fcrStd: x.standardFcr };
+      })(),
     })),
-    notes: ["HD % is calculated as eggs ÷ birds × 100 (not the supervisor's written %).", "Group = Main (big eggs, right page) or Young (small eggs, left page). The totals row adds every flock; filter the Group column for per-group numbers.", "Birds are the end-of-day count from the register.", `Eggs per kg feed = eggs ÷ (feed bags × ${BAG_KG} kg) for that flock and day; empty when the register has no feed figure (feed not recorded). The totals row pools the rows with feed: their eggs ÷ their feed, never an average of the rows.`, "Hen-housed % = eggs ÷ hens housed × 100 (the breeder's definition): hens housed are counted on the flock's first day in the register (BAB-9, 10, 11) or given by the owner; for flocks already laying when the app's data starts, the birds on 2 Jul 2026 are a stand-in. Birds moved in or out change the number from that day; deaths, culls and sales do not."],
-    formulas: { hd: (row) => `IF(E${row}>0,ROUND(H${row}/E${row}*100,2),"")`, eggsPerKg: (row) => `IF(AND(ISNUMBER(G${row}),G${row}>0),ROUND(H${row}/(G${row}*${BAG_KG}),2),"")`, hh: (row) => `IF(AND(ISNUMBER(K${row}),K${row}>0),ROUND(H${row}/K${row}*100,2),"")` },
+    notes: ["HD % is calculated as eggs ÷ birds × 100 (not the supervisor's written %).", "Group = Main (big eggs, right page) or Young (small eggs, left page). The totals row adds every flock; filter the Group column for per-group numbers.", "Birds are the end-of-day count from the register.", `Eggs per kg feed = eggs ÷ (feed bags × ${BAG_KG} kg) for that flock and day; empty when the register has no feed figure (feed not recorded). The totals row pools the rows with feed: their eggs ÷ their feed, never an average of the rows.`, "Hen-housed % = eggs ÷ hens housed × 100 (the breeder's definition): hens housed are counted on the flock's first day in the register (BAB-9, 10, 11) or given by the owner; for flocks already laying when the app's data starts, the birds on 2 Jul 2026 are a stand-in. Birds moved in or out change the number from that day; deaths, culls and sales do not.", "Feed g per egg = feed kg × 1000 ÷ eggs (exact). FCR = feed kg ÷ egg kg, ESTIMATED: egg kg = eggs × the BV300 standard egg weight for the flock's age (unless a real weighing is stored); empty when there is no feed figure or no egg-weight reference (another breed, or past week 100 of the breeder's table). The totals row pools both (all feed ÷ all eggs or egg kg of the rows with feed)."],
+    formulas: { hd: (row) => `IF(E${row}>0,ROUND(H${row}/E${row}*100,2),"")`, eggsPerKg: (row) => `IF(AND(ISNUMBER(G${row}),G${row}>0),ROUND(H${row}/(G${row}*${BAG_KG}),2),"")`, hh: (row) => `IF(AND(ISNUMBER(K${row}),K${row}>0),ROUND(H${row}/K${row}*100,2),"")`, gPerEgg: (row) => `IF(AND(ISNUMBER(G${row}),G${row}>0,H${row}>0),G${row}*${BAG_KG}*1000/H${row},"")`, fcr: (row) => `IF(AND(ISNUMBER(G${row}),ISNUMBER(O${row}),O${row}>0),G${row}*${BAG_KG}/O${row},"")` },
   };
 }
 
