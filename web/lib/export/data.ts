@@ -160,14 +160,14 @@ export async function costsDataset(month: string): Promise<Dataset> {
       diesel: e.sources.diesel.source === "missing" ? null : r(e.cost.diesel), miscellaneous: e.sources.miscellaneous.source === "average" ? r(e.cost.miscellaneous) : null,
       medicine: e.sources.medicine.source === "in_feed" && e.cost.medicine === 0 ? null : miss("medicines") && e.sources.medicine.source === "missing" ? null : r(e.cost.medicine),
       other: miss("other costs") ? null : r(e.cost.other), chicks: r(e.cost.chicks),
-      extras: e.sources.topDressing.source === "entered" || e.sources.interest.source === "entered" || e.sources.rent.source === "entered" ? r(e.cost.topDressing + e.cost.interest + e.cost.rent) : null,
+      extras: e.sources.topDressing.source === "entered" || e.sources.interest.source === "entered" ? r(e.cost.topDressing + e.cost.interest) : null,
       total: r(e.cost.total), profit: r(e.profit),
       note: [e.overheadOnly ? "no register rows: monthly costs only" : "", e.sources.electricity.source === "average" ? "electricity average" : "", e.sources.diesel.source === "average" ? "diesel average" : "", e.sources.miscellaneous.source === "average" ? "miscellaneous average" : "", e.sources.medicine.source === "in_feed" ? "medicines included in feed price" : ""].filter(Boolean).join("; ") || null,
     };
   });
   const notes = [
     `ALL COST AND PROFIT FIGURES ARE ESTIMATES. Feed is exact: each shed's bags × ${BAG_KG} kg × its own price per kg that day (from 28 Nov 2026 the nutritionist's formula for the shed; before that, and for a shed without a formula, the farm default).`,
-    "Labour and electricity are the month's amount spread evenly over its days (a month without a bill uses the electricity average ₹40,000 from Nov 2026). Diesel entered counts on the day bought; a month without any diesel entry uses the diesel average ₹10,000. Miscellaneous (vaccines, repairs, transport, vet, anything else) is the average ₹30,000 a month. Each average is marked in the Note column. Packing is ₹ per tray sold (big and small eggs). Medicines and vaccines are inside the feed price from 28 Nov 2026. Interest, rent and top dressing: not entered.",
+    "Labour and electricity are the month's amount spread evenly over its days (a month without a bill uses the electricity average ₹40,000 from Nov 2026). Diesel entered counts on the day bought; a month without any diesel entry uses the diesel average ₹10,000. Miscellaneous (vaccines, repairs, transport, vet, anything else) is the average ₹30,000 a month. Each average is marked in the Note column. Packing is ₹ per tray sold (big and small eggs). Medicines and vaccines are inside the feed price from 28 Nov 2026. Interest and top dressing: not entered. The farm pays no rent.",
     "Revenue is eggs SOLD that day at the saved sale prices, not eggs laid. Bird sales are not included. Chick purchase = chicks that arrived × the average price per chick (a setting, about ₹52), counted on the arrival day, i.e. in the month of arrival — it is NOT spread over the laying months.",
   ];
   if (m.missing.length) notes.push(`NOT ENTERED (blank above where it is a whole column; the cost total is 'so far', understated, and the profit overstated): ${m.missing.join(", ")}.`);
@@ -190,14 +190,14 @@ export async function costsDataset(month: string): Promise<Dataset> {
       { key: "medicine", header: "Medicines ₹", type: "num", width: 12, total: true },
       { key: "other", header: "Other ₹", type: "num", width: 11, total: true },
       { key: "chicks", header: "Chick purchase ₹ (avg 52)", type: "num", width: 16, total: true },
-      { key: "extras", header: "Top dressing, interest, rent ₹ (empty = not entered)", type: "num", width: 16, total: true },
+      { key: "extras", header: "Top dressing and interest ₹ (empty = not entered)", type: "num", width: 16, total: true },
       { key: "total", header: "Total cost ₹", type: "num", width: 13, total: true },
       { key: "profit", header: "Estimated profit ₹", type: "num", width: 16, total: true },
       { key: "note", header: "Note (averages, no register rows)", type: "text", width: 50 },
     ],
     rows,
     notes,
-    // columns: D revenue, E feed … M chicks, N top dressing/interest/rent, O total, P profit
+    // columns: D revenue, E feed … M chicks, N top dressing and interest, O total, P profit
     formulas: { total: (row) => `SUM(E${row}:N${row})`, profit: (row) => `D${row}-O${row}` },
   };
 }

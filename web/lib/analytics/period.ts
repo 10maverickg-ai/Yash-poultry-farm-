@@ -303,7 +303,7 @@ export interface PeriodSummary {
     byBuyer: { buyer: string; eggs: number; revenue: number }[]; // largest first; "(not recorded)" when blank
     avgPricePerEgg: number | null; // revenue / priced eggs
     birdSaleRevenue: number;
-    cost: DayEconomics["cost"]; // V19 D adds miscellaneous (average), top dressing, interest and rent
+    cost: DayEconomics["cost"]; // V19 D adds miscellaneous (average), top dressing and interest (no rent: the farm pays none)
     /** V19 D: where each overhead came from (bill / average / entered / included in feed / not entered), month by month */
     sources: CostSourceSummary;
     /** V19 D3: calendar days whose costs are counted (days with rows + the other days up to today: monthly costs only) */

@@ -15,8 +15,8 @@
 //     miscellaneous miscellaneous_month_default (₹30,000 from Aug 2026): vaccines, repairs, transport, vet, anything else
 //     medicines    from medicine_vaccine_in_feed's date (28 Nov 2026) they are inside the feed price: "included in feed
 //                  price", no separate cost and not missing (a medicine bought and entered separately is still counted)
-//     top dressing / interest / rent: counted when entered (cost_settings top_dressing / interest_month / rent_month,
-//                  per month), otherwise "not entered"
+//     top dressing / interest: counted when entered (cost_settings top_dressing / interest_month, per month),
+//                  otherwise "not entered". The farm pays no rent (owner, 28 Nov 2026): there is no rent line at all.
 //   A month still running counts its monthly amounts for the days so far: each calendar day up to today carries
 //   1/(days in the month) of them, also a day without a register row (periodCostDays).
 //   chick purchases are shown separately (growing cost, not a daily cost)
@@ -86,7 +86,6 @@ export const COST_TYPES = {
   medicineInFeed: "medicine_vaccine_in_feed",
   topDressing: "top_dressing",
   interest: "interest_month",
-  rent: "rent_month",
 } as const;
 
 /** Where a cost line's number came from (shown next to it on screen). */
@@ -99,7 +98,6 @@ export interface DaySources {
   medicine: { source: "in_feed" | "entered" | "none" | "missing" };
   topDressing: { source: "entered" | "not_entered"; monthly: number | null };
   interest: { source: "entered" | "not_entered"; monthly: number | null };
-  rent: { source: "entered" | "not_entered"; monthly: number | null };
 }
 
 const daysInMonth = (ym: string) => {
@@ -141,8 +139,7 @@ export interface DayEconomics {
     chicks: number; // chick purchase: batch count x the average price, on the day the chicks arrive (month of arrival)
     miscellaneous: number; // V19 D: the monthly average, spread over the month's days
     topDressing: number; // V19 D: when entered (none yet)
-    interest: number; // V19 D: when entered (none yet)
-    rent: number; // V19 D: when entered (none yet)
+    interest: number; // V19 D: when entered (none yet). No rent: the farm pays none.
     total: number;
   };
   /** V19 D: where each overhead came from that day (bill / average / entered / included in feed / not entered) */
@@ -192,7 +189,6 @@ export function daySources(input: CostInput, date: string): DaySources {
     medicine: { source: inFeed ? "in_feed" : medEntered ? "entered" : said("medicines") ? "none" : "missing" },
     topDressing: opt(COST_TYPES.topDressing),
     interest: opt(COST_TYPES.interest),
-    rent: opt(COST_TYPES.rent),
   };
 }
 
@@ -261,9 +257,8 @@ export function dayEconomics(input: CostInput, date: string, opts: { overheadOnl
   const miscellaneous = (src.miscellaneous.monthly ?? 0) / dim;
   const topDressing = (src.topDressing.monthly ?? 0) / dim;
   const interest = (src.interest.monthly ?? 0) / dim;
-  const rent = (src.rent.monthly ?? 0) / dim;
   // the new lines are added after the old ones, so a day where they are all 0 has exactly the old total
-  const total = feed + electricity + labour + packing + diesel + medicine + other + chicks + miscellaneous + topDressing + interest + rent;
+  const total = feed + electricity + labour + packing + diesel + medicine + other + chicks + miscellaneous + topDressing + interest;
   return {
     date,
     eggsProduced,
@@ -271,7 +266,7 @@ export function dayEconomics(input: CostInput, date: string, opts: { overheadOnl
     unpricedEggsSold,
     revenue,
     birdSaleRevenue: input.birdSales.filter((b) => b.date === date).reduce((s, b) => s + (b.amount ?? 0), 0),
-    cost: { feed, electricity, labour, packing, diesel, medicine, other, chicks, miscellaneous, topDressing, interest, rent, total },
+    cost: { feed, electricity, labour, packing, diesel, medicine, other, chicks, miscellaneous, topDressing, interest, total },
     sources: src,
     overheadOnly: only,
     chickPurchases: sumP(["chicks"]),
@@ -333,7 +328,6 @@ export function sumCosts(days: readonly DayEconomics[]): DayEconomics["cost"] {
     miscellaneous: sum((d) => d.cost.miscellaneous),
     topDressing: sum((d) => d.cost.topDressing),
     interest: sum((d) => d.cost.interest),
-    rent: sum((d) => d.cost.rent),
     total: sum((d) => d.cost.total),
   };
 }
@@ -356,7 +350,6 @@ export interface CostSourceSummary {
   medicine: SourceLine[];
   topDressing: SourceLine[];
   interest: SourceLine[];
-  rent: SourceLine[];
 }
 
 /** V19 D1: where each overhead of a period came from, month by month, so the screen can say "(average)" next to it. */
@@ -387,7 +380,6 @@ export function summarizeSources(days: readonly DayEconomics[]): CostSourceSumma
     medicine: lines((s) => s.medicine),
     topDressing: lines((s) => s.topDressing),
     interest: lines((s) => s.interest),
-    rent: lines((s) => s.rent),
   };
 }
 

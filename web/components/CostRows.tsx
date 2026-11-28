@@ -14,7 +14,7 @@ export function CostRows({ cost, sources, missing, packPer, chickPrice }: { cost
     if (onlySource(sources, key, "missing")) return <Badge>missing: not entered</Badge>;
     return <>{inr(value)}{anySource(sources, key, "average") && <> <span className="badge">average</span></>}{anySource(sources, key, "missing") && <> <Badge>{label} partly not entered</Badge></>}</>;
   };
-  const opt = (key: "topDressing" | "interest" | "rent", value: number) => (onlySource(sources, key, "not_entered") ? <span className="badge">not entered</span> : inr(value));
+  const opt = (key: "topDressing" | "interest", value: number) => (onlySource(sources, key, "not_entered") ? <span className="badge">not entered</span> : inr(value));
   return (
     <>
       <tr><td>Labour<Muted>{sourceWords(sources, "labour") || "not entered"}</Muted></td><td className="num">{onlySource(sources, "labour", "missing") ? <Badge>missing: not entered</Badge> : inr(cost.labour)}</td></tr>
@@ -30,12 +30,11 @@ export function CostRows({ cost, sources, missing, packPer, chickPrice }: { cost
       <tr><td>Chick purchase<Muted>{`average ${chickPrice != null ? `₹${chickPrice}` : "price"} per chick × chicks that arrived; counted in the month they arrived`}</Muted></td><td className="num">{inr(cost.chicks)}</td></tr>
       <tr><td>Top dressing<Muted>only when given; medicines are otherwise inside the feed price</Muted></td><td className="num">{opt("topDressing", cost.topDressing)}</td></tr>
       <tr><td>Interest</td><td className="num">{opt("interest", cost.interest)}</td></tr>
-      <tr><td>Rent</td><td className="num">{opt("rent", cost.rent)}</td></tr>
     </>
   );
 }
 
-/** "Profit before interest, rent and top dressing (not entered)" — said whenever one of them is not entered. */
+/** "Profit before interest and top dressing (not entered)" — said whenever one of them is not entered. There is no rent. */
 export function notEnteredExtras(sources: CostSourceSummary): string[] {
-  return (["interest", "rent", "topDressing"] as const).filter((k) => onlySource(sources, k, "not_entered")).map((k) => (k === "topDressing" ? "top dressing" : k));
+  return (["interest", "topDressing"] as const).filter((k) => onlySource(sources, k, "not_entered")).map((k) => (k === "topDressing" ? "top dressing" : k));
 }
