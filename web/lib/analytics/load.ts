@@ -60,7 +60,7 @@ export async function loadEngineInput(): Promise<EngineInput> {
       [ACTIVE_FARM]
     ),
     pool.query(
-      `SELECT age_weeks, std_hdp_percent, feed_per_day_g, cumulative_depletion_percent, cur_hhp_percent, cum_hhp_eggs
+      `SELECT age_weeks, std_hdp_percent, feed_per_day_g, cumulative_depletion_percent, cur_hhp_percent, cum_hhp_eggs, egg_weight_g, current_feed_per_egg_g
          FROM bv300_standard_laying WHERE guide_version = '2023'`
     ),
     pool.query(
@@ -166,7 +166,7 @@ export async function loadEngineInput(): Promise<EngineInput> {
       confirmed: m.confirmed_by_owner,
     })),
     chick: chick.rows.map((c) => ({ date: c.date, deaths: Number(c.deaths) })),
-    std: std.rows.map((s) => ({ age: s.age_weeks, hdp: Number(s.std_hdp_percent), feedG: s.feed_per_day_g != null ? Number(s.feed_per_day_g) : null, cumDepl: s.cumulative_depletion_percent != null ? Number(s.cumulative_depletion_percent) : null, hhWeek: s.cur_hhp_percent != null ? Number(s.cur_hhp_percent) : null, cumHh: s.cum_hhp_eggs != null ? Number(s.cum_hhp_eggs) : null })),
+    std: std.rows.map((s) => ({ age: s.age_weeks, hdp: Number(s.std_hdp_percent), feedG: s.feed_per_day_g != null ? Number(s.feed_per_day_g) : null, cumDepl: s.cumulative_depletion_percent != null ? Number(s.cumulative_depletion_percent) : null, hhWeek: s.cur_hhp_percent != null ? Number(s.cur_hhp_percent) : null, cumHh: s.cum_hhp_eggs != null ? Number(s.cum_hhp_eggs) : null, eggWeightG: s.egg_weight_g != null ? Number(s.egg_weight_g) : null, feedPerEggWeekG: s.current_feed_per_egg_g != null ? Number(s.current_feed_per_egg_g) : null })),
     weather,
     realisticOverrides: overrides.rows.map((o) => ({ group: o.grp, metric: o.metric, bandStart: Number(o.band_start), ratioPct: Number(o.ratio_pct), note: o.note })),
     stdByBreed,

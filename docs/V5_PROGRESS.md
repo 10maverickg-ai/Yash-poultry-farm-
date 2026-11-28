@@ -762,3 +762,28 @@ Branch `claude/v17` from main. V16 (PR #28) was not merged when V17 was built, s
 - A real iPhone Safari or Android Chrome (Chromium at 360, 390 and 820 px with touch emulation).
 - The screens on the live database itself (a fresh copy of it, data to 19 Nov; the key number was checked on live with SQL).
 - The downloaded files opened in Excel or Numbers on a phone (read back with exceljs only).
+
+# V18 — share Analytics as Excel / CSV (A) and FCR (B) (28 Nov 2026)
+
+Branch `claude/v18` from main after V16 and V17 were merged (PRs #28, #29). One additive migration (B3, egg weights), no RLS or login change, `READER_V2_ENABLED` not set, no Anthropic credit spent. Local copy refreshed read-only from live (data to 19 Nov 2026).
+
+**FCR (owner, decided):** kg of feed eaten ÷ kg of eggs laid, same flocks and days; feed kg = bags × 45 kg (`BAG_KG`), only flock-days with a feed figure; egg kg = eggs × egg weight, the BV300 standard for the flock's week of age until the farm weighs eggs ("FCR (estimated from standard egg weight)"); pooled, never an average of daily ratios; 2 decimals, with "feed g per egg" (exact, = 1000 ÷ eggs per kg of V17); compared with the book for the same flock-days.
+
+**Facts found before building (they change details of the brief):**
+- **BAB-6 is BV300 in the data** (all 13 flocks are BV300), not Bovans White. The "no egg-weight reference loaded for <breed>" rule is built and tested with a made-up Bovans White copy of BAB-6; on the real data BAB-6 gets a number.
+- **`feed_per_egg_g` in `bv300_standard_laying` is cumulative from week 19** (it equals the cycle goals: 121 g at week 80, 125 g at week 100). The week's own figure is `current_feed_per_egg_g` (= book feed a day ÷ book laying rate; week 77: 114 ÷ 0.861 = 132). The standard FCR for a period uses the weekly figure; the cycle goals are shown as a reference.
+- **The book's egg weights stop at week 100.** BAB-4 (week 118) and Old BAB-1 (weeks 114–115) have no standard egg weight: their flock-days are left out of the FCR on both sides with the reason "past the end of the breeder's egg-weight table"; their feed per egg (no egg weight needed) is still shown.
+
+| Item | Status | What / how checked |
+|---|---|---|
+| B1 FCR engine | built | `lib/analytics/fcr.ts` (pure): `eggWeightFor` (an actual weighing of that flock on the day or the 6 days before, else the BV300 standard for its week; else the reason), `fcrOf` (pooled FCR, feed g per egg, eggs per kg, standard FCR for the same flock-days weighted by their eggs, gap, which egg weight was used, flock-days left out and why), `fcrOn`, `boardFcr` (day, last 7 days with rows, 7 days before, change; lower = better), `flockFcr`, `fcrTrend`, `fcrLabel`. The period engine returns `feed.fcrEstimated`, `feed.feedPerEggG`, `feed.standardFcr`, `feed.fcrGap`, `feed.fcrLabel`, `feed.fcrWhy`, `feed.fcrLeftOut` for every period (day, week, month, year, custom, chosen flocks) and the same per flock. `scripts/fcr-check.mts` (33 checks, in `run-all`): 13–19 Nov main FCR 2.401 by hand (standard 2.133, gap +0.268; feed per egg 142.6 g; BAB-4's 7 flock-days left out with the reason); the same through the custom range, the week / month / year views; pooled ≠ mean of daily FCRs (2.401 vs 2.403); feed per egg × eggs per kg = 1000; one flock (BAB-5 2.087, standard 2.109); BAB-9 13–19 Nov on its 6 days with feed; BAB-9 5–15 Oct = empty with "feed not recorded on these days"; a Bovans White flock = empty with "no egg-weight reference loaded for Bovans White" (feed per egg still exact); an actual egg weight used for 7 days then the standard again, labelled "actual egg weight" or mixed; zero eggs = empty, not infinity. All 93 existing summaries unchanged apart from the new fields. |
+| B3 egg weight table | todo | |
+| B2 FCR screens | todo | |
+| B4 FCR alert | todo | |
+| A1 Share / Download button | todo | |
+| A1b Choose what to share | todo | |
+| A2 file contents | todo | |
+| A3 file names | todo | |
+| A4 missing values | todo | |
+| A5 / B5 / B6 tests | todo | |
+| B7 docs | todo | |

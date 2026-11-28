@@ -104,6 +104,8 @@ export interface StdRow {
   cumDepl?: number | null; // book cumulative depletion (%), BV300 table
   hhWeek?: number | null; // V17: book eggs per hen housed in this week of age (BV300 "current HH"), e.g. 6.7 at week 25
   cumHh?: number | null; // V17: book cumulative eggs per hen housed at the end of this week
+  eggWeightG?: number | null; // V18: book average egg weight (g) in this week of age
+  feedPerEggWeekG?: number | null; // V18: book feed per egg (g) in this week ("current"; the table's feed_per_egg_g is cumulative from week 19)
 }
 
 export interface EngineInput {
@@ -121,6 +123,8 @@ export interface EngineInput {
   stdByBreed?: Record<string, StdRow[]>;
   realisticOverrides?: RealisticOverride[]; // owner-typed realistic levels (V10; deaths from V11)
   weather?: WeatherDay[]; // weather_daily cache (V11); empty/absent = "weather not available"
+  /** V18: actual average egg weights weighed on the farm (egg_weight_samples). Empty = none yet: FCR uses the BV300 standard weight. */
+  eggWeights?: { flockId: string; date: string; grams: number }[];
 }
 
 // ---- tunable rules (the owner's brief, plus the few choices it left open) --

@@ -43,6 +43,7 @@ import {
 import { BAG_KG, dayEconomics, type CostInput } from "../costs/engine";
 import { feedEfficiency } from "./feedEfficiency";
 import { henHousedFor, type HousedSource } from "./henHoused";
+import { fcrLabel, fcrOf } from "./fcr";
 
 export type PeriodKind = "week" | "month" | "year";
 /** A week / month / year, or any from..to the owner picked (V15). */
@@ -221,6 +222,13 @@ export interface FlockPeriod {
   hensHoused: number | null; // hens housed, average over the period's days (= the number housed when no birds were moved)
   housedSource: HousedSource | null; // "register" / "owner" = real; "standin" = the 2 Jul count, labelled
   bookHenHousedPct: number | null; // the breeder's hen-housed % for the same days (only when the number housed is real)
+  /** V18 FCR over the flock's days with feed: feed kg ÷ egg kg (egg weight from the BV300 standard unless an actual weight is stored). */
+  fcrEstimated: number | null;
+  feedPerEggG: number | null; // exact: feed kg × 1000 ÷ eggs
+  standardFcr: number | null; // the book for the same flock-days
+  fcrGap: number | null; // fcrEstimated − standardFcr (positive = worse)
+  fcrLabel: string; // "FCR (estimated from standard egg weight)" / "(actual egg weight)"
+  fcrWhy: string | null; // why fcrEstimated is empty
   birdsAtEnd: number | null;
 }
 
@@ -272,6 +280,14 @@ export interface PeriodSummary {
     kgPer100Eggs: number | null; // the same totals as eggsPerKg the other way round (V17), so the two always agree
     eggsPerKg: number | null; // V17: pooled eggs ÷ feed kg, only flock-days with a feed figure; null = see eggsPerKgWhy
     eggsPerKgWhy: string | null;
+    /** V18 FCR, pooled over the period (total feed kg ÷ total egg kg), only flock-days with feed and an egg weight. */
+    fcrEstimated: number | null;
+    feedPerEggG: number | null; // exact: feed kg × 1000 ÷ eggs of the flock-days with feed (= 1000 ÷ eggsPerKg)
+    standardFcr: number | null; // the book for the same flock-days
+    fcrGap: number | null; // fcrEstimated − standardFcr (positive = worse)
+    fcrLabel: string;
+    fcrWhy: string | null; // why fcrEstimated is empty
+    fcrLeftOut: string | null; // flock-days with feed but no egg weight, left out of the FCR
     daysLeftAtEnd: number | null;
     eggStockDaysAtEnd: number | null;
   };
@@ -507,6 +523,10 @@ export function summarizeRange(ctx: Ctx, cost: CostInput, extras: PeriodExtras, 
           ? { henHousedPct: h.hhPct, eggsPerHenHoused: h.perHen, hensHoused: Math.round(h.henDays / h.days), housedSource: h.housed.source, bookHenHousedPct: h.book.hhPct }
           : { henHousedPct: null, eggsPerHenHoused: null, hensHoused: null, housedSource: null, bookHenHousedPct: null };
       })(),
+      ...(() => {
+        const f = fcrOf(ctx, rs);
+        return { fcrEstimated: f.fcr, feedPerEggG: f.feedPerEggG, standardFcr: f.standardFcr, fcrGap: f.gap, fcrLabel: fcrLabel(f), fcrWhy: f.why ?? f.leftOut };
+      })(),
       birdsAtEnd: last.pop,
     });
   }
@@ -570,6 +590,10 @@ export function summarizeRange(ctx: Ctx, cost: CostInput, extras: PeriodExtras, 
       kgPer100Eggs: feedRows.length > 0 && eggsTotal > 0 ? eff.kgPer100Eggs : null,
       eggsPerKg: eff.eggsPerKg,
       eggsPerKgWhy: eff.why,
+      ...(() => {
+        const f = fcrOf(ctx, rows);
+        return { fcrEstimated: f.fcr, feedPerEggG: f.feedPerEggG, standardFcr: f.standardFcr, fcrGap: f.gap, fcrLabel: fcrLabel(f), fcrWhy: f.why, fcrLeftOut: f.leftOut };
+      })(),
       daysLeftAtEnd: lastDate && seg !== "young" && farmLevel ? (feedDaysLeft(ctx, lastDate)?.days ?? null) : null,
       eggStockDaysAtEnd: lastDate && farmLevel ? (eggStockDays(ctx, lastDate, seg)?.days ?? null) : null,
     },
